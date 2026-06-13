@@ -11,6 +11,7 @@ import { fetchAppIcon } from './utils/icon'
 import { signRS256, verifyPkce } from './oidc/jwt'
 import { getOidcKeys } from './oidc/keys'
 import { Login } from './views/Login'
+import { Signup } from './views/Signup'
 import { UserDashboard } from './views/UserDashboard'
 import { Invite } from './views/Invite'
 import { ForgotPassword } from './views/ForgotPassword'
@@ -241,6 +242,73 @@ app.post('/login', async (c) => {
     if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
 
     return c.redirect(admin ? '/admin' : '/')
+})
+
+// --- Self-service signup ---
+// Open registration. New users are optionally placed into a default group
+// (system_config key 'signup_group_id') so they immediately inherit that
+// group's app permissions — used to grant public-demo access automatically.
+app.get('/signup', async (c) => {
+    const t = getLang(c)
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
+    const redirectTo = c.req.query('redirect_to')
+    const returnTo = c.req.query('return_to')
+
+    const user = await getUser(c)
+    if (user) {
+        if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
+        if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
+        return c.redirect('/')
+    }
+    return c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} siteName={siteName} siteSubtitle={siteSubtitle} />)
+})
+
+app.post('/signup', async (c) => {
+    const t = getLang(c)
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
+    const body = await c.req.parseBody()
+    const email = ((body['email'] as string) || '').trim()
+    const password = body['password'] as string
+    const redirectTo = body['redirect_to'] as string
+    const returnTo = body['return_to'] as string
+
+    const view = (error: string) => c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} error={error} siteName={siteName} siteSubtitle={siteSubtitle} />)
+
+    if (!email || !password) return view(t.error_required)
+
+    const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
+    if (existing) return view(t.error_user_exists)
+
+    // Optional default group → inherits that group's app permissions.
+    const grpRow = await c.env.DB.prepare("SELECT value FROM system_config WHERE key = 'signup_group_id'").first<{ value: string }>()
+    const groupId = grpRow?.value || null
+
+    const userId = crypto.randomUUID()
+    const pwHash = await hashPassword(password)
+    const now = Math.floor(Date.now() / 1000)
+    try {
+        await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+            .bind(userId, email, pwHash, groupId, now, now).run()
+    } catch (e) {
+        return view(t.error_user_exists)
+    }
+
+    const details = JSON.stringify({ key: 'log_login', params: { email } })
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SIGNUP', details).run()
+
+    // Auto-login the freshly created account.
+    const sessionId = generateToken()
+    const expires = now + 86400
+    await c.env.DB.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, userId, expires).run()
+    setCookie(c, '__Host-idp_session', sessionId, getCookieOptions(expires))
+
+    if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
+    if (redirectTo) return issueCodeAndRedirect(c, userId, redirectTo)
+    return c.redirect('/')
 })
 
 async function issueCodeAndRedirect(c: any, userId: string, redirectTo: string) {

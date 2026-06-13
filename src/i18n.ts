@@ -23,6 +23,11 @@ export const dict = {
     btn_login: 'Log in',
     forgot_password: 'Forgot Password?',
     back_to_login: 'Back to Login',
+    title_signup: 'Sign Up',
+    signup: 'Sign up',
+    signup_desc: 'Create a new account',
+    no_account: "Don't have an account?",
+    have_account: 'Already have an account?',
 
     logout: 'Logout',
     cancel: 'Cancel',
@@ -237,6 +242,11 @@ export const dict = {
     btn_login: 'ログイン',
     forgot_password: 'パスワードを忘れた場合',
     back_to_login: 'ログインに戻る',
+    title_signup: '新規登録',
+    signup: '新規登録',
+    signup_desc: '新しいアカウントを作成します',
+    no_account: 'アカウントをお持ちでないですか？',
+    have_account: 'すでにアカウントをお持ちですか？',
 
     logout: 'ログアウト',
     cancel: 'キャンセル',

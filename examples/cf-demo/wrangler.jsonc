@@ -1,0 +1,28 @@
+{
+  // Public demo "relying party" (OIDC client) running on Cloudflare Workers.
+  // It points at the deployed tobirax2 IdP and proves the full browser login
+  // flow works end-to-end (authorize -> token -> JWKS verify -> userinfo).
+  //
+  // Deploy:  npx wrangler deploy   (run inside examples/cf-demo/)
+  "name": "tobira-demo-rp",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-22",
+  // Server-to-server calls (token exchange, JWKS) go Worker->Worker. A direct
+  // fetch() to another Worker on the same account's *.workers.dev is blocked
+  // (Cloudflare error 1042), so we route those through a service binding.
+  // The browser-facing redirects (/authorize, /oidc/logout) still use the
+  // public IDP_ISSUER URL below.
+  "services": [{ "binding": "IDP", "service": "tobirax2" }],
+  "vars": {
+    // The deployed tobirax2 IdP (no trailing slash).
+    "IDP_ISSUER": "https://tobirax2.tobira-sys.workers.dev",
+    // Must match the App registered in the IdP admin (App ID == client_id).
+    "CLIENT_ID": "cf-demo",
+    // Confidential client secret shown in the IdP's App edit modal.
+    "CLIENT_SECRET": "ca4a58ac207b442fbeaa1ca5ceae57895da9158eb614ccd7",
+    // This Worker's own public URL == the App's registered Base URL.
+    "APP_BASE_URL": "https://tobira-demo-rp.tobira-sys.workers.dev",
+    // Random secret used to sign the short-lived OIDC transaction cookie.
+    "COOKIE_SECRET": "1c264ade0b8d72749b4472cf9f41e33ea780e67661092d6effecf4160b1ed9b5"
+  }
+}
