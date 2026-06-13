@@ -18,11 +18,13 @@
     "IDP_ISSUER": "https://tobirax2.tobira-sys.workers.dev",
     // Must match the App registered in the IdP admin (App ID == client_id).
     "CLIENT_ID": "cf-demo",
-    // Confidential client secret shown in the IdP's App edit modal.
-    "CLIENT_SECRET": "ca4a58ac207b442fbeaa1ca5ceae57895da9158eb614ccd7",
     // This Worker's own public URL == the App's registered Base URL.
-    "APP_BASE_URL": "https://tobira-demo-rp.tobira-sys.workers.dev",
-    // Random secret used to sign the short-lived OIDC transaction cookie.
-    "COOKIE_SECRET": "1c264ade0b8d72749b4472cf9f41e33ea780e67661092d6effecf4160b1ed9b5"
+    "APP_BASE_URL": "https://tobira-demo-rp.tobira-sys.workers.dev"
   }
+  // Secrets (NOT stored here — set with `wrangler secret put`):
+  //   CLIENT_SECRET  : confidential client secret shown in the IdP App edit modal
+  //   COOKIE_SECRET  : random secret used to sign the OIDC transaction cookie
+  // Set them once with:
+  //   npx wrangler secret put CLIENT_SECRET -c examples/cf-demo/wrangler.jsonc
+  //   npx wrangler secret put COOKIE_SECRET -c examples/cf-demo/wrangler.jsonc
 }
