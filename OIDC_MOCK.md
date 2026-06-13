@@ -1,5 +1,7 @@
 # tobirax2 — Auth0 OIDC mock
 
+> 🇯🇵 日本語版は [OIDC_MOCK_ja.md](OIDC_MOCK_ja.md) を参照。
+
 A fork of **tobira** with an OpenID Connect surface bolted on, so it can
 stand in for **Auth0** during local development. You get tobira's nice
 login UI, user/group management and 2FA, while Auth0 SDKs talk to it as
