@@ -53,6 +53,12 @@ export interface AuthCode {
   app_id: string
   expires_at: number
   used_at?: number
+  // OIDC authorization request context
+  nonce?: string | null
+  code_challenge?: string | null
+  code_challenge_method?: string | null
+  redirect_uri?: string | null
+  scope?: string | null
 }
 
 export interface LocalizedText {

@@ -8,6 +8,8 @@ import { verifyPassword, hashPassword, generateToken, getCookieOptions } from '.
 import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
+import { signRS256, verifyPkce } from './oidc/jwt'
+import { PUBLIC_JWK } from './oidc/keys'
 import { Login } from './views/Login'
 import { UserDashboard } from './views/UserDashboard'
 import { Invite } from './views/Invite'
@@ -27,7 +29,16 @@ import { dict } from './i18n'
 
 const app = new Hono<{ Bindings: Env }>()
 
-app.use(csrf())
+// CSRF protects the HTML form routes. The OIDC machine endpoints
+// (/oauth/token, /userinfo) and the legacy JSON API are called
+// cross-origin by SDKs/backends, so they are exempt. /authorize is a
+// GET and not guarded by csrf() anyway.
+const oidcCsrfExempt = (path: string) =>
+    path === '/oauth/token' || path === '/userinfo' || path.startsWith('/api/')
+app.use('*', async (c, next) => {
+    if (oidcCsrfExempt(c.req.path)) return next()
+    return csrf()(c, next)
+})
 
 const getLang = (c: any) => {
     const accept = c.req.header('Accept-Language') || ''
@@ -163,18 +174,20 @@ app.get('/login', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
     const redirectTo = c.req.query('redirect_to')
+    const returnTo = c.req.query('return_to') // OIDC: come back to /authorize after login
     const msgKey = c.req.query('msg')
     // @ts-ignore
     const message = msgKey && t[msgKey] ? t[msgKey] : undefined
 
     const user = await getUser(c)
     if (user) {
+        if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
         if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
         const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user.email).first()
         return c.redirect(admin ? '/admin' : '/')
     }
 
-    return c.html(<Login t={t} redirectTo={redirectTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} />)
+    return c.html(<Login t={t} redirectTo={redirectTo} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} />)
 })
 
 app.post('/login', async (c) => {
@@ -186,10 +199,11 @@ app.post('/login', async (c) => {
     const email = body['email'] as string
     const password = body['password'] as string
     const redirectTo = body['redirect_to'] as string
+    const returnTo = body['return_to'] as string // OIDC: /authorize URL to resume
 
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first() as User | null
     if (!user || !(await verifyPassword(password, user.password_hash))) {
-        return c.html(<Login t={t} redirectTo={redirectTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
+        return c.html(<Login t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
     }
 
     // 2FA Check
@@ -198,9 +212,11 @@ app.post('/login', async (c) => {
         const token = await sign({ sub: user.id, role: 'pre_2fa', exp: Math.floor(Date.now() / 1000) + 300 }, secret)
         setCookie(c, 'pre_2fa_token', token, { path: '/', secure: true, httpOnly: true, maxAge: 300, sameSite: 'Lax' })
 
-        let target = '/login/2fa'
-        if (redirectTo) target += '?redirect_to=' + encodeURIComponent(redirectTo)
-        return c.redirect(target)
+        const params = new URLSearchParams()
+        if (redirectTo) params.set('redirect_to', redirectTo)
+        if (returnTo) params.set('return_to', returnTo)
+        const qs = params.toString()
+        return c.redirect('/login/2fa' + (qs ? '?' + qs : ''))
     }
 
     const sessionId = generateToken()
@@ -221,6 +237,7 @@ app.post('/login', async (c) => {
     const details = JSON.stringify({ key: 'log_login_app', params: { email, appName: targetAppName } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('LOGIN', details).run()
 
+    if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
     if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
 
     return c.redirect(admin ? '/admin' : '/')
@@ -354,6 +371,223 @@ app.post('/api/refresh', async (c) => {
     await c.env.DB.prepare('UPDATE app_sessions SET token=?, refresh_token=?, expires_at=? WHERE refresh_token=?')
         .bind(newToken, newRefreshToken, newExpiresAt, refreshToken).run()
     return c.json({ access_token: newToken, refresh_token: newRefreshToken, expires_in: 3600 })
+})
+
+// ------------------------------------------------------------------
+// OIDC (Auth0-compatible mock surface)
+//
+// Relying parties register as "apps" in the admin UI:
+//   - app.id       == client_id
+//   - app.base_url == prefix that redirect_uri must start with
+// tobira's per-app permission gate is enforced at /authorize.
+// access_token is opaque (looked up at /userinfo); id_token is a
+// real RS256 JWT verifiable via /.well-known/jwks.json.
+// ------------------------------------------------------------------
+
+// return_to is used to resume /authorize after an interactive login.
+// Only same-origin /authorize paths are allowed (no open redirect).
+function isSafeReturnTo(v: string | undefined | null): boolean {
+    return typeof v === 'string' && v.startsWith('/authorize')
+}
+
+function buildRedirect(redirectUri: string, mode: string | undefined, params: Record<string, string | undefined>): string {
+    const usp = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== '') usp.set(k, v)
+    const sep = mode === 'fragment' ? '#' : (redirectUri.includes('?') ? '&' : '?')
+    return redirectUri + sep + usp.toString()
+}
+
+function tokenError(c: any, error: string, description: string) {
+    return c.json({ error, error_description: description }, 400)
+}
+
+async function parseClientBody(c: any): Promise<Record<string, string>> {
+    const ct = c.req.header('Content-Type') || ''
+    if (ct.includes('application/json')) return (await c.req.json().catch(() => ({}))) as any
+    const body = await c.req.parseBody()
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(body)) if (typeof v === 'string') out[k] = v
+    return out
+}
+
+async function issueOidcTokens(c: any, user: User, clientId: string, nonce: string | null, scope: string | null) {
+    const now = Math.floor(Date.now() / 1000)
+    const expiresIn = 3600
+    const accessToken = generateToken()
+    const refreshToken = generateToken()
+    await c.env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn).run()
+
+    const issuer = new URL(c.req.url).origin
+    const idToken = await signRS256({
+        iss: issuer,
+        sub: user.id,
+        aud: clientId,
+        iat: now,
+        exp: now + expiresIn,
+        auth_time: now,
+        ...(nonce ? { nonce } : {}),
+        email: user.email,
+        email_verified: true,
+        name: user.email,
+        preferred_username: user.email,
+    })
+
+    return c.json({
+        access_token: accessToken,
+        id_token: idToken,
+        token_type: 'Bearer',
+        expires_in: expiresIn,
+        refresh_token: refreshToken,
+        scope: scope || 'openid profile email',
+    })
+}
+
+app.get('/.well-known/openid-configuration', (c) => {
+    const issuer = new URL(c.req.url).origin
+    return c.json({
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/oauth/token`,
+        userinfo_endpoint: `${issuer}/userinfo`,
+        jwks_uri: `${issuer}/.well-known/jwks.json`,
+        end_session_endpoint: `${issuer}/oidc/logout`,
+        response_types_supported: ['code'],
+        grant_types_supported: ['authorization_code', 'refresh_token'],
+        subject_types_supported: ['public'],
+        id_token_signing_alg_values_supported: ['RS256'],
+        scopes_supported: ['openid', 'profile', 'email', 'offline_access'],
+        token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
+        code_challenge_methods_supported: ['S256', 'plain'],
+        claims_supported: ['sub', 'email', 'email_verified', 'name', 'preferred_username', 'iss', 'aud', 'exp', 'iat', 'nonce', 'auth_time'],
+    })
+})
+
+app.get('/.well-known/jwks.json', (c) => c.json({ keys: [PUBLIC_JWK] }))
+
+app.get('/authorize', async (c) => {
+    const q = c.req.query()
+    const { client_id: clientId, redirect_uri: redirectUri, state, nonce, response_mode: responseMode } = q
+    const responseType = q.response_type
+    const scope = q.scope || 'openid'
+
+    if (!clientId || !redirectUri) return c.text('invalid_request: client_id and redirect_uri are required', 400)
+
+    const app = await c.env.DB.prepare('SELECT * FROM apps WHERE id = ?').bind(clientId).first() as App | null
+    if (!app) return c.text('invalid_client: unknown client_id', 400)
+    if (!redirectUri.startsWith(app.base_url)) return c.text('invalid_request: redirect_uri is not registered for this client', 400)
+
+    if (responseType && responseType !== 'code') {
+        return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'unsupported_response_type', error_description: 'only response_type=code is supported', state }))
+    }
+
+    // Require an authenticated session; bounce to login and resume here.
+    const user = await getUser(c)
+    if (!user) {
+        const returnTo = '/authorize' + new URL(c.req.url).search
+        return c.redirect('/login?return_to=' + encodeURIComponent(returnTo))
+    }
+
+    // Enforce tobira's per-app permission gate.
+    const check = await checkPermission(c, user.id, app.id)
+    if (!check.allowed) {
+        return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'access_denied', error_description: check.reason || 'access denied', state }))
+    }
+
+    const code = generateToken()
+    const expires = Math.floor(Date.now() / 1000) + 300
+    await c.env.DB.prepare(
+        'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(code, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope).run()
+
+    return c.redirect(buildRedirect(redirectUri, responseMode, { code, state }))
+})
+
+app.post('/oauth/token', async (c) => {
+    const body = await parseClientBody(c)
+
+    // Client auth: client_secret_post (body) or client_secret_basic (header).
+    // Secrets are NOT validated — this is a mock.
+    let basicClientId: string | undefined
+    const authz = c.req.header('Authorization')
+    if (authz && authz.startsWith('Basic ')) {
+        try {
+            const dec = atob(authz.slice(6))
+            basicClientId = decodeURIComponent(dec.slice(0, dec.indexOf(':')))
+        } catch { /* ignore */ }
+    }
+
+    const grantType = body.grant_type
+
+    if (grantType === 'authorization_code') {
+        const code = body.code
+        if (!code) return tokenError(c, 'invalid_request', 'missing code')
+        const ac = await c.env.DB.prepare('SELECT * FROM auth_codes WHERE code = ?').bind(code).first() as AuthCode | null
+        const nowSec = Math.floor(Date.now() / 1000)
+        if (!ac || ac.used_at || ac.expires_at < nowSec) return tokenError(c, 'invalid_grant', 'authorization code is invalid or expired')
+        await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ?').bind(nowSec, code).run()
+
+        const clientId = body.client_id || basicClientId
+        if (clientId && clientId !== ac.app_id) return tokenError(c, 'invalid_grant', 'client_id does not match the authorization code')
+        if (ac.redirect_uri && body.redirect_uri && body.redirect_uri !== ac.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri does not match')
+
+        const pkceOk = await verifyPkce(body.code_verifier, ac.code_challenge as any, ac.code_challenge_method as any)
+        if (!pkceOk) return tokenError(c, 'invalid_grant', 'PKCE verification failed')
+
+        const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(ac.user_id).first() as User | null
+        if (!user) return tokenError(c, 'invalid_grant', 'user not found')
+
+        return issueOidcTokens(c, user, ac.app_id, (ac.nonce as any) || null, (ac.scope as any) || null)
+    }
+
+    if (grantType === 'refresh_token') {
+        const refreshToken = body.refresh_token
+        if (!refreshToken) return tokenError(c, 'invalid_request', 'missing refresh_token')
+        const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).first() as any
+        if (!session) return tokenError(c, 'invalid_grant', 'invalid refresh_token')
+        const check = await checkPermission(c, session.user_id, session.app_id)
+        if (!check.allowed) {
+            await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
+            return tokenError(c, 'invalid_grant', check.reason || 'access denied')
+        }
+        const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
+        if (!user) return tokenError(c, 'invalid_grant', 'user not found')
+        await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
+        return issueOidcTokens(c, user, session.app_id, null, null)
+    }
+
+    return tokenError(c, 'unsupported_grant_type', grantType ? `grant_type '${grantType}' is not supported` : 'missing grant_type')
+})
+
+app.on(['GET', 'POST'], '/userinfo', async (c) => {
+    const auth = c.req.header('Authorization') || ''
+    if (!auth.startsWith('Bearer ')) return c.json({ error: 'invalid_token' }, 401)
+    const token = auth.slice(7)
+    const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?')
+        .bind(token, Math.floor(Date.now() / 1000)).first() as any
+    if (!session) return c.json({ error: 'invalid_token' }, 401)
+    const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
+    if (!user) return c.json({ error: 'invalid_token' }, 401)
+    return c.json({
+        sub: user.id,
+        email: user.email,
+        email_verified: true,
+        name: user.email,
+        preferred_username: user.email,
+        updated_at: user.updated_at,
+    })
+})
+
+// RP-initiated logout. Accepts standard post_logout_redirect_uri and
+// the Auth0-style returnTo param.
+app.get('/oidc/logout', async (c) => {
+    const sessionId = getCookie(c, '__Host-idp_session')
+    if (sessionId) {
+        try { await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run() } catch (e) { }
+    }
+    setCookie(c, '__Host-idp_session', '', { path: '/', secure: true, httpOnly: true, expires: new Date(0) })
+    const dest = c.req.query('post_logout_redirect_uri') || c.req.query('returnTo')
+    return c.redirect(dest || '/login')
 })
 
 // --- Admin ---
@@ -838,13 +1072,15 @@ app.get('/login/2fa', async (c) => {
     if (!token) return c.redirect('/login')
     try { await verify(token, c.env.JWT_SECRET || 'dev_secret', "HS256") } catch (e) { return c.redirect('/login') }
     const redirectTo = c.req.query('redirect_to')
-    return c.html(<Login2FA t={t} redirectTo={redirectTo} />)
+    const returnTo = c.req.query('return_to')
+    return c.html(<Login2FA t={t} redirectTo={redirectTo} returnTo={returnTo} />)
 })
 app.post('/login/2fa', async (c) => {
     const t = getLang(c)
     const body = await c.req.parseBody()
     const otp = (body['token'] as string).replace(/\s+/g, '')
     const redirectTo = body['redirect_to'] as string
+    const returnTo = body['return_to'] as string
     const preToken = getCookie(c, 'pre_2fa_token')
     if (!preToken) return c.redirect('/login')
     let payload;
@@ -872,10 +1108,11 @@ app.post('/login/2fa', async (c) => {
         const details = JSON.stringify({ key: 'log_login_app', params: { email: user.email, method: '2FA', appName: targetAppName } });
         await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('LOGIN', details).run()
 
+        if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
         if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
         return c.redirect(admin ? '/admin' : '/')
     } else {
-        return c.html(<Login2FA t={t} redirectTo={redirectTo} error={t.err_invalid_code} />)
+        return c.html(<Login2FA t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.err_invalid_code} />)
     }
 })
 
