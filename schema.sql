@@ -64,7 +64,13 @@ CREATE TABLE IF NOT EXISTS auth_codes (
     user_id TEXT NOT NULL,
     app_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
-    used_at INTEGER
+    used_at INTEGER,
+    -- OIDC authorization request context (carried code -> token)
+    nonce TEXT,
+    code_challenge TEXT,
+    code_challenge_method TEXT,
+    redirect_uri TEXT,
+    scope TEXT
 );
 
 CREATE TABLE IF NOT EXISTS app_sessions (
