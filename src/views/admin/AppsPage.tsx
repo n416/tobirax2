@@ -72,6 +72,15 @@ export const AppsPage = (props: Props) => {
                 var fileInput = form.querySelector('input[name="icon_file"]');
                 if(fileInput) fileInput.value = '';
 
+                // Client Secret (OIDC)
+                var secEl = document.getElementById('edit-secret');
+                var noteEl = document.getElementById('edit-secret-note');
+                var sec = btn.dataset.secret || '';
+                if(secEl) secEl.value = sec || '(public client — no secret)';
+                if(noteEl) noteEl.innerText = sec
+                    ? 'Confidential client. Send this as client_secret at /oauth/token.'
+                    : 'Public client. No secret; PKCE is required.';
+
                 editModal.showModal();
                 setTimeout(function() {
             // 画像プレビュー機能
@@ -146,6 +155,20 @@ export const AppsPage = (props: Props) => {
                 if(form) {
                     form.querySelector('input[name="id"]').value = deleteTargetId;
                     form.submit();
+                }
+            };
+
+            // Client secret: regenerate / clear (make public)
+            window.appSecretAction = function(action) {
+                if(!editModal) return;
+                var id = editModal.querySelector('input[name="id"]').value;
+                if(!id) return;
+                if(action === 'clear' && !confirm('Make this a public client? The secret will be removed and PKCE required.')) return;
+                var f = document.getElementById('secret-app-form');
+                if(f) {
+                    f.querySelector('input[name="id"]').value = id;
+                    f.querySelector('input[name="action"]').value = action;
+                    f.submit();
                 }
             };
         })();
@@ -259,6 +282,10 @@ export const AppsPage = (props: Props) => {
       <form id="delete-app-form" method="POST" action="/admin/apps/delete">
         <input type="hidden" name="id" value="" />
       </form>
+      <form id="secret-app-form" method="POST" action="/admin/apps/secret">
+        <input type="hidden" name="id" value="" />
+        <input type="hidden" name="action" value="" />
+      </form>
 
       <div class="${listGrid}">
         ${props.apps.map(app => html`
@@ -268,6 +295,7 @@ export const AppsPage = (props: Props) => {
                data-url="${app.base_url}" 
                data-desc="${app.description || ''}"
                data-icon="${app.icon_url || ''}"
+               data-secret="${app.client_secret || ''}"
                onclick="openEditAppModal(this)">
             
             <div style="flex-grow:1;">
@@ -317,6 +345,16 @@ export const AppsPage = (props: Props) => {
                         <span class="form-label">${t.label_base_url}</span>
                         <input type="url" name="base_url" required />
                     </label>
+
+                    <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+                        <span class="form-label">Client Secret (OIDC)</span>
+                        <input type="text" id="edit-secret" readonly onclick="this.select()" style="width:100%; font-family:monospace; font-size:0.85rem; background:#fff;" />
+                        <small id="edit-secret-note" style="display:block; color:#64748b; margin-top:0.35rem;"></small>
+                        <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                            <button type="button" onclick="appSecretAction('regenerate')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 Regenerate</button>
+                            <button type="button" onclick="appSecretAction('clear')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">Make public (SPA)</button>
+                        </div>
+                    </div>
 
                     <label style="width:100%;">
                         <span class="form-label">${t.label_app_icon}</span>

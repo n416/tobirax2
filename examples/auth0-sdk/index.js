@@ -14,7 +14,7 @@ app.use(
     // ↓ This is the only thing that differs from a real Auth0 setup:
     issuerBaseURL: 'http://localhost:8787', // tobirax2 (normally https://YOUR.auth0.com)
     clientID: 'app-test-1',
-    clientSecret: 'unused-by-the-mock-but-required-by-sdk',
+    clientSecret: 'test-secret-abc123', // matches scripts/seed-test.sql (confidential client)
     baseURL: 'http://localhost:3000',
     secret: 'demo-cookie-secret-please-use-something-longer-in-real-life',
     idpLogout: true,

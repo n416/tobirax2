@@ -397,8 +397,34 @@ function buildRedirect(redirectUri: string, mode: string | undefined, params: Re
     return redirectUri + sep + usp.toString()
 }
 
-function tokenError(c: any, error: string, description: string) {
-    return c.json({ error, error_description: description }, 400)
+function tokenError(c: any, error: string, description: string, status: 400 | 401 = 400) {
+    return c.json({ error, error_description: description }, status)
+}
+
+// Constant-time string comparison (avoids leaking the secret via timing).
+function safeEqual(a: string, b: string): boolean {
+    if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false
+    let r = 0
+    for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i)
+    return r === 0
+}
+
+// OIDC client authentication for the token endpoint.
+// Confidential client (a secret is registered) -> secret required & must match.
+// Public client (no secret registered) -> PKCE must have been used.
+async function authenticateClient(
+    c: any, appId: string, providedSecret: string | undefined, usedPkce: boolean
+): Promise<{ ok: true } | { ok: false; res: Response }> {
+    const app = await c.env.DB.prepare('SELECT client_secret FROM apps WHERE id = ?').bind(appId).first() as { client_secret?: string | null } | null
+    const registered = app?.client_secret
+    if (registered) {
+        if (!providedSecret || !safeEqual(providedSecret, registered)) {
+            return { ok: false, res: tokenError(c, 'invalid_client', 'client authentication failed', 401) }
+        }
+    } else if (!usedPkce) {
+        return { ok: false, res: tokenError(c, 'invalid_client', 'client authentication required: use PKCE or a registered client_secret') }
+    }
+    return { ok: true }
 }
 
 async function parseClientBody(c: any): Promise<Record<string, string>> {
@@ -510,15 +536,18 @@ app.post('/oauth/token', async (c) => {
     const body = await parseClientBody(c)
 
     // Client auth: client_secret_post (body) or client_secret_basic (header).
-    // Secrets are NOT validated — this is a mock.
     let basicClientId: string | undefined
+    let basicClientSecret: string | undefined
     const authz = c.req.header('Authorization')
     if (authz && authz.startsWith('Basic ')) {
         try {
             const dec = atob(authz.slice(6))
-            basicClientId = decodeURIComponent(dec.slice(0, dec.indexOf(':')))
+            const i = dec.indexOf(':')
+            basicClientId = decodeURIComponent(dec.slice(0, i))
+            basicClientSecret = decodeURIComponent(dec.slice(i + 1))
         } catch { /* ignore */ }
     }
+    const providedSecret = (body.client_secret as string) || basicClientSecret
 
     const grantType = body.grant_type
 
@@ -537,6 +566,9 @@ app.post('/oauth/token', async (c) => {
         const pkceOk = await verifyPkce(body.code_verifier, ac.code_challenge as any, ac.code_challenge_method as any)
         if (!pkceOk) return tokenError(c, 'invalid_grant', 'PKCE verification failed')
 
+        const auth = await authenticateClient(c, ac.app_id, providedSecret, !!ac.code_challenge)
+        if (!auth.ok) return auth.res
+
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(ac.user_id).first() as User | null
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
 
@@ -548,6 +580,9 @@ app.post('/oauth/token', async (c) => {
         if (!refreshToken) return tokenError(c, 'invalid_request', 'missing refresh_token')
         const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).first() as any
         if (!session) return tokenError(c, 'invalid_grant', 'invalid refresh_token')
+        // Public clients refresh without a secret; confidential clients must authenticate.
+        const auth = await authenticateClient(c, session.app_id, providedSecret, true)
+        if (!auth.ok) return auth.res
         const check = await checkPermission(c, session.user_id, session.app_id)
         if (!check.allowed) {
             await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
@@ -627,11 +662,29 @@ app.post('/admin/apps', async (c) => {
     const iconData = await handleIconUpload(body)
     const iconUrl = iconData || (body['icon_url'] as string) || await fetchAppIcon(body['base_url'] as string)
     
-    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl).run()
-    
+    // New apps are confidential by default (a secret is generated). Make it a
+    // public/SPA client later via the "make public" action in the edit modal.
+    const clientSecret = generateToken() + generateToken().replace(/-/g, '')
+
+    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret).run()
+
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
+    return c.redirect('/admin/apps')
+})
+
+// Regenerate or clear (=make public) an app's client_secret.
+app.post('/admin/apps/secret', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const id = body['id']
+    const action = body['action']
+    const secret = action === 'clear' ? null : (generateToken() + generateToken().replace(/-/g, ''))
+    await c.env.DB.prepare('UPDATE apps SET client_secret = ? WHERE id = ?').bind(secret, id).run()
+    const details = JSON.stringify({ key: 'log_app_updated', params: { appName: id, status: action === 'clear' ? 'secret cleared' : 'secret regenerated', admin: user.email } });
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
     return c.redirect('/admin/apps')
 })
 

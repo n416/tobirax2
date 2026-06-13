@@ -15,7 +15,7 @@ The only line that differs from a real Auth0 setup is `issuerBaseURL`:
 ```js
 issuerBaseURL: 'http://localhost:8787', // tobirax2 (normally https://YOUR.auth0.com)
 clientID:      'app-test-1',
-clientSecret:  'unused-by-the-mock-but-required-by-sdk',
+clientSecret:  'test-secret-abc123',    // confidential client (see scripts/seed-test.sql)
 ```
 
 ## Prerequisites

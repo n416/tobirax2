@@ -23,6 +23,7 @@ export interface App {
   icon_url?: string
   description?: string
   created_at: number
+  client_secret?: string | null // null/undefined = public client (PKCE)
 }
 
 export interface Session {

@@ -15,7 +15,7 @@
 ```js
 issuerBaseURL: 'http://localhost:8787', // tobirax2（通常は https://YOUR.auth0.com）
 clientID:      'app-test-1',
-clientSecret:  'sdkが要求するだけで未使用',
+clientSecret:  'test-secret-abc123',    // 機密クライアント（scripts/seed-test.sql 参照）
 ```
 
 ## 前提

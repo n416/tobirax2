@@ -7,10 +7,11 @@ stand in for **Auth0** during local development. You get tobira's nice
 login UI, user/group management and 2FA, while Auth0 SDKs talk to it as
 if it were a real OIDC provider.
 
-> ⚠️ **Development mock only.** Client secrets are not validated and there
-> is no rate limiting or hardening. The RSA signing key is generated per
-> database (not stored in the repo), so repo access alone can't forge
-> tokens — but this is still a mock. Never use it as a real IdP.
+> ⚠️ **Development mock only.** There is no rate limiting or other
+> hardening (put Cloudflare Rate Limiting / WAF in front for that). The RSA
+> signing key is generated per database (not stored in the repo), so repo
+> access alone can't forge tokens — but this is still a mock. Never use it
+> as a real IdP.
 
 ## What it implements
 
@@ -26,8 +27,10 @@ if it were a real OIDC provider.
 Notes:
 - `access_token` is **opaque** (resolved at `/userinfo`), matching Auth0's
   default when no API audience is configured. `id_token` is a real RS256 JWT.
-- **Client secrets are not validated** — it's a mock. PKCE *is* verified
-  (S256 / plain).
+- **Client authentication is enforced.** An app with a `client_secret`
+  registered is a *confidential* client — the secret is required at the
+  token endpoint and compared in constant time. An app with no secret is a
+  *public* client and must use PKCE (S256 / plain) instead.
 - tobira's **per-app permission gate is enforced** at `/authorize`: if the
   user has no valid permission for the app, the RP gets `error=access_denied`.
 
@@ -59,6 +62,12 @@ In the **admin UI → Apps**, add an app:
 The app's **id** is your `client_id`. Grant the user (or their group)
 permission to that app, or `/authorize` will return `access_denied`.
 
+A new app is created as a **confidential** client: a `client_secret` is
+generated and shown in the edit modal — copy it into your backend SDK
+config. For a **public** client (SPA, e.g. `@auth0/auth0-react`), open the
+edit modal and click **Make public (SPA)** to clear the secret; PKCE is then
+required instead.
+
 ## Point your Auth0 SDK at it
 
 Use the issuer **without** a trailing slash: `http://localhost:8787`.
@@ -81,7 +90,7 @@ auth({
   issuerBaseURL: 'http://localhost:8787',
   baseURL: 'http://localhost:3000',
   clientID: '<the app id>',
-  clientSecret: 'unused-but-required-by-sdk',
+  clientSecret: '<the client_secret from the admin edit modal>',
   authorizationParams: { response_type: 'code', scope: 'openid profile email' },
 })
 ```
@@ -90,7 +99,7 @@ auth({
 ```
 AUTH0_ISSUER_BASE_URL=http://localhost:8787
 AUTH0_CLIENT_ID=<the app id>
-AUTH0_CLIENT_SECRET=unused-but-required
+AUTH0_CLIENT_SECRET=<the client_secret from the admin edit modal>
 AUTH0_BASE_URL=http://localhost:3000
 ```
 

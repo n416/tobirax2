@@ -29,7 +29,9 @@ CREATE TABLE IF NOT EXISTS apps (
     status TEXT DEFAULT 'active',
     icon_url TEXT,
     description TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- OIDC: NULL = public client (PKCE required); set = confidential client
+    client_secret TEXT
 );
 
 CREATE TABLE IF NOT EXISTS groups (
