@@ -1,0 +1,5 @@
+/.wrangler
+/fix_seed.js
+/node_modules
+/package-lock.json
+/wrangler.toml
