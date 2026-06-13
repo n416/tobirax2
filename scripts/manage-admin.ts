@@ -105,7 +105,7 @@ async function main() {
       console.log(`🚀 Executing on ${envName}...`)
       
       try {
-        execSync(`npx wrangler d1 execute tobira-db ${flag} --file ${filename}`, { stdio: 'inherit' })
+        execSync(`npx wrangler d1 execute tobira-mock-db ${flag} --file ${filename}`, { stdio: 'inherit' })
         console.log(`✅ Success on ${envName}`)
       } catch (e) {
         console.error(`❌ Failed on ${envName}`)

@@ -34,9 +34,9 @@ npm install
 
 ### 3. Setup Database
 ```bash
-wrangler d1 create tobira-db
+wrangler d1 create tobira-mock-db
 # Update wrangler.toml with the output database_id
-wrangler d1 execute tobira-db --file=./schema.sql
+wrangler d1 execute tobira-mock-db --file=./schema.sql
 ```
 
 ### 4. Create Admin (Initial Setup)

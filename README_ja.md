@@ -34,9 +34,9 @@ npm install
 
 ### 3. データベース作成
 ```bash
-wrangler d1 create tobira-db
+wrangler d1 create tobira-mock-db
 # 出力された database_id を wrangler.toml に記載してください
-wrangler d1 execute tobira-db --file=./schema.sql
+wrangler d1 execute tobira-mock-db --file=./schema.sql
 ```
 
 ### 4. 管理者の作成 (初期セットアップ)
