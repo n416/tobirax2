@@ -1,5 +1,7 @@
 # Example: real Auth0 SDK against tobirax2
 
+> 🇯🇵 日本語版は [README_ja.md](README_ja.md) を参照。
+
 A minimal relying party built with **`express-openid-connect`** — Auth0's
 **official** Express SDK — pointed at tobirax2 instead of a real Auth0 tenant.
 
