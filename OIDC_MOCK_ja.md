@@ -7,9 +7,10 @@
 管理・2FA はそのまま使えて、外から見ると Auth0 SDK には標準のOIDCプロバイダに
 見えます。
 
-> ⚠️ **開発用モック専用。** RSA署名鍵は平文でこのリポジトリに含まれています
-> （`src/oidc/keys.ts`）。誰でもトークンを偽造できます。本番・公開環境では絶対に
-> 使わないでください。
+> ⚠️ **開発用モック専用。** client secret は検証せず、レート制限や堅牢化も
+> ありません。RSA署名鍵はデータベースごとに生成され（リポジトリには入っていない）、
+> リポジトリを見ただけでは偽造できませんが、これはあくまでモックです。本物のIdPと
+> しては絶対に使わないでください。
 
 ## 実装しているもの
 
@@ -97,8 +98,13 @@ AUTH0_CLIENT_SECRET=未使用だが必須
 AUTH0_BASE_URL=http://localhost:3000
 ```
 
-## 署名鍵のローテーション
+## 署名鍵について
+
+RS256 の鍵ペアは初回利用時に生成され、`system_config` テーブル（`oidc_keys`
+行）に保存されます。データベースごとに固有で、ソースには含まれません。
+ローテーション（既存トークンを無効化）するには、行を削除すれば次のリクエストで
+再生成されます：
+
 ```bash
-node -e "const{generateKeyPairSync}=require('crypto');const{publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});console.log(JSON.stringify({priv:privateKey.export({format:'jwk'}),pub:publicKey.export({format:'jwk'})}))"
+npx wrangler d1 execute tobira-mock-db --local --command "DELETE FROM system_config WHERE key='oidc_keys';"
 ```
-出力の `priv` を `src/oidc/keys.ts` の `PRIVATE_JWK` に貼り付けてください。

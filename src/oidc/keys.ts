@@ -1,40 +1,62 @@
 // ------------------------------------------------------------------
-// OIDC signing key (MOCK ONLY)
+// OIDC signing key management.
 //
-// This is a FIXED RSA-2048 keypair embedded directly in the repo.
-// That is intentional: this project is an Auth0 *mock* for local
-// development. The private key here is NOT secret and MUST NOT be
-// used for anything real. Anyone with this repo can forge tokens.
+// The RSA keypair is NOT stored in this repo. Instead it is generated
+// once per database (lazily, on first use) and persisted in the
+// `system_config` table. That means:
+//   - no private key material lives in source control
+//   - every deployment / database gets its own unique key
+//   - an accidentally-public instance cannot be forged against using
+//     repo knowledge alone
 //
-// To rotate, run:
-//   node -e "const{generateKeyPairSync}=require('crypto');const{publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});console.log(JSON.stringify({priv:privateKey.export({format:'jwk'}),pub:publicKey.export({format:'jwk'})}))"
-// then paste the result below.
+// To rotate the key: delete the `oidc_keys` row from system_config;
+// the next request regenerates it (existing tokens become invalid).
 // ------------------------------------------------------------------
 
-export const KID = 'tobira-mock-key-1'
+const KEYS_ROW = 'oidc_keys'
 
-// Full private JWK (used for signing id_tokens).
-export const PRIVATE_JWK: JsonWebKey = {
-  kty: 'RSA',
-  n: 'uPNtI3i5H8z0wt21dIO-DkS4CRnPaqtYwxI7Hsesyr310Wz8VrfgGgNmWBSH3S0f9HjOhyUJZo0YB3psYrh7xezKrwzMP88z5JBB6Cjd1cYZ_fhEbUgKMQobWhVKLnw2f6FWZRGW0qULq93JeTakIdSLtstc4IzSdI3RsH77yxgJgsIWwZpTTyuRXLsG5Xw1wSengr5ZC8FLlnYErY9jkhjo4_0sMbZ1bm5Wt2WalV4cgnCsaOoBtOrgW_4adNGob49tTCAbnpi0gdLwZiqYTiHUYcF3AYGW8Ju_sD_qJrYyt_ItdxjqfBqHvEpNfDkog40cNZMFlw004-RtjjPxiQ',
-  e: 'AQAB',
-  d: 'Ce83akuahAkGD66Jh-XosEsEKKb8g3ILPUUuLEfU8fn0qYhlYIIVdUg_99S4fIqnOAJCM7OrVtkW1JYAmufmbBn9RBxXn0jRtIIELER_r_MpY8Exab5QH9S3ZeYVWzxcUAw6QAkLFSr83sE1yH9FHzUTwSCYz035Iv4YKJcVjtHXFqNKD2xcLNYEf7NM-UBAJ9gwHHs9teOg7ObcwCSJ0XFftTZEoAnA6bUenvFb0LPmqPpFhJL0iPguUri6FAl9fZbt5Mt1WKAzfYYmgZsmYUhktNZb7BElMpR0SYnYko5vJlAszwQoYW_H49CUg4kAVrXb5_bo7KO40KXxOKu9RQ',
-  p: '2j9nPjR2niG4-OsIUCdwtLQvFFCb5q-rBac1AneJL2alHh8__4QBnJG30zvZS_BmvmM5GumVhQJl78LatcdY85gh2Q4pfyIlVrChdIfHxu3Irir5oq2g26lvGTTGe7ZoVeo_HVQ-bPx5AQPyJRyuxNaoBwP9yCdQTzWwwTKjZ-0',
-  q: '2PGNJ7rxKKC3Ymn3wDXt4Gs2SGzZp_bxN3FHQGynZSrpPthNjtTEW9G_apbEDFE_Vg8BSBh8GDNr9OoAaQo5PHZi3zht1DQNZtF9_D2tTfRID3QP-BNw8D1dM7WNKtnAL1M64YHisnhBkFlMeueHopUw9bfExZ-KwjOXgxRkBI0',
-  dp: 'ruA4-OYO2dyJm6KwUZGYxKLQSoXgtfKypd_6INTpbrrfuYguvq3moK8-TZraHfguS4Wz_zWFokNurLREjX2DcATJsmOfqogQxSrY5EfcMzDbKXuz9b8McpaMN_VKyVw6tATzt6uGLcwLpV2lDEm0XHLnxl9TXarqtd1-mP_bYW0',
-  dq: 'bDO18n3z8A6QyJ4PuqdrOIZgsajQukyZLMzr-771kqjfYr_hlv6Z3S31KcV-jKItU8_yFLJZmnxzONlJURqPR4_IaosrhC5eDM0p6BgfCwVut35sxI91wezpQnQnr5qhlzkM4hK1Lcx67vMLCTXXWYjNvZBlrSeQvqGazP7rj7U',
-  qi: 'i-rDY13-juL2BfJX7Ku1sTFz5Zvlk_gXX_6oaFcuLxSqsSstB4_HjRtPozweBv85RW-Y72jCXCBo5TXfsAlih8hqWZc8DIB8zfV4_k9_WDT4pBGf9FnO7JXE7H6WNE-76RH56BgtOqHUXUsZIBydFVwnXR14utWKZW6Sb1iKlAA',
-  alg: 'RS256',
-  use: 'sig',
-  ext: true,
+export interface OidcKeys {
+  kid: string
+  privateJwk: JsonWebKey
+  publicJwk: { kty: string; n: string; e: string }
 }
 
-// Public JWK exposed at /.well-known/jwks.json (only n/e are public).
-export const PUBLIC_JWK = {
-  kty: 'RSA',
-  n: PRIVATE_JWK.n,
-  e: PRIVATE_JWK.e,
-  alg: 'RS256',
-  use: 'sig',
-  kid: KID,
+// Per-isolate cache so we don't hit D1 on every sign/JWKS request.
+let cache: OidcKeys | null = null
+
+async function readKeys(db: D1Database): Promise<OidcKeys | null> {
+  const row = await db.prepare('SELECT value FROM system_config WHERE key = ?')
+    .bind(KEYS_ROW).first<{ value: string }>()
+  if (!row || !row.value) return null
+  try { return JSON.parse(row.value) as OidcKeys } catch { return null }
+}
+
+async function generateAndStore(db: D1Database): Promise<OidcKeys> {
+  const pair = (await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign', 'verify']
+  )) as CryptoKeyPair
+
+  const privateJwk = (await crypto.subtle.exportKey('jwk', pair.privateKey)) as JsonWebKey
+  const pub = (await crypto.subtle.exportKey('jwk', pair.publicKey)) as JsonWebKey
+  const keys: OidcKeys = {
+    kid: crypto.randomUUID(),
+    privateJwk,
+    publicJwk: { kty: pub.kty!, n: pub.n!, e: pub.e! },
+  }
+
+  // Single-row INSERT OR IGNORE: if two isolates race on first use, one
+  // wins and both then read back the same (winning) keypair — never a
+  // mismatched public/private pair.
+  await db.prepare('INSERT OR IGNORE INTO system_config (key, value) VALUES (?, ?)')
+    .bind(KEYS_ROW, JSON.stringify(keys)).run()
+
+  return (await readKeys(db))!
+}
+
+export async function getOidcKeys(db: D1Database): Promise<OidcKeys> {
+  if (cache) return cache
+  cache = (await readKeys(db)) || (await generateAndStore(db))
+  return cache
 }

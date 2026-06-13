@@ -1,9 +1,9 @@
-import { KID, PRIVATE_JWK } from './keys'
+import { getOidcKeys } from './keys'
 
 // ------------------------------------------------------------------
 // Minimal RS256 JWT signer + PKCE helpers, built on WebCrypto.
-// Kept dependency-free so we control the exact header (kid) that the
-// JWKS endpoint advertises.
+// The signing key is resolved per-request from the database (see keys.ts)
+// so no private key material lives in source.
 // ------------------------------------------------------------------
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -16,25 +16,28 @@ function strToBase64Url(str: string): string {
   return bytesToBase64Url(new TextEncoder().encode(str))
 }
 
-let signingKeyPromise: Promise<CryptoKey> | null = null
-function getSigningKey(): Promise<CryptoKey> {
-  if (!signingKeyPromise) {
-    signingKeyPromise = crypto.subtle.importKey(
-      'jwk',
-      PRIVATE_JWK,
-      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-      false,
-      ['sign']
-    )
-  }
-  return signingKeyPromise
+// Cache the imported CryptoKey per isolate, keyed by kid.
+let signingKeyCache: { kid: string; key: CryptoKey } | null = null
+
+async function getSigningKey(db: D1Database): Promise<{ kid: string; key: CryptoKey }> {
+  const { kid, privateJwk } = await getOidcKeys(db)
+  if (signingKeyCache && signingKeyCache.kid === kid) return signingKeyCache
+  const key = await crypto.subtle.importKey(
+    'jwk',
+    privateJwk,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  signingKeyCache = { kid, key }
+  return signingKeyCache
 }
 
-/** Sign a JWT with RS256 using the embedded mock key. */
-export async function signRS256(payload: Record<string, unknown>): Promise<string> {
-  const header = { alg: 'RS256', typ: 'JWT', kid: KID }
+/** Sign a JWT with RS256 using the database-backed mock key. */
+export async function signRS256(payload: Record<string, unknown>, db: D1Database): Promise<string> {
+  const { kid, key } = await getSigningKey(db)
+  const header = { alg: 'RS256', typ: 'JWT', kid }
   const signingInput = `${strToBase64Url(JSON.stringify(header))}.${strToBase64Url(JSON.stringify(payload))}`
-  const key = await getSigningKey()
   const sig = await crypto.subtle.sign(
     'RSASSA-PKCS1-v1_5',
     key,
@@ -46,7 +49,7 @@ export async function signRS256(payload: Record<string, unknown>): Promise<strin
 /** Verify a PKCE code_verifier against the stored code_challenge. */
 export async function verifyPkce(
   verifier: string,
-  challenge: string,
+  challenge: string | null | undefined,
   method: string | null | undefined
 ): Promise<boolean> {
   if (!challenge) return true // no PKCE was requested

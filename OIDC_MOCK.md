@@ -7,9 +7,10 @@ stand in for **Auth0** during local development. You get tobira's nice
 login UI, user/group management and 2FA, while Auth0 SDKs talk to it as
 if it were a real OIDC provider.
 
-> ⚠️ **Development mock only.** The RSA signing key is committed to this
-> repo in plaintext (`src/oidc/keys.ts`). Anyone can forge tokens. Never
-> expose this to anything that matters.
+> ⚠️ **Development mock only.** Client secrets are not validated and there
+> is no rate limiting or hardening. The RSA signing key is generated per
+> database (not stored in the repo), so repo access alone can't forge
+> tokens — but this is still a mock. Never use it as a real IdP.
 
 ## What it implements
 
@@ -93,8 +94,13 @@ AUTH0_CLIENT_SECRET=unused-but-required
 AUTH0_BASE_URL=http://localhost:3000
 ```
 
-## Rotating the signing key
+## Signing key
+
+The RS256 keypair is generated lazily on first use and stored in the
+`system_config` table (`oidc_keys` row) — unique per database, never in
+source. To rotate it (invalidating existing tokens), delete the row and let
+the next request regenerate:
+
 ```bash
-node -e "const{generateKeyPairSync}=require('crypto');const{publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});console.log(JSON.stringify({priv:privateKey.export({format:'jwk'}),pub:publicKey.export({format:'jwk'})}))"
+npx wrangler d1 execute tobira-mock-db --local --command "DELETE FROM system_config WHERE key='oidc_keys';"
 ```
-Paste `priv` into `PRIVATE_JWK` in `src/oidc/keys.ts`.

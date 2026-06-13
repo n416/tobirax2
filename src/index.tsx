@@ -9,7 +9,7 @@ import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
 import { signRS256, verifyPkce } from './oidc/jwt'
-import { PUBLIC_JWK } from './oidc/keys'
+import { getOidcKeys } from './oidc/keys'
 import { Login } from './views/Login'
 import { UserDashboard } from './views/UserDashboard'
 import { Invite } from './views/Invite'
@@ -431,7 +431,7 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         email_verified: true,
         name: user.email,
         preferred_username: user.email,
-    })
+    }, c.env.DB)
 
     return c.json({
         access_token: accessToken,
@@ -463,7 +463,10 @@ app.get('/.well-known/openid-configuration', (c) => {
     })
 })
 
-app.get('/.well-known/jwks.json', (c) => c.json({ keys: [PUBLIC_JWK] }))
+app.get('/.well-known/jwks.json', async (c) => {
+    const { kid, publicJwk } = await getOidcKeys(c.env.DB)
+    return c.json({ keys: [{ ...publicJwk, alg: 'RS256', use: 'sig', kid }] })
+})
 
 app.get('/authorize', async (c) => {
     const q = c.req.query()
