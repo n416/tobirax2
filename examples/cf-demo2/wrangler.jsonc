@@ -1,18 +1,18 @@
 {
-  // Second public demo "relying party" — identical code to examples/cf-demo,
-  // deployed as a separate Worker so we can demonstrate OIDC Single Logout:
-  // logging out of one RP back-channel-logs-out the other.
+  // 2つ目の公開デモ「リライングパーティ」— examples/cf-demo と同一コードを、別 Worker
+  // としてデプロイし、OIDC 単一ログアウトを実演する: 片方の RP からログアウトすると、
+  // もう片方もバックチャネルでログアウトされる。
   //
-  // It shares examples/cf-demo/src/index.ts (no code duplication) and only
-  // differs by config (its own client_id / base_url / name).
+  // examples/cf-demo/src/index.ts を共有し(コード重複なし)、設定
+  // (独自の client_id / base_url / 名前)だけが異なる。
   //
-  // Deploy:  npx wrangler deploy -c examples/cf-demo2/wrangler.jsonc
+  // デプロイ:  npx wrangler deploy -c examples/cf-demo2/wrangler.jsonc
   "name": "tobira-demo-rp2",
   "main": "../cf-demo/src/index.ts",
   "compatibility_date": "2025-12-22",
-  // Worker->Worker calls to the IdP go through a service binding (error 1042).
+  // IdP への Worker->Worker 呼び出しはサービスバインディング経由(エラー 1042 回避)。
   "services": [{ "binding": "IDP", "service": "tobirax2" }],
-  // Same shared denylist namespace as demo①; keys are prefixed per client_id.
+  // デモ① と同じ共有失効リスト名前空間。キーは client_id でプレフィックスされる。
   "kv_namespaces": [{ "binding": "BCL", "id": "a3ce2f0998d54da980ef39584e4558a8" }],
   "vars": {
     "IDP_ISSUER": "https://tobirax2.tobira-sys.workers.dev",
@@ -20,7 +20,7 @@
     "APP_BASE_URL": "https://tobira-demo-rp2.tobira-sys.workers.dev",
     "APP_NAME": "デモアプリ② (tobira-demo-rp2)"
   }
-  // Secrets (set once with `wrangler secret put ... -c examples/cf-demo2/wrangler.jsonc`):
-  //   CLIENT_SECRET  : the cf-demo2 App's client_secret from the IdP admin
-  //   COOKIE_SECRET  : random secret for signing the OIDC transaction cookie
+  // シークレット(`wrangler secret put ... -c examples/cf-demo2/wrangler.jsonc` で一度だけ設定):
+  //   CLIENT_SECRET  : IdP 管理画面の cf-demo2 アプリの client_secret
+  //   COOKIE_SECRET  : OIDC トランザクションCookieの署名用ランダムシークレット
 }

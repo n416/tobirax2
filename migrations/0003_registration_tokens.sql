@@ -1,16 +1,15 @@
--- Migration: add OIDC Dynamic Client Registration (RFC 7591) support.
+-- マイグレーション: OIDC 動的クライアント登録(RFC 7591)対応を追加する。
 --
--- Adds the registration_tokens table holding admin-issued Initial Access Tokens.
--- A caller must present one as `Authorization: Bearer <token>` to POST /register;
--- without it (or with an expired/unknown one) registration is refused. This keeps
--- registration "protected" (RFC 7591 §1.2) rather than open/anonymous.
+-- 管理者が発行する Initial Access Token を保持する registration_tokens テーブルを追加する。
+-- 呼び出し元は POST /register 時に `Authorization: Bearer <token>` として提示する必要があり、
+-- 提示が無い(または失効/未知の)場合は登録を拒否する。これにより登録をオープン/匿名ではなく
+-- 「保護付き」(RFC 7591 §1.2)に保つ。
 --
--- New databases get this table from schema.sql; this file only patches an
--- already-deployed DB. Running it twice errors with "table already exists" —
--- that is expected and harmless.
+-- 新規 DB は schema.sql からこのテーブルを取得する。本ファイルは既にデプロイ済みの DB を
+-- パッチするだけ。二重実行すると "table already exists" エラーになる — 想定内で無害。
 --
--- Apply (local):  npx wrangler d1 execute tobira-mock-db --local  --file ./migrations/0003_registration_tokens.sql
--- Apply (remote): npx wrangler d1 execute tobira-mock-db --remote --file ./migrations/0003_registration_tokens.sql
+-- 適用(ローカル):  npx wrangler d1 execute tobira-mock-db --local  --file ./migrations/0003_registration_tokens.sql
+-- 適用(リモート):  npx wrangler d1 execute tobira-mock-db --remote --file ./migrations/0003_registration_tokens.sql
 
 CREATE TABLE IF NOT EXISTS registration_tokens (
     token TEXT PRIMARY KEY,

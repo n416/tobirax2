@@ -1,4 +1,4 @@
--- Users & Auth
+-- ユーザーと認証
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at INTEGER NOT NULL,
     two_factor_secret TEXT,
     recovery_codes TEXT,
-    -- OIDC profile-scope claims (NULL falls back to email at token time)
+    -- OIDC profile スコープのクレーム(NULL の場合はトークン発行時に email にフォールバック)
     name TEXT,
     preferred_username TEXT,
     picture TEXT
@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
-    -- OIDC: actual end-user authentication time (unix seconds). Drives id_token
-    -- auth_time and the max_age / prompt=login re-authentication checks.
+    -- OIDC: エンドユーザーが実際に認証した時刻(unix秒)。id_token の auth_time と
+    -- max_age / prompt=login の再認証判定を駆動する。
     auth_time INTEGER
 );
 
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS admins (
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
--- Apps & Permissions
+-- アプリと権限
 CREATE TABLE IF NOT EXISTS apps (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -37,14 +37,14 @@ CREATE TABLE IF NOT EXISTS apps (
     icon_url TEXT,
     description TEXT,
     created_at INTEGER NOT NULL,
-    -- OIDC: NULL = public client (PKCE required); set = confidential client
+    -- OIDC: NULL = パブリッククライアント(PKCE必須)、値あり = 機密クライアント
     client_secret TEXT,
-    -- OIDC: newline-separated list of exact redirect_uris. When set, redirect_uri
-    -- must match one of these exactly (spec-correct). When NULL/empty, falls back
-    -- to origin matching against base_url (legacy).
+    -- OIDC: 完全一致 redirect_uris の改行区切りリスト。値があれば redirect_uri は
+    -- いずれかと完全一致しなければならない(仕様準拠)。NULL/空なら base_url の
+    -- オリジン照合にフォールバック(旧方式)。
     redirect_uris TEXT,
-    -- OIDC Back-Channel Logout 1.0: the RP's logout endpoint. When set, /oidc/logout
-    -- POSTs a signed logout_token here so the RP can kill its own session too.
+    -- OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント。値があれば /oidc/logout が
+    -- 署名付き logout_token をここへ POST し、RP 側も自身のセッションを破棄できる。
     backchannel_logout_uri TEXT
 );
 
@@ -74,21 +74,21 @@ CREATE TABLE IF NOT EXISTS group_permissions (
     UNIQUE(group_id, app_id)
 );
 
--- OIDC / API flow
+-- OIDC / API フロー
 CREATE TABLE IF NOT EXISTS auth_codes (
     code TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     app_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
     used_at INTEGER,
-    -- OIDC authorization request context (carried code -> token)
+    -- OIDC 認可リクエストのコンテキスト(code -> token へ引き継ぐ)
     nonce TEXT,
     code_challenge TEXT,
     code_challenge_method TEXT,
     redirect_uri TEXT,
     scope TEXT,
-    -- OIDC: end-user auth_time carried from the session, so the issued id_token
-    -- reflects when the user actually authenticated (not when the token issued).
+    -- OIDC: セッションから引き継いだエンドユーザーの auth_time。発行される id_token が
+    -- (トークン発行時ではなく)ユーザーが実際に認証した時刻を反映するようにする。
     auth_time INTEGER
 );
 
@@ -99,23 +99,23 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     user_id TEXT NOT NULL,
     app_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
-    -- OIDC scope granted for this token (drives which claims userinfo returns)
+    -- このトークンに付与された OIDC scope(userinfo が返すクレームを決める)
     scope TEXT,
-    -- OIDC: end-user auth_time, preserved across refresh so re-issued id_tokens
-    -- keep the original authentication time.
+    -- OIDC: エンドユーザーの auth_time。更新をまたいで保持し、再発行される id_token が
+    -- 元の認証時刻を保つようにする。
     auth_time INTEGER
 );
 
--- OIDC Dynamic Client Registration (RFC 7591): admin-issued Initial Access
--- Tokens. A caller must present one as a Bearer token to POST /register.
+-- OIDC 動的クライアント登録(RFC 7591): 管理者が発行する Initial Access Token。
+-- 呼び出し元は POST /register 時に Bearer トークンとしてこれを提示しなければならない。
 CREATE TABLE IF NOT EXISTS registration_tokens (
     token TEXT PRIMARY KEY,
-    created_by TEXT,                 -- admin email that minted it
+    created_by TEXT,                 -- 発行した管理者のメール
     created_at INTEGER NOT NULL,
-    expires_at INTEGER               -- NULL = never expires (revoke by deleting)
+    expires_at INTEGER               -- NULL = 無期限(削除して失効させる)
 );
 
--- Management features
+-- 管理機能
 CREATE TABLE IF NOT EXISTS invitations (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
@@ -136,20 +136,20 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
--- System Configuration (New)
+-- システム設定(新規)
 CREATE TABLE IF NOT EXISTS system_config (
     key TEXT PRIMARY KEY,
     value TEXT
 );
 
--- Fixed-window rate limiting (per-IP login/signup throttling)
+-- 固定ウィンドウのレート制限(IP別のログイン/新規登録スロットリング)
 CREATE TABLE IF NOT EXISTS rate_limits (
     k TEXT PRIMARY KEY,
     count INTEGER NOT NULL,
     reset_at INTEGER NOT NULL
 );
 
--- Indexes for performance
+-- パフォーマンス用インデックス
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_permissions_user ON permissions(user_id);

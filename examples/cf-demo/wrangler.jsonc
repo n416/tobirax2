@@ -1,35 +1,34 @@
 {
-  // Public demo "relying party" (OIDC client) running on Cloudflare Workers.
-  // It points at the deployed tobirax2 IdP and proves the full browser login
-  // flow works end-to-end (authorize -> token -> JWKS verify -> userinfo).
+  // Cloudflare Workers 上で動く公開デモ「リライングパーティ(OIDCクライアント)」。
+  // デプロイ済みの tobirax2 IdP を指し、ブラウザのログインフローが端から端まで
+  // (authorize -> token -> JWKS検証 -> userinfo)動くことを実証する。
   //
-  // Deploy:  npx wrangler deploy   (run inside examples/cf-demo/)
+  // デプロイ:  npx wrangler deploy   (examples/cf-demo/ 内で実行)
   "name": "tobira-demo-rp",
   "main": "src/index.ts",
   "compatibility_date": "2025-12-22",
-  // Server-to-server calls (token exchange, JWKS) go Worker->Worker. A direct
-  // fetch() to another Worker on the same account's *.workers.dev is blocked
-  // (Cloudflare error 1042), so we route those through a service binding.
-  // The browser-facing redirects (/authorize, /oidc/logout) still use the
-  // public IDP_ISSUER URL below.
+  // サーバー間呼び出し(トークン交換・JWKS)は Worker->Worker で行う。同一アカウントの
+  // 別 Worker の *.workers.dev へ直接 fetch するのは禁止されている(Cloudflare エラー 1042)
+  // ため、これらはサービスバインディング経由でルーティングする。ブラウザ向けのリダイレクト
+  // (/authorize, /oidc/logout)は下の公開 IDP_ISSUER URL を引き続き使う。
   "services": [{ "binding": "IDP", "service": "tobirax2" }],
-  // Back-Channel Logout denylist (shared namespace; keys are prefixed per
-  // client_id so each RP only ever reads/writes its own logout records).
+  // バックチャネルログアウトの失効リスト(共有名前空間。キーは client_id でプレフィックス
+  // するので、各 RP は自分のログアウト記録だけを読み書きする)。
   "kv_namespaces": [{ "binding": "BCL", "id": "a3ce2f0998d54da980ef39584e4558a8" }],
   "vars": {
-    // The deployed tobirax2 IdP (no trailing slash).
+    // デプロイ済みの tobirax2 IdP(末尾スラッシュなし)。
     "IDP_ISSUER": "https://tobirax2.tobira-sys.workers.dev",
-    // Must match the App registered in the IdP admin (App ID == client_id).
+    // IdP 管理画面で登録したアプリと一致させる(アプリ ID == client_id)。
     "CLIENT_ID": "cf-demo",
-    // This Worker's own public URL == the App's registered Base URL.
+    // この Worker 自身の公開 URL == アプリの登録ベース URL。
     "APP_BASE_URL": "https://tobira-demo-rp.tobira-sys.workers.dev",
-    // Human label (distinguishes the two demo RPs on screen).
+    // 表示用ラベル(2つのデモ RP を画面上で区別する)。
     "APP_NAME": "デモアプリ① (tobira-demo-rp)"
   }
-  // Secrets (NOT stored here — set with `wrangler secret put`):
-  //   CLIENT_SECRET  : confidential client secret shown in the IdP App edit modal
-  //   COOKIE_SECRET  : random secret used to sign the OIDC transaction cookie
-  // Set them once with:
+  // シークレット(ここには保存しない — `wrangler secret put` で設定):
+  //   CLIENT_SECRET  : IdP のアプリ編集モーダルに表示される機密クライアントのシークレット
+  //   COOKIE_SECRET  : OIDC トランザクションCookieの署名に使うランダムなシークレット
+  // 一度だけ次のように設定する:
   //   npx wrangler secret put CLIENT_SECRET -c examples/cf-demo/wrangler.jsonc
   //   npx wrangler secret put COOKIE_SECRET -c examples/cf-demo/wrangler.jsonc
 }
