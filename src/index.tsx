@@ -642,6 +642,11 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
     const now = Math.floor(Date.now() / 1000)
     const expiresIn = 3600
     const grantedScope = scope || 'openid'
+    // OIDC Core 11: a refresh token is only issued when the client was granted
+    // the `offline_access` scope. We still store a refresh_token on the row
+    // (column is NOT NULL) but only return it when offline_access was granted —
+    // an un-returned token can never be presented, so it is effectively unissued.
+    const offlineAccess = grantedScope.split(/\s+/).includes('offline_access')
     // Real end-user authentication time. Falls back to now only for legacy codes
     // / sessions issued before auth_time was tracked.
     const effectiveAuthTime = authTime ?? now
@@ -667,7 +672,7 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         id_token: idToken,
         token_type: 'Bearer',
         expires_in: expiresIn,
-        refresh_token: refreshToken,
+        ...(offlineAccess ? { refresh_token: refreshToken } : {}),
         scope: grantedScope,
     })
 }
@@ -801,7 +806,14 @@ app.post('/oauth/token', async (c) => {
 
         const clientId = body.client_id || basicClientId
         if (clientId && clientId !== ac.app_id) return tokenError(c, 'invalid_grant', 'client_id does not match the authorization code')
-        if (ac.redirect_uri && body.redirect_uri && body.redirect_uri !== ac.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri does not match')
+        // RFC 6749 §4.1.3 / OIDC: if a redirect_uri was used in the authorization
+        // request (always true for /authorize), the token request MUST include an
+        // identical one. Previously this only checked when the client *chose* to
+        // send it, so an omitted redirect_uri silently bypassed validation.
+        if (ac.redirect_uri) {
+            if (!body.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri is required')
+            if (body.redirect_uri !== ac.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri does not match')
+        }
 
         const pkceOk = await verifyPkce(body.code_verifier, ac.code_challenge as any, ac.code_challenge_method as any)
         if (!pkceOk) return tokenError(c, 'invalid_grant', 'PKCE verification failed')
