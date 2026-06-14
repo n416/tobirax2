@@ -30,7 +30,7 @@ Notes:
 - **Client authentication is enforced.** An app with a `client_secret`
   registered is a *confidential* client — the secret is required at the
   token endpoint and compared in constant time. An app with no secret is a
-  *public* client and must use PKCE (S256 / plain) instead.
+  *public* client and must use PKCE (S256 only) instead.
 - tobira's **per-app permission gate is enforced** at `/authorize`: if the
   user has no valid permission for the app, the RP gets `error=access_denied`.
 

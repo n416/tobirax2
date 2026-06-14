@@ -48,7 +48,7 @@
 |---|---|
 | `GET /.well-known/openid-configuration` | Discovery ドキュメント |
 | `GET /.well-known/jwks.json` | 公開署名鍵 (RS256) |
-| `GET /authorize` | Authorization Code フロー（PKCE: S256 / plain、`prompt`・`max_age`・`login_hint`） |
+| `GET /authorize` | Authorization Code フロー（PKCE: S256 のみ、`prompt`・`max_age`・`login_hint`） |
 | `POST /oauth/token` | `authorization_code` + `refresh_token` グラント（`refresh_token` は `offline_access` 時のみ発行） |
 | `POST /oauth/revoke` | トークン失効（RFC 7009、access / refresh いずれも可） |
 | `POST /oauth/introspect` | トークンイントロスペクション（RFC 7662、クライアント認証必須） |

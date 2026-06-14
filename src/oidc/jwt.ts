@@ -117,9 +117,10 @@ export async function verifyPkce(
 ): Promise<boolean> {
   if (!challenge) return true // no PKCE was requested
   if (!verifier) return false
-  if (!method || method.toUpperCase() === 'PLAIN') {
-    return verifier === challenge
-  }
+  // Only S256 is supported; `plain` is abolished (OAuth 2.1 / RFC 7636 BCP).
+  // /authorize already rejects non-S256 challenges, so this is defense in depth
+  // for any code that reaches the token endpoint.
+  if (!method || method.toUpperCase() !== 'S256') return false
   // S256: BASE64URL(SHA256(verifier)) === challenge
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
   return bytesToBase64Url(new Uint8Array(digest)) === challenge

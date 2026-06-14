@@ -725,7 +725,7 @@ app.get('/.well-known/openid-configuration', (c) => {
         id_token_signing_alg_values_supported: ['RS256'],
         scopes_supported: ['openid', 'profile', 'email', 'offline_access'],
         token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
-        code_challenge_methods_supported: ['S256', 'plain'],
+        code_challenge_methods_supported: ['S256'],
         claims_supported: ['sub', 'email', 'email_verified', 'name', 'preferred_username', 'iss', 'aud', 'exp', 'iat', 'nonce', 'auth_time', 'at_hash'],
     })
 })
@@ -749,6 +749,18 @@ app.get('/authorize', async (c) => {
 
     if (responseType && responseType !== 'code') {
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'unsupported_response_type', error_description: 'only response_type=code is supported', state }))
+    }
+
+    // PKCE: only S256 is accepted. `plain` is abolished (OAuth 2.1 / RFC 7636
+    // security BCP). A supplied code_challenge MUST carry an explicit S256
+    // method — a missing method historically defaulted to `plain` (RFC 7636
+    // §4.3), which we no longer allow either.
+    if (q.code_challenge && q.code_challenge_method !== 'S256') {
+        return c.redirect(buildRedirect(redirectUri, responseMode, {
+            error: 'invalid_request',
+            error_description: 'code_challenge_method must be S256 (plain is not supported)',
+            state,
+        }))
     }
 
     // OIDC Core 3.1.2.1: prompt + max_age drive whether we (re-)authenticate.
