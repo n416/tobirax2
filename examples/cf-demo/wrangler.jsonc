@@ -13,13 +13,18 @@
   // The browser-facing redirects (/authorize, /oidc/logout) still use the
   // public IDP_ISSUER URL below.
   "services": [{ "binding": "IDP", "service": "tobirax2" }],
+  // Back-Channel Logout denylist (shared namespace; keys are prefixed per
+  // client_id so each RP only ever reads/writes its own logout records).
+  "kv_namespaces": [{ "binding": "BCL", "id": "a3ce2f0998d54da980ef39584e4558a8" }],
   "vars": {
     // The deployed tobirax2 IdP (no trailing slash).
     "IDP_ISSUER": "https://tobirax2.tobira-sys.workers.dev",
     // Must match the App registered in the IdP admin (App ID == client_id).
     "CLIENT_ID": "cf-demo",
     // This Worker's own public URL == the App's registered Base URL.
-    "APP_BASE_URL": "https://tobira-demo-rp.tobira-sys.workers.dev"
+    "APP_BASE_URL": "https://tobira-demo-rp.tobira-sys.workers.dev",
+    // Human label (distinguishes the two demo RPs on screen).
+    "APP_NAME": "デモアプリ① (tobira-demo-rp)"
   }
   // Secrets (NOT stored here — set with `wrangler secret put`):
   //   CLIENT_SECRET  : confidential client secret shown in the IdP App edit modal

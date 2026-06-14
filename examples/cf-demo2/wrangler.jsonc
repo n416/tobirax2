@@ -1,0 +1,26 @@
+{
+  // Second public demo "relying party" — identical code to examples/cf-demo,
+  // deployed as a separate Worker so we can demonstrate OIDC Single Logout:
+  // logging out of one RP back-channel-logs-out the other.
+  //
+  // It shares examples/cf-demo/src/index.ts (no code duplication) and only
+  // differs by config (its own client_id / base_url / name).
+  //
+  // Deploy:  npx wrangler deploy -c examples/cf-demo2/wrangler.jsonc
+  "name": "tobira-demo-rp2",
+  "main": "../cf-demo/src/index.ts",
+  "compatibility_date": "2025-12-22",
+  // Worker->Worker calls to the IdP go through a service binding (error 1042).
+  "services": [{ "binding": "IDP", "service": "tobirax2" }],
+  // Same shared denylist namespace as demo①; keys are prefixed per client_id.
+  "kv_namespaces": [{ "binding": "BCL", "id": "a3ce2f0998d54da980ef39584e4558a8" }],
+  "vars": {
+    "IDP_ISSUER": "https://tobirax2.tobira-sys.workers.dev",
+    "CLIENT_ID": "cf-demo2",
+    "APP_BASE_URL": "https://tobira-demo-rp2.tobira-sys.workers.dev",
+    "APP_NAME": "デモアプリ② (tobira-demo-rp2)"
+  }
+  // Secrets (set once with `wrangler secret put ... -c examples/cf-demo2/wrangler.jsonc`):
+  //   CLIENT_SECRET  : the cf-demo2 App's client_secret from the IdP admin
+  //   COOKIE_SECRET  : random secret for signing the OIDC transaction cookie
+}

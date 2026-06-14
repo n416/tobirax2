@@ -16,8 +16,14 @@ interface Env {
   CLIENT_SECRET: string
   APP_BASE_URL: string
   COOKIE_SECRET: string
+  // Human label so the two demo RPs are visually distinguishable.
+  APP_NAME?: string
   // Service binding to the tobirax2 IdP Worker (for server-to-server calls).
   IDP: { fetch: typeof fetch }
+  // OIDC Back-Channel Logout denylist. When the IdP POSTs a logout_token to
+  // /backchannel-logout, we record bcl:<CLIENT_ID>:<sub> = logout time here; the
+  // home page treats any session whose id_token.iat <= that time as logged out.
+  BCL: KVNamespace
 }
 
 // ---- small helpers ---------------------------------------------------------
@@ -106,12 +112,48 @@ async function verifyIdToken(idToken: string, env: Env): Promise<any | null> {
   return payload
 }
 
+// ---- Back-Channel Logout (OIDC Back-Channel Logout 1.0) ---------------------
+
+// Verify a logout_token the IdP POSTed to /backchannel-logout. Returns the
+// subject (sub) when valid, else null. Checks: RS256 signature via JWKS,
+// iss == our IdP, aud == our client_id, the backchannel-logout `events` member,
+// and that `nonce` is absent (spec §2.4 prohibits it in logout tokens).
+async function verifyLogoutToken(logoutToken: string, env: Env): Promise<string | null> {
+  const [h, p, s] = logoutToken.split('.')
+  if (!h || !p || !s) return null
+  let header: any, payload: any
+  try {
+    header = JSON.parse(new TextDecoder().decode(b64urlToBytes(h)))
+    payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(p)))
+  } catch { return null }
+  let jwks = await getJwks(env)
+  let jwk = jwks.keys.find((k: any) => k.kid === header.kid)
+  if (!jwk) { jwks = await getJwks(env, true); jwk = jwks.keys.find((k: any) => k.kid === header.kid) }
+  if (!jwk) return null
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify'])
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlToBytes(s), enc.encode(`${h}.${p}`))
+  if (!ok) return null
+  if (payload.iss !== env.IDP_ISSUER) return null
+  if (payload.aud !== env.CLIENT_ID) return null
+  if ('nonce' in payload) return null // prohibited in logout tokens
+  const events = payload.events
+  if (!events || typeof events !== 'object' || !('http://schemas.openid.net/event/backchannel-logout' in events)) return null
+  return typeof payload.sub === 'string' ? payload.sub : null
+}
+
+// Has this subject been logged out via back-channel since the id_token was issued?
+async function isBackchannelLoggedOut(env: Env, claims: any): Promise<boolean> {
+  const t = await env.BCL.get(`bcl:${env.CLIENT_ID}:${claims.sub}`)
+  if (!t) return false
+  return Number(claims.iat || 0) <= Number(t)
+}
+
 // ---- HTML -------------------------------------------------------------------
 
-const page = (body: string) => new Response(
+const page = (body: string, appName = 'tobirax2 公開デモ', setCookie?: string) => new Response(
   `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
    <meta name="viewport" content="width=device-width,initial-scale=1">
-   <title>tobirax2 公開デモ (OIDCクライアント)</title>
+   <title>${appName} (OIDCクライアント)</title>
    <style>
      body{font-family:system-ui,'Noto Sans JP',sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.7;color:#0f172a;background:linear-gradient(135deg,#f0f4ff,#e0e7ff);min-height:100vh}
      .card{background:#fff;border-radius:20px;padding:32px;box-shadow:0 8px 32px rgba(31,38,135,.12)}
@@ -122,8 +164,9 @@ const page = (body: string) => new Response(
      pre{background:#f5f7ff;padding:16px;border-radius:12px;overflow:auto;font-size:.85rem;border:1px solid #e2e8f0}
      .ok{color:#15803d;font-weight:700}
    </style></head><body><div class="card">${body}</div></body></html>`,
-  { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+  { headers: { 'Content-Type': 'text/html; charset=utf-8', ...(setCookie ? { 'Set-Cookie': setCookie } : {}) } },
 )
+const clearSession = 'rp_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'
 
 // ---- routes -----------------------------------------------------------------
 
@@ -134,24 +177,50 @@ export default {
 
     // Home: show claims if logged in, else a login button.
     if (url.pathname === '/') {
+      const appName = env.APP_NAME || 'tobirax2 公開デモ'
       const session = cookies['rp_session']
-      const claims = session ? await verifyIdToken(session, env) : null
-      if (claims) {
+      let claims = session ? await verifyIdToken(session, env) : null
+      // Back-Channel Logout: even with a still-valid id_token cookie, treat the
+      // session as ended if the IdP told us this subject logged out.
+      const loggedOutByBcl = !!(claims && await isBackchannelLoggedOut(env, claims))
+      if (claims && !loggedOutByBcl) {
         return page(`
-          <h1>✅ <span class="ok">ログイン成功</span></h1>
+          <h1>✅ <span class="ok">ログイン成功</span> — ${appName}</h1>
           <p class="sub">Cloudflare Workers 製のOIDCクライアントが、tobirax2 を認証プロバイダとして利用しています。</p>
           <p><b>${claims.email}</b> としてログイン中。</p>
           <p>下のクレームは、このアプリが <code>${env.IDP_ISSUER}</code> の JWKS で
              <b>id_token の RS256 署名を検証し</b>、iss / aud / nonce / exp を確認したものです。</p>
           <h3>id_token クレーム（検証済み）</h3>
           <pre>${JSON.stringify(claims, null, 2).replace(/</g, '&lt;')}</pre>
-          <p><a class="logout" href="/logout">ログアウト</a></p>`)
+          <p><a class="logout" href="/logout">ログアウト</a></p>`, appName)
       }
+      // Logged out (never logged in, or back-channel logout took effect). Clear a
+      // stale cookie so the browser stops presenting the dead session.
+      const banner = loggedOutByBcl
+        ? `<p class="sub" style="color:#b45309">🔒 別のアプリでログアウトされたため、このアプリのセッションも終了しました（Back-Channel Logout）。</p>`
+        : `<p class="sub">「ログインを使う側のアプリ」のサンプルです（Cloudflare Workers / OIDC Authorization Code フロー）。</p>`
       return page(`
-        <h1>tobirax2 公開デモ</h1>
-        <p class="sub">「ログインを使う側のアプリ」のサンプルです（Cloudflare Workers / OIDC Authorization Code フロー）。</p>
+        <h1>${appName}</h1>
+        ${banner}
         <p>アカウントが無い場合は、ログイン画面の「新規登録」から作成できます（登録後すぐ使えます）。</p>
-        <p><a class="btn" href="/login">ログイン / 新規登録</a></p>`)
+        <p><a class="btn" href="/login">ログイン / 新規登録</a></p>`, appName, session ? clearSession : undefined)
+    }
+
+    // Back-Channel Logout receiver (OIDC Back-Channel Logout 1.0 §2.5). The IdP
+    // POSTs a signed logout_token here (server-to-server, no browser). We verify
+    // it and record the logout so the home page invalidates the user's session.
+    if (url.pathname === '/backchannel-logout' && req.method === 'POST') {
+      const noStore = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+      let logoutToken = ''
+      try {
+        const form = await req.formData()
+        logoutToken = String(form.get('logout_token') || '')
+      } catch { /* not form-encoded */ }
+      const sub = logoutToken ? await verifyLogoutToken(logoutToken, env) : null
+      if (!sub) return new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400, headers: noStore })
+      // iat-comparison key: sessions whose id_token was issued at/before now are dead.
+      await env.BCL.put(`bcl:${env.CLIENT_ID}:${sub}`, String(Math.floor(Date.now() / 1000)), { expirationTtl: 3600 })
+      return new Response(null, { status: 200, headers: { 'Cache-Control': 'no-store' } })
     }
 
     // Start login: build state+nonce, stash a signed transaction cookie, redirect.
