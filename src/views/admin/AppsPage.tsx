@@ -91,10 +91,10 @@ export const AppsPage = (props: Props) => {
                 var secEl = document.getElementById('edit-secret');
                 var noteEl = document.getElementById('edit-secret-note');
                 var sec = btn.dataset.secret || '';
-                if(secEl) secEl.value = sec || '(public client — no secret)';
+                if(secEl) secEl.value = sec || '${t.secret_public_placeholder}';
                 if(noteEl) noteEl.innerText = sec
-                    ? 'Confidential client. Send this as client_secret at /oauth/token.'
-                    : 'Public client. No secret; PKCE is required.';
+                    ? '${t.note_confidential}'
+                    : '${t.note_public}';
 
                 editModal.showModal();
                 setTimeout(function() {
@@ -178,7 +178,7 @@ export const AppsPage = (props: Props) => {
                 if(!editModal) return;
                 var id = editModal.querySelector('input[name="id"]').value;
                 if(!id) return;
-                if(action === 'clear' && !confirm('Make this a public client? The secret will be removed and PKCE required.')) return;
+                if(action === 'clear' && !confirm('${t.confirm_make_public}')) return;
                 var f = document.getElementById('secret-app-form');
                 if(f) {
                     f.querySelector('input[name="id"]').value = id;
@@ -294,15 +294,15 @@ export const AppsPage = (props: Props) => {
                     </label>
 
                     <label style="width:100%;">
-                      <span class="form-label">Redirect URIs (OIDC)</span>
-                      <textarea name="redirect_uris" placeholder="https://app.example.com/callback&#10;(one per line — exact match)" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem; min-height:70px;"></textarea>
-                      <small style="display:block; color:#64748b; margin-top:0.35rem;">One exact redirect_uri per line. Leave empty to allow any path under Base URL (legacy).</small>
+                      <span class="form-label">${t.label_redirect_uris}</span>
+                      <textarea name="redirect_uris" placeholder="${raw(t.ph_redirect_uris)}" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem; min-height:70px;"></textarea>
+                      <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_redirect_uris}</small>
                     </label>
 
                     <label style="width:100%;">
-                      <span class="form-label">Back-Channel Logout URI (OIDC)</span>
+                      <span class="form-label">${t.label_bcl_uri}</span>
                       <input type="url" name="backchannel_logout_uri" placeholder="https://app.example.com/backchannel-logout" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem;" />
-                      <small style="display:block; color:#64748b; margin-top:0.35rem;">Optional. The IdP POSTs a signed logout_token here on logout so the RP ends its own session (Single Logout).</small>
+                      <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_bcl_uri}</small>
                     </label>
 
                     <label style="width:100%;">
@@ -312,7 +312,7 @@ export const AppsPage = (props: Props) => {
                             <input type="hidden" name="icon_url" />
                         </div>
                         <div id="new-icon-preview" style="margin-top:0.75rem; display:none;">
-                            <p style="font-size:0.8rem; color:#64748b; margin-bottom:0.25rem;">Preview</p>
+                            <p style="font-size:0.8rem; color:#64748b; margin-bottom:0.25rem;">${t.label_preview}</p>
                             <img src="" style="width:64px; height:64px; border-radius:12px; border:1px solid #e2e8f0; object-fit:contain; background: #fff;" />
                         </div>
                     </label>
@@ -404,24 +404,24 @@ export const AppsPage = (props: Props) => {
                     </label>
 
                     <label style="width:100%;">
-                        <span class="form-label">Redirect URIs (OIDC)</span>
-                        <textarea name="redirect_uris" placeholder="https://app.example.com/callback&#10;(one per line — exact match)" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem; min-height:70px;"></textarea>
-                        <small style="display:block; color:#64748b; margin-top:0.35rem;">One exact redirect_uri per line. Leave empty to allow any path under Base URL (legacy).</small>
+                        <span class="form-label">${t.label_redirect_uris}</span>
+                        <textarea name="redirect_uris" placeholder="${raw(t.ph_redirect_uris)}" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem; min-height:70px;"></textarea>
+                        <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_redirect_uris}</small>
                     </label>
 
                     <label style="width:100%;">
-                        <span class="form-label">Back-Channel Logout URI (OIDC)</span>
+                        <span class="form-label">${t.label_bcl_uri}</span>
                         <input type="url" name="backchannel_logout_uri" placeholder="https://app.example.com/backchannel-logout" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem;" />
-                        <small style="display:block; color:#64748b; margin-top:0.35rem;">Optional. The IdP POSTs a signed logout_token here on logout so the RP ends its own session (Single Logout).</small>
+                        <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_bcl_uri}</small>
                     </label>
 
                     <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
-                        <span class="form-label">Client Secret (OIDC)</span>
+                        <span class="form-label">${t.label_client_secret}</span>
                         <input type="text" id="edit-secret" readonly onclick="this.select()" style="width:100%; font-family:monospace; font-size:0.85rem; background:#fff;" />
                         <small id="edit-secret-note" style="display:block; color:#64748b; margin-top:0.35rem;"></small>
                         <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
-                            <button type="button" onclick="appSecretAction('regenerate')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 Regenerate</button>
-                            <button type="button" onclick="appSecretAction('clear')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">Make public (SPA)</button>
+                            <button type="button" onclick="appSecretAction('regenerate')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 ${t.btn_regenerate_secret}</button>
+                            <button type="button" onclick="appSecretAction('clear')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">${t.btn_make_public}</button>
                         </div>
                     </div>
 
