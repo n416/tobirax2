@@ -47,9 +47,10 @@ your users, groups and permissions in your own D1 database.
 |---|---|
 | `GET /.well-known/openid-configuration` | Discovery document |
 | `GET /.well-known/jwks.json` | Public signing keys (RS256) |
-| `GET /authorize` | Authorization Code flow (PKCE: S256 / plain; `prompt`, `max_age`) |
-| `POST /oauth/token` | `authorization_code` + `refresh_token` grants |
+| `GET /authorize` | Authorization Code flow (PKCE: S256 / plain; `prompt`, `max_age`, `login_hint`) |
+| `POST /oauth/token` | `authorization_code` + `refresh_token` grants (`refresh_token` issued only with `offline_access`) |
 | `POST /oauth/revoke` | Token revocation (RFC 7009; access or refresh token) |
+| `POST /oauth/introspect` | Token introspection (RFC 7662; client-authenticated) |
 | `GET\|POST /userinfo` | OIDC claims for a Bearer access_token |
 | `GET\|POST /oidc/logout` | RP-initiated logout (`post_logout_redirect_uri` / `returnTo`, `id_token_hint`, `state`); also revokes the user's tokens |
 
