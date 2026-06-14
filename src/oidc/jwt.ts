@@ -42,10 +42,13 @@ async function getSigningKey(db: D1Database, kek?: string): Promise<{ kid: strin
   return signingKeyCache
 }
 
-/** Sign a JWT with RS256 using the database-backed mock key. */
-export async function signRS256(payload: Record<string, unknown>, db: D1Database, kek?: string): Promise<string> {
+/**
+ * Sign a JWT with RS256 using the database-backed mock key. `typ` defaults to
+ * `JWT`; pass `logout+jwt` for OIDC Back-Channel Logout tokens (spec §2.4).
+ */
+export async function signRS256(payload: Record<string, unknown>, db: D1Database, kek?: string, typ = 'JWT'): Promise<string> {
   const { kid, key } = await getSigningKey(db, kek)
-  const header = { alg: 'RS256', typ: 'JWT', kid }
+  const header = { alg: 'RS256', typ, kid }
   const signingInput = `${strToBase64Url(JSON.stringify(header))}.${strToBase64Url(JSON.stringify(payload))}`
   const sig = await crypto.subtle.sign(
     'RSASSA-PKCS1-v1_5',

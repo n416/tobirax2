@@ -715,6 +715,10 @@ app.get('/.well-known/openid-configuration', (c) => {
         userinfo_endpoint: `${issuer}/userinfo`,
         jwks_uri: `${issuer}/.well-known/jwks.json`,
         end_session_endpoint: `${issuer}/oidc/logout`,
+        // OIDC Back-Channel Logout 1.0: we POST a logout_token to each RP's
+        // registered endpoint. Subject-based (no sid), so session_supported=false.
+        backchannel_logout_supported: true,
+        backchannel_logout_session_supported: false,
         revocation_endpoint: `${issuer}/oauth/revoke`,
         revocation_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
         introspection_endpoint: `${issuer}/oauth/introspect`,
@@ -912,10 +916,57 @@ app.on(['GET', 'POST'], '/userinfo', async (c) => {
     })
 })
 
+// OIDC Back-Channel Logout 1.0 §2.4: a logout_token is a signed JWT carrying
+// the `events` member and identifying the subject. We log out by subject (we
+// revoke all of the user's app_sessions), so we omit `sid` and advertise
+// backchannel_logout_session_supported:false — the RP logs the user out of all
+// of its sessions for this sub.
+async function backchannelLogoutToken(c: any, issuer: string, clientId: string, userId: string): Promise<string> {
+    return signRS256({
+        iss: issuer,
+        aud: clientId,
+        sub: userId,
+        iat: Math.floor(Date.now() / 1000),
+        jti: generateToken(),
+        events: { 'http://schemas.openid.net/event/backchannel-logout': {} },
+    }, c.env.DB, c.env.OIDC_KEK, 'logout+jwt')
+}
+
+// Notify every RP the user is signed into that has a registered
+// backchannel_logout_uri. Same-account Workers can't be reached by a direct
+// fetch to their *.workers.dev host (Cloudflare error 1042), so when a service
+// binding named RP_<APP_ID> exists we route through it; external RPs use fetch.
+// Best-effort with a short timeout — logout must not hang on an unreachable RP.
+async function sendBackchannelLogouts(c: any, issuer: string, userId: string): Promise<void> {
+    const { results } = await c.env.DB.prepare(
+        `SELECT DISTINCT a.id AS app_id, a.backchannel_logout_uri AS uri
+           FROM app_sessions s JOIN apps a ON a.id = s.app_id
+          WHERE s.user_id = ? AND a.backchannel_logout_uri IS NOT NULL AND a.backchannel_logout_uri != ''`
+    ).bind(userId).all() as any
+    const targets = (results as any[]) || []
+    if (targets.length === 0) return
+    await Promise.allSettled(targets.map(async (t: any) => {
+        const logoutToken = await backchannelLogoutToken(c, issuer, t.app_id, userId)
+        const bindingName = 'RP_' + String(t.app_id).toUpperCase().replace(/[^A-Z0-9]/g, '_')
+        const fetcher = (c.env as any)[bindingName]?.fetch ? (c.env as any)[bindingName] : { fetch }
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 4000)
+        try {
+            await fetcher.fetch(t.uri, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ logout_token: logoutToken }).toString(),
+                signal: ctrl.signal,
+            })
+        } catch { /* RP unreachable — best effort */ } finally { clearTimeout(timer) }
+    }))
+}
+
 // RP-initiated logout (OIDC RP-Initiated Logout 1.0). Supports GET and POST.
 // Params: post_logout_redirect_uri (+ Auth0-style returnTo alias), id_token_hint,
 // state. Ends the browser SSO session AND revokes the user's issued OIDC tokens
-// (app_sessions), so logout actually invalidates access/refresh tokens.
+// (app_sessions), so logout actually invalidates access/refresh tokens. Also
+// fires OIDC Back-Channel Logout to every RP the user is signed into.
 app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
     // Read params from the query string and, for POST form posts, the body.
     const q = c.req.query()
@@ -951,6 +1002,11 @@ app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
         }
     }
 
+    // Back-Channel Logout: notify each RP the user is signed into BEFORE we drop
+    // the app_sessions (we read them to know which RPs to reach).
+    if (userId) {
+        try { await sendBackchannelLogouts(c, new URL(c.req.url).origin, userId) } catch (e) { }
+    }
     // #9: revoke this user's OIDC tokens so access/refresh stop working.
     if (userId) {
         try { await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(userId).run() } catch (e) { }
@@ -1106,8 +1162,9 @@ app.post('/admin/apps', async (c) => {
     const clientSecret = generateToken() + generateToken().replace(/-/g, '')
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
-    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris).run()
+    const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
+    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri).run()
 
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
@@ -1143,8 +1200,9 @@ app.post('/admin/apps/update', async (c) => {
     const iconUrl = iconData || (body['icon_url'] as string) || await fetchAppIcon(body['base_url'] as string)
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
-    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ? WHERE id = ?')
-        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, id).run()
+    const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ?, backchannel_logout_uri = ? WHERE id = ?')
+        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, id).run()
         
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: body['name'], status: 'Updated', admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()

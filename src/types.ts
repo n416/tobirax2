@@ -31,6 +31,7 @@ export interface App {
   created_at: number
   client_secret?: string | null // null/undefined = public client (PKCE)
   redirect_uris?: string | null // newline-separated exact redirect_uris (OIDC); empty = base_url origin fallback
+  backchannel_logout_uri?: string | null // OIDC Back-Channel Logout 1.0: RP logout endpoint
 }
 
 export interface Session {

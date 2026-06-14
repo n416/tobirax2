@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS apps (
     -- OIDC: newline-separated list of exact redirect_uris. When set, redirect_uri
     -- must match one of these exactly (spec-correct). When NULL/empty, falls back
     -- to origin matching against base_url (legacy).
-    redirect_uris TEXT
+    redirect_uris TEXT,
+    -- OIDC Back-Channel Logout 1.0: the RP's logout endpoint. When set, /oidc/logout
+    -- POSTs a signed logout_token here so the RP can kill its own session too.
+    backchannel_logout_uri TEXT
 );
 
 CREATE TABLE IF NOT EXISTS groups (
