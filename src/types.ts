@@ -2,6 +2,9 @@ export interface Env {
   DB: D1Database
   RESEND_API_KEY?: string
   JWT_SECRET: string
+  // Key-encryption-key for the OIDC signing private key at rest (see oidc/keys.ts).
+  // Set as a Worker secret in production; falls back to a dev value locally.
+  OIDC_KEK?: string
 }
 
 export interface User {

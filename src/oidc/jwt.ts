@@ -19,8 +19,8 @@ function strToBase64Url(str: string): string {
 // Cache the imported CryptoKey per isolate, keyed by kid.
 let signingKeyCache: { kid: string; key: CryptoKey } | null = null
 
-async function getSigningKey(db: D1Database): Promise<{ kid: string; key: CryptoKey }> {
-  const { kid, privateJwk } = await getOidcKeys(db)
+async function getSigningKey(db: D1Database, kek?: string): Promise<{ kid: string; key: CryptoKey }> {
+  const { kid, privateJwk } = await getOidcKeys(db, kek)
   if (signingKeyCache && signingKeyCache.kid === kid) return signingKeyCache
   const key = await crypto.subtle.importKey(
     'jwk',
@@ -34,8 +34,8 @@ async function getSigningKey(db: D1Database): Promise<{ kid: string; key: Crypto
 }
 
 /** Sign a JWT with RS256 using the database-backed mock key. */
-export async function signRS256(payload: Record<string, unknown>, db: D1Database): Promise<string> {
-  const { kid, key } = await getSigningKey(db)
+export async function signRS256(payload: Record<string, unknown>, db: D1Database, kek?: string): Promise<string> {
+  const { kid, key } = await getSigningKey(db, kek)
   const header = { alg: 'RS256', typ: 'JWT', kid }
   const signingInput = `${strToBase64Url(JSON.stringify(header))}.${strToBase64Url(JSON.stringify(payload))}`
   const sig = await crypto.subtle.sign(

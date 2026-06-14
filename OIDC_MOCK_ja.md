@@ -110,8 +110,17 @@ AUTH0_BASE_URL=http://localhost:3000
 
 RS256 の鍵ペアは初回利用時に生成され、`system_config` テーブル（`oidc_keys`
 行）に保存されます。データベースごとに固有で、ソースには含まれません。
+
+**保存時の多層防御**：
+- **秘密鍵は AES-256-GCM で暗号化**して保存します。鍵（KEK）は `OIDC_KEK`
+  シークレット（本番は `wrangler secret put OIDC_KEK`、ローカルは未設定時に
+  開発用の既定値）から SHA-256 で導出します。→ **DBだけが漏れても署名鍵は
+  復号できません**（バックアップ流出や読み取り専用トークン漏洩に対する一段の砦）。
+- 公開鍵と `kid` は JWKS で公開する情報なので平文のまま保存します。
+
 ローテーション（既存トークンを無効化）するには、行を削除すれば次のリクエストで
-再生成されます：
+再生成されます。`OIDC_KEK` を変更した場合も、旧封筒が復号できなくなるため自動で
+再生成されます。
 
 ```bash
 npx wrangler d1 execute tobira-mock-db --local --command "DELETE FROM system_config WHERE key='oidc_keys';"

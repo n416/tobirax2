@@ -525,7 +525,7 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         email_verified: true,
         name: user.email,
         preferred_username: user.email,
-    }, c.env.DB)
+    }, c.env.DB, c.env.OIDC_KEK)
 
     return c.json({
         access_token: accessToken,
@@ -558,7 +558,7 @@ app.get('/.well-known/openid-configuration', (c) => {
 })
 
 app.get('/.well-known/jwks.json', async (c) => {
-    const { kid, publicJwk } = await getOidcKeys(c.env.DB)
+    const { kid, publicJwk } = await getOidcKeys(c.env.DB, c.env.OIDC_KEK)
     return c.json({ keys: [{ ...publicJwk, alg: 'RS256', use: 'sig', kid }] })
 })
 
