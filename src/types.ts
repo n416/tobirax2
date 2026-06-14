@@ -2,8 +2,8 @@ export interface Env {
   DB: D1Database
   RESEND_API_KEY?: string
   JWT_SECRET: string
-  // Key-encryption-key for the OIDC signing private key at rest (see oidc/keys.ts).
-  // Set as a Worker secret in production; falls back to a dev value locally.
+  // OIDC 署名用秘密鍵を保存時に暗号化するための鍵暗号化鍵(KEK)(oidc/keys.ts 参照)。
+  // 本番では Worker のシークレットとして設定し、ローカルでは開発用の値にフォールバックする。
   OIDC_KEK?: string
 }
 
@@ -29,16 +29,16 @@ export interface App {
   icon_url?: string
   description?: string
   created_at: number
-  client_secret?: string | null // null/undefined = public client (PKCE)
-  redirect_uris?: string | null // newline-separated exact redirect_uris (OIDC); empty = base_url origin fallback
-  backchannel_logout_uri?: string | null // OIDC Back-Channel Logout 1.0: RP logout endpoint
+  client_secret?: string | null // null/undefined = パブリッククライアント(PKCE)
+  redirect_uris?: string | null // 改行区切りの完全一致 redirect_uris(OIDC)。空なら base_url のオリジン照合にフォールバック
+  backchannel_logout_uri?: string | null // OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント
 }
 
 export interface Session {
   id: string
   user_id: string
   expires_at: number
-  // OIDC: actual end-user authentication time (unix seconds).
+  // OIDC: エンドユーザーが実際に認証した時刻(unix秒)。
   auth_time?: number | null
 }
 
@@ -64,13 +64,13 @@ export interface AuthCode {
   app_id: string
   expires_at: number
   used_at?: number
-  // OIDC authorization request context
+  // OIDC 認可リクエストのコンテキスト
   nonce?: string | null
   code_challenge?: string | null
   code_challenge_method?: string | null
   redirect_uri?: string | null
   scope?: string | null
-  // OIDC: end-user auth_time carried from the session at /authorize time.
+  // OIDC: /authorize 時にセッションから引き継いだエンドユーザーの auth_time。
   auth_time?: number | null
 }
 

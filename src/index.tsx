@@ -30,13 +30,12 @@ import { dict } from './i18n'
 
 const app = new Hono<{ Bindings: Env }>()
 
-// CSRF protects the HTML form routes. The OIDC machine endpoints
-// (/oauth/token, /userinfo) and the legacy JSON API are called
-// cross-origin by SDKs/backends, so they are exempt. /authorize is a
-// GET and not guarded by csrf() anyway.
-// /oidc/logout is RP-initiated (inherently cross-site, and may be POSTed per
-// OIDC RP-Initiated Logout). /oauth/revoke (RFC 7009) is a machine endpoint
-// called by RP backends. Both are exempt like the other OIDC endpoints.
+// CSRF は HTML フォーム系ルートを保護する。OIDC のマシン向けエンドポイント
+// (/oauth/token, /userinfo) や旧来の JSON API は SDK/バックエンドからクロスオリジンで
+// 呼ばれるため除外する。/authorize は GET なのでそもそも csrf() の対象外。
+// /oidc/logout は RP起点(本質的にクロスサイトで、OIDC RP-Initiated Logout に従い POST
+// されることもある)。/oauth/revoke (RFC 7009) は RP バックエンドが呼ぶマシン向け
+// エンドポイント。いずれも他の OIDC エンドポイント同様に除外する。
 const oidcCsrfExempt = (path: string) =>
     path === '/oauth/token' || path === '/oauth/revoke' || path === '/oauth/introspect' ||
     path === '/register' ||
@@ -77,11 +76,11 @@ function getLocalizedValue(c: any, text: LocalizedText): string {
     return accept.includes('ja') ? text.ja : text.en
 }
 
-// Helper for Icon Upload
+// アイコンアップロード用ヘルパー
 async function handleIconUpload(body: any): Promise<string | null> {
     const file = body['icon_file'];
     if (file && file instanceof File && file.size > 0) {
-        // D1 limit check (safe margin)
+        // D1 のサイズ上限チェック(安全マージン)
         if (file.size > 1024 * 150) {
             console.warn('Icon file too large:', file.size);
             return null; 
@@ -99,7 +98,7 @@ async function handleIconUpload(body: any): Promise<string | null> {
 }
 
 // ------------------------------------------------------------------
-// Permissions Logic
+// 権限ロジック
 // ------------------------------------------------------------------
 async function checkPermission(c: any, userId: string, appId: string): Promise<{ allowed: boolean, reason?: string }> {
     const now = Math.floor(Date.now() / 1000)
@@ -127,9 +126,9 @@ async function checkPermission(c: any, userId: string, appId: string): Promise<{
     return { allowed: false, reason: 'No permission found' }
 }
 
-// Fixed-window per-key rate limiter backed by D1. Returns true if allowed.
-// (Cloudflare's native rate-limit binding is best-effort/eventually-consistent
-// and was not enforcing reliably here, so we keep an authoritative counter.)
+// D1 を使ったキー別の固定ウィンドウ・レートリミッター。許可なら true を返す。
+// (Cloudflare ネイティブの rate-limit バインディングはベストエフォート/結果整合で、
+// ここでは確実に効いていなかったため、権威ある(authoritative)カウンタを自前で持つ。)
 async function rateLimit(db: D1Database, key: string, limit: number, windowSec: number): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000)
     const row = await db.prepare('SELECT count, reset_at FROM rate_limits WHERE k = ?')
@@ -162,8 +161,8 @@ async function getUser(c: any) {
     return await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
 }
 
-// Fetch the current (unexpired) session row, including auth_time. Used where we
-// need the authentication time, not just the user (OIDC /authorize).
+// 現在の(未失効の)セッション行を auth_time 込みで取得する。ユーザーだけでなく
+// 認証時刻が必要な箇所(OIDC /authorize)で使う。
 async function getSessionRow(c: any): Promise<Session | null> {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
@@ -171,8 +170,8 @@ async function getSessionRow(c: any): Promise<Session | null> {
         .bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
 }
 
-// Create a fresh login session and set its cookie. Records auth_time (the real
-// authentication moment) so OIDC auth_time / max_age / prompt=login work.
+// 新しいログインセッションを作成し Cookie を設定する。auth_time(実際の認証時刻)を
+// 記録するので OIDC の auth_time / max_age / prompt=login が機能する。
 async function createSession(c: any, userId: string): Promise<void> {
     const sessionId = generateToken()
     const now = Math.floor(Date.now() / 1000)
@@ -182,21 +181,21 @@ async function createSession(c: any, userId: string): Promise<void> {
     setCookie(c, '__Host-idp_session', sessionId, getCookieOptions(expires))
 }
 
-// Parse a client's registered redirect_uris (newline-separated) into a list.
+// クライアントに登録された redirect_uris(改行区切り)を配列にパースする。
 function parseRedirectUris(raw: string | null | undefined): string[] {
     return (raw || '').split(/[\r\n]+/).map(s => s.trim()).filter(Boolean)
 }
 
-// Validate a requested redirect_uri against a registered client.
+// 要求された redirect_uri を登録済みクライアントに対して検証する。
 //
-// Preferred path (OIDC Core 3.1.2.1): if the client has an explicit list of
-// redirect_uris registered, the request must match one of them by exact string
-// comparison. This is the spec-correct behaviour.
+// 推奨経路(OIDC Core 3.1.2.1): クライアントに明示的な redirect_uris のリストが
+// 登録されていれば、要求はそのいずれかと完全一致(文字列比較)しなければならない。
+// これが仕様に忠実な挙動。
 //
-// Legacy fallback: clients registered before redirect_uris existed only have a
-// base_url. For those we require the origin to match exactly and allow any path
-// at or below base_url's path. The exact-origin check still closes the
-// prefix-match hole (e.g. "https://app.example.evil.com" / "...@evil.com").
+// 旧方式のフォールバック: redirect_uris 導入前に登録されたクライアントは base_url
+// しか持たない。その場合はオリジンの完全一致を要求し、base_url のパス以下の任意パスを
+// 許可する。オリジン完全一致のチェックにより、前方一致の穴
+// (例: "https://app.example.evil.com" / "...@evil.com")は塞がれる。
 function isAllowedRedirectUri(redirectUri: string, app: { base_url: string; redirect_uris?: string | null }): boolean {
     const registered = parseRedirectUris(app.redirect_uris)
     if (registered.length > 0) return registered.includes(redirectUri)
@@ -208,7 +207,7 @@ function isAllowedRedirectUri(redirectUri: string, app: { base_url: string; redi
     } catch {
         return false
     }
-    // Only http(s) redirect targets are permitted.
+    // リダイレクト先は http(s) のみ許可。
     if (redir.protocol !== 'https:' && redir.protocol !== 'http:') return false
     if (redir.origin !== base.origin) return false
     const basePath = base.pathname.replace(/\/+$/, '')
@@ -217,7 +216,7 @@ function isAllowedRedirectUri(redirectUri: string, app: { base_url: string; redi
 }
 
 // ------------------------------------------------------------------
-// Routes
+// ルート
 // ------------------------------------------------------------------
 
 app.get('/', async (c) => {
@@ -255,11 +254,10 @@ app.get('/login', async (c) => {
     const msgKey = c.req.query('msg')
     // @ts-ignore
     const message = msgKey && t[msgKey] ? t[msgKey] : undefined
-    // OIDC prompt=login / max_age forces re-authentication: /authorize sends us
-    // here with reauth=1 so we show the form instead of silently reusing the
-    // still-valid SSO session.
+    // OIDC の prompt=login / max_age は再認証を強制する: /authorize は reauth=1 付きで
+    // ここへ送ってくるので、まだ有効な SSO セッションを黙って再利用せずフォームを表示する。
     const reauth = c.req.query('reauth') === '1'
-    // OIDC login_hint: RP-supplied identifier to pre-fill the email field.
+    // OIDC login_hint: メール欄を初期表示するために RP が提供する識別子。
     const loginHint = c.req.query('login_hint')
 
     const user = await getUser(c)
@@ -279,7 +277,7 @@ app.post('/login', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
 
-    // Per-IP rate limit to slow down password brute-forcing.
+    // パスワード総当たりを遅らせるための IP 別レート制限。
     const loginIp = c.req.header('CF-Connecting-IP') || 'unknown'
     if (!(await rateLimit(c.env.DB, `login:${loginIp}`, 10, 60))) {
         return c.html(<Login t={t} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
@@ -296,7 +294,7 @@ app.post('/login', async (c) => {
         return c.html(<Login t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
     }
 
-    // 2FA Check
+    // 2要素認証(2FA)チェック
     if (user.two_factor_secret) {
         const secret = c.env.JWT_SECRET || 'dev_secret'
         const token = await sign({ sub: user.id, role: 'pre_2fa', exp: Math.floor(Date.now() / 1000) + 300 }, secret)
@@ -330,10 +328,10 @@ app.post('/login', async (c) => {
     return c.redirect(admin ? '/admin' : '/')
 })
 
-// --- Self-service signup ---
-// Open registration. New users are optionally placed into a default group
-// (system_config key 'signup_group_id') so they immediately inherit that
-// group's app permissions — used to grant public-demo access automatically.
+// --- セルフサービス新規登録 ---
+// オープン登録。新規ユーザーは任意で既定グループ(system_config キー 'signup_group_id')に
+// 配置され、そのグループのアプリ権限を即座に継承する — 公開デモへのアクセスを自動付与する
+// ために使う。
 app.get('/signup', async (c) => {
     const t = getLang(c)
     const config = await getSystemConfig(c.env.DB)
@@ -364,7 +362,7 @@ app.post('/signup', async (c) => {
 
     const view = (error: string) => c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} error={error} siteName={siteName} siteSubtitle={siteSubtitle} />)
 
-    // Per-IP rate limit to curb automated mass signups.
+    // 自動化された大量登録を抑えるための IP 別レート制限。
     const signupIp = c.req.header('CF-Connecting-IP') || 'unknown'
     if (!(await rateLimit(c.env.DB, `signup:${signupIp}`, 5, 60))) {
         return c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
@@ -375,7 +373,7 @@ app.post('/signup', async (c) => {
     const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
     if (existing) return view(t.error_user_exists)
 
-    // Optional default group → inherits that group's app permissions.
+    // 任意の既定グループ → そのグループのアプリ権限を継承する。
     const grpRow = await c.env.DB.prepare("SELECT value FROM system_config WHERE key = 'signup_group_id'").first<{ value: string }>()
     const groupId = grpRow?.value || null
 
@@ -392,7 +390,7 @@ app.post('/signup', async (c) => {
     const details = JSON.stringify({ key: 'log_login', params: { email } })
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SIGNUP', details).run()
 
-    // Auto-login the freshly created account.
+    // 作成したばかりのアカウントを自動ログインする。
     await createSession(c, userId)
 
     if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
@@ -434,8 +432,8 @@ app.get('/logout', async (c) => {
     return c.redirect('/login')
 })
 
-// ... (2FA, Password Reset routes omitted for brevity but should be here. Assuming they are standard) ...
-// NOTE: For full restore, we include all standard routes.
+// ... (2FA・パスワードリセットのルートは簡潔さのため省略表記だが、ここに存在する想定。標準的な実装) ...
+// 注: 完全復元のため、標準的なルートはすべて含める。
 
 app.get('/user/2fa/setup', async (c) => {
     const user = await getUser(c)
@@ -486,8 +484,8 @@ app.post('/change-password', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PASSWORD_CHANGE', details).run()
     return c.html(<ChangePassword t={getLang(c)} message={getLang(c).msg_password_changed} />)
 })
-// Self-service OIDC profile (name / preferred_username / picture). Blank = unset
-// (falls back to email in claims).
+// セルフサービスの OIDC プロフィール(name / preferred_username / picture)。
+// 空欄 = 未設定(クレームでは email にフォールバック)。
 app.post('/user/profile', async (c) => {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
@@ -501,7 +499,7 @@ app.post('/user/profile', async (c) => {
     return c.redirect('/')
 })
 
-// --- API Token ---
+// --- API トークン ---
 app.get('/api/me', async (c) => {
     const authHeader = c.req.header('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) return bearerUnauthorized(c)
@@ -546,19 +544,19 @@ app.post('/api/refresh', async (c) => {
 })
 
 // ------------------------------------------------------------------
-// OIDC (Auth0-compatible mock surface)
+// OIDC (Auth0 互換のモック面)
 //
-// Relying parties register as "apps" in the admin UI:
+// リライングパーティ(RP)は管理画面で「アプリ」として登録される:
 //   - app.id       == client_id
-//   - app.base_url == registered origin (+ optional path) the redirect_uri
-//                     must match; see isAllowedRedirectUri
-// tobira's per-app permission gate is enforced at /authorize.
-// access_token is opaque (looked up at /userinfo); id_token is a
-// real RS256 JWT verifiable via /.well-known/jwks.json.
+//   - app.base_url == redirect_uri が一致すべき登録オリジン(+任意パス)。
+//                     isAllowedRedirectUri を参照
+// tobira のアプリ別権限ゲートは /authorize で適用される。
+// access_token は不透明(/userinfo で引き当てる)。id_token は
+// /.well-known/jwks.json で検証できる本物の RS256 JWT。
 // ------------------------------------------------------------------
 
-// return_to is used to resume /authorize after an interactive login.
-// Only same-origin /authorize paths are allowed (no open redirect).
+// return_to は対話的ログイン後に /authorize を再開するために使う。
+// 同一オリジンの /authorize パスのみ許可(オープンリダイレクト防止)。
 function isSafeReturnTo(v: string | undefined | null): boolean {
     return typeof v === 'string' && v.startsWith('/authorize')
 }
@@ -574,9 +572,9 @@ function tokenError(c: any, error: string, description: string, status: 400 | 40
     return c.json({ error, error_description: description }, status)
 }
 
-// RFC 6750 §3: Bearer-protected resources must answer a failed request with a
-// WWW-Authenticate challenge. When no credentials were supplied at all, the
-// challenge omits the error code; an invalid/expired token gets error="invalid_token".
+// RFC 6750 §3: Bearer で保護されたリソースは、失敗したリクエストに WWW-Authenticate
+// チャレンジを返さなければならない。認証情報が一切無い場合はチャレンジから error コードを
+// 省略し、無効/失効トークンには error="invalid_token" を付ける。
 function bearerUnauthorized(c: any, error?: string, description?: string) {
     let challenge = 'Bearer realm="tobira"'
     if (error) {
@@ -587,7 +585,7 @@ function bearerUnauthorized(c: any, error?: string, description?: string) {
     return c.json({ error: error || 'invalid_request', error_description: description }, 401)
 }
 
-// Constant-time string comparison (avoids leaking the secret via timing).
+// 定数時間の文字列比較(タイミングによるシークレット漏洩を防ぐ)。
 function safeEqual(a: string, b: string): boolean {
     if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false
     let r = 0
@@ -595,9 +593,9 @@ function safeEqual(a: string, b: string): boolean {
     return r === 0
 }
 
-// OIDC client authentication for the token endpoint.
-// Confidential client (a secret is registered) -> secret required & must match.
-// Public client (no secret registered) -> PKCE must have been used.
+// トークンエンドポイント向けの OIDC クライアント認証。
+// 機密クライアント(シークレット登録済み) -> シークレット必須かつ一致が必要。
+// パブリッククライアント(シークレット未登録) -> PKCE が使われていなければならない。
 async function authenticateClient(
     c: any, appId: string, providedSecret: string | undefined, usedPkce: boolean
 ): Promise<{ ok: true } | { ok: false; res: Response }> {
@@ -613,7 +611,7 @@ async function authenticateClient(
     return { ok: true }
 }
 
-// Extract client_secret_basic credentials from the Authorization header, if any.
+// Authorization ヘッダから client_secret_basic の資格情報を(あれば)取り出す。
 function parseBasicAuth(c: any): { clientId?: string; secret?: string } {
     const authz = c.req.header('Authorization')
     if (!authz || !authz.startsWith('Basic ')) return {}
@@ -635,9 +633,9 @@ async function parseClientBody(c: any): Promise<Record<string, string>> {
     return out
 }
 
-// Map a granted scope string to OIDC claims (OIDC Core 5.4). Only the standard
-// claims for the granted scopes are returned, so an `openid`-only request does
-// not leak email/profile data. Profile fields fall back to email when unset.
+// 付与された scope 文字列を OIDC クレームへマッピングする(OIDC Core 5.4)。付与された
+// scope に対応する標準クレームのみ返すので、`openid` のみの要求では email/profile が
+// 漏れない。プロフィール項目は未設定なら email にフォールバックする。
 function buildOidcClaims(user: User, scope: string | null): Record<string, unknown> {
     const scopes = (scope || '').split(/\s+/).filter(Boolean)
     const claims: Record<string, unknown> = {}
@@ -654,7 +652,7 @@ function buildOidcClaims(user: User, scope: string | null): Record<string, unkno
     return claims
 }
 
-// OIDC at_hash: base64url(left-most 128 bits of SHA-256(access_token)).
+// OIDC at_hash: base64url(SHA-256(access_token) の左側 128 ビット)。
 async function computeAtHash(accessToken: string): Promise<string> {
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(accessToken)))
     const half = digest.slice(0, 16)
@@ -667,13 +665,12 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
     const now = Math.floor(Date.now() / 1000)
     const expiresIn = 3600
     const grantedScope = scope || 'openid'
-    // OIDC Core 11: a refresh token is only issued when the client was granted
-    // the `offline_access` scope. We still store a refresh_token on the row
-    // (column is NOT NULL) but only return it when offline_access was granted —
-    // an un-returned token can never be presented, so it is effectively unissued.
+    // OIDC Core 11: refresh token は `offline_access` scope が付与された場合のみ発行する。
+    // 行には常に refresh_token を保存する(列が NOT NULL のため)が、offline_access が
+    // 付与されたときだけ返す — 返さないトークンは提示しようがないので、実質未発行となる。
     const offlineAccess = grantedScope.split(/\s+/).includes('offline_access')
-    // Real end-user authentication time. Falls back to now only for legacy codes
-    // / sessions issued before auth_time was tracked.
+    // 実際のエンドユーザー認証時刻。auth_time 追跡前の旧 code / セッションに限り now に
+    // フォールバックする。
     const effectiveAuthTime = authTime ?? now
     const accessToken = generateToken()
     const refreshToken = generateToken()
@@ -681,9 +678,9 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn, grantedScope, effectiveAuthTime).run()
 
     const issuer = new URL(c.req.url).origin
-    // OIDC Core 3.1.3.6: at_hash = base64url(left-most half of SHA-256(access_token)).
-    // RS256 → SHA-256, so the half is the first 16 bytes. Lets the RP bind the
-    // id_token to this access_token.
+    // OIDC Core 3.1.3.6: at_hash = base64url(SHA-256(access_token) の左半分)。
+    // RS256 → SHA-256 なので左半分は先頭 16 バイト。RP がこの access_token と id_token を
+    // 結びつけられるようにする。
     const atHash = await computeAtHash(accessToken)
     const idToken = await signRS256({
         iss: issuer,
@@ -716,15 +713,15 @@ app.get('/.well-known/openid-configuration', (c) => {
         userinfo_endpoint: `${issuer}/userinfo`,
         jwks_uri: `${issuer}/.well-known/jwks.json`,
         end_session_endpoint: `${issuer}/oidc/logout`,
-        // OIDC Back-Channel Logout 1.0: we POST a logout_token to each RP's
-        // registered endpoint. Subject-based (no sid), so session_supported=false.
+        // OIDC Back-Channel Logout 1.0: 各 RP の登録エンドポイントへ logout_token を
+        // POST する。subject ベース(sid なし)なので session_supported=false。
         backchannel_logout_supported: true,
         backchannel_logout_session_supported: false,
         revocation_endpoint: `${issuer}/oauth/revoke`,
         revocation_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
         introspection_endpoint: `${issuer}/oauth/introspect`,
         introspection_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
-        // RFC 7591 Dynamic Client Registration (protected: needs an Initial Access Token).
+        // RFC 7591 動的クライアント登録(保護付き: Initial Access Token が必要)。
         registration_endpoint: `${issuer}/register`,
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
@@ -758,10 +755,9 @@ app.get('/authorize', async (c) => {
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'unsupported_response_type', error_description: 'only response_type=code is supported', state }))
     }
 
-    // PKCE: only S256 is accepted. `plain` is abolished (OAuth 2.1 / RFC 7636
-    // security BCP). A supplied code_challenge MUST carry an explicit S256
-    // method — a missing method historically defaulted to `plain` (RFC 7636
-    // §4.3), which we no longer allow either.
+    // PKCE: S256 のみ受理。`plain` は廃止済み(OAuth 2.1 / RFC 7636 のセキュリティBCP)。
+    // code_challenge を渡す場合は明示的に S256 メソッドを伴う必要がある — メソッド省略は
+    // 従来 `plain` の既定だった(RFC 7636 §4.3)が、それも許可しない。
     if (q.code_challenge && q.code_challenge_method !== 'S256') {
         return c.redirect(buildRedirect(redirectUri, responseMode, {
             error: 'invalid_request',
@@ -770,16 +766,16 @@ app.get('/authorize', async (c) => {
         }))
     }
 
-    // OIDC Core 3.1.2.1: prompt + max_age drive whether we (re-)authenticate.
+    // OIDC Core 3.1.2.1: prompt + max_age が(再)認証の要否を決める。
     const now = Math.floor(Date.now() / 1000)
     const promptValues = (q.prompt || '').split(/\s+/).filter(Boolean)
     const promptNone = promptValues.includes('none')
-    // We have no consent UI, so prompt=consent is a no-op; login/select_account
-    // both mean "make the user authenticate again".
+    // 同意(consent)UI が無いので prompt=consent は何もしない。login/select_account は
+    // どちらも「ユーザーを再度認証させる」を意味する。
     const forceLogin = promptValues.includes('login') || promptValues.includes('select_account')
     const maxAge = /^\d+$/.test(q.max_age || '') ? parseInt(q.max_age, 10) : null
 
-    // Require an authenticated session; bounce to login and resume here.
+    // 認証済みセッションを要求。無ければログインへ飛ばし、ここに戻って再開する。
     const session = await getSessionRow(c)
     const user = session
         ? await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
@@ -789,7 +785,7 @@ app.get('/authorize', async (c) => {
     const needReauth = !user || forceLogin || maxAgeExceeded
 
     if (needReauth) {
-        // prompt=none forbids any UI: report back instead of showing a login form.
+        // prompt=none は一切の UI を禁止する: ログインフォームを出さずエラーを返す。
         if (promptNone) {
             return c.redirect(buildRedirect(redirectUri, responseMode, {
                 error: 'login_required',
@@ -797,19 +793,19 @@ app.get('/authorize', async (c) => {
                 state,
             }))
         }
-        // Resume this exact request after login, but strip `prompt` so the
-        // resumed authorize doesn't force login again and loop. max_age is kept:
-        // a fresh session naturally satisfies it. `reauth=1` tells /login not to
-        // silently reuse the still-valid session (prompt=login / stale max_age).
+        // ログイン後にこのリクエストをそのまま再開する。ただし `prompt` は除去する。
+        // 再開後の authorize が再びログインを強制してループしないようにするため。max_age は
+        // 残す: 新しいセッションなら自然に満たされる。`reauth=1` は /login に対し、まだ有効な
+        // セッションを黙って再利用しないよう伝える(prompt=login / max_age 超過時)。
         const resume = new URL(c.req.url)
         resume.searchParams.delete('prompt')
         const returnTo = '/authorize' + resume.search
-        // Carry login_hint to /login so the email field is pre-filled (OIDC 3.1.2.1).
+        // login_hint を /login へ渡し、メール欄を初期表示する(OIDC 3.1.2.1)。
         const hint = q.login_hint ? '&login_hint=' + encodeURIComponent(q.login_hint) : ''
         return c.redirect('/login?reauth=1' + hint + '&return_to=' + encodeURIComponent(returnTo))
     }
 
-    // Enforce tobira's per-app permission gate.
+    // tobira のアプリ別権限ゲートを適用する。
     const check = await checkPermission(c, user.id, app.id)
     if (!check.allowed) {
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'access_denied', error_description: check.reason || 'access denied', state }))
@@ -817,8 +813,8 @@ app.get('/authorize', async (c) => {
 
     const code = generateToken()
     const expires = Math.floor(Date.now() / 1000) + 300
-    // Carry the session's real auth_time into the code so the id_token reflects
-    // when the user actually authenticated (OIDC auth_time).
+    // セッションの実際の auth_time を code に持ち込み、id_token がユーザーの実認証時刻を
+    // 反映するようにする(OIDC auth_time)。
     await c.env.DB.prepare(
         'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(code, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope, session?.auth_time ?? null).run()
@@ -827,12 +823,12 @@ app.get('/authorize', async (c) => {
 })
 
 app.post('/oauth/token', async (c) => {
-    // RFC 6749 §5.1: token endpoint responses must not be cached.
+    // RFC 6749 §5.1: トークンエンドポイントの応答はキャッシュしてはならない。
     c.header('Cache-Control', 'no-store')
     c.header('Pragma', 'no-cache')
     const body = await parseClientBody(c)
 
-    // Client auth: client_secret_post (body) or client_secret_basic (header).
+    // クライアント認証: client_secret_post(ボディ)または client_secret_basic(ヘッダ)。
     let basicClientId: string | undefined
     let basicClientSecret: string | undefined
     const authz = c.req.header('Authorization')
@@ -858,10 +854,10 @@ app.post('/oauth/token', async (c) => {
 
         const clientId = body.client_id || basicClientId
         if (clientId && clientId !== ac.app_id) return tokenError(c, 'invalid_grant', 'client_id does not match the authorization code')
-        // RFC 6749 §4.1.3 / OIDC: if a redirect_uri was used in the authorization
-        // request (always true for /authorize), the token request MUST include an
-        // identical one. Previously this only checked when the client *chose* to
-        // send it, so an omitted redirect_uri silently bypassed validation.
+        // RFC 6749 §4.1.3 / OIDC: 認可リクエストで redirect_uri が使われた場合
+        // (/authorize では常に該当)、トークンリクエストにも同一のものを含めなければ
+        // ならない。以前はクライアントが送る選択をしたときだけ検証していたため、
+        // redirect_uri を省略すると検証を素通りしていた。
         if (ac.redirect_uri) {
             if (!body.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri is required')
             if (body.redirect_uri !== ac.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri does not match')
@@ -884,7 +880,7 @@ app.post('/oauth/token', async (c) => {
         if (!refreshToken) return tokenError(c, 'invalid_request', 'missing refresh_token')
         const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).first() as any
         if (!session) return tokenError(c, 'invalid_grant', 'invalid refresh_token')
-        // Public clients refresh without a secret; confidential clients must authenticate.
+        // パブリッククライアントはシークレット無しで更新可。機密クライアントは認証必須。
         const auth = await authenticateClient(c, session.app_id, providedSecret, true)
         if (!auth.ok) return auth.res
         const check = await checkPermission(c, session.user_id, session.app_id)
@@ -895,8 +891,8 @@ app.post('/oauth/token', async (c) => {
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
         await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
-        // Preserve the originally-granted scope and auth_time across the refresh,
-        // so a refreshed id_token keeps the original authentication time.
+        // 更新をまたいで当初付与の scope と auth_time を保持し、更新後の id_token が
+        // 元の認証時刻を保つようにする。
         return issueOidcTokens(c, user, session.app_id, null, (session.scope as string) || null, (session.auth_time as number) ?? null)
     }
 
@@ -912,18 +908,17 @@ app.on(['GET', 'POST'], '/userinfo', async (c) => {
     if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
     if (!user) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
-    // sub is always returned; other claims depend on the token's granted scope.
+    // sub は常に返す。その他のクレームはトークンに付与された scope に依存する。
     return c.json({
         sub: user.id,
         ...buildOidcClaims(user, (session.scope as string) || null),
     })
 })
 
-// OIDC Back-Channel Logout 1.0 §2.4: a logout_token is a signed JWT carrying
-// the `events` member and identifying the subject. We log out by subject (we
-// revoke all of the user's app_sessions), so we omit `sid` and advertise
-// backchannel_logout_session_supported:false — the RP logs the user out of all
-// of its sessions for this sub.
+// OIDC Back-Channel Logout 1.0 §2.4: logout_token は `events` メンバーを持ち subject を
+// 特定する署名付き JWT。ここでは subject 単位でログアウトする(そのユーザーの app_sessions
+// を全て失効)ので `sid` は省略し、backchannel_logout_session_supported:false を広告する
+// — RP はこの sub の自分の全セッションをログアウトする。
 async function backchannelLogoutToken(c: any, issuer: string, clientId: string, userId: string): Promise<string> {
     return signRS256({
         iss: issuer,
@@ -935,11 +930,11 @@ async function backchannelLogoutToken(c: any, issuer: string, clientId: string, 
     }, c.env.DB, c.env.OIDC_KEK, 'logout+jwt')
 }
 
-// Notify every RP the user is signed into that has a registered
-// backchannel_logout_uri. Same-account Workers can't be reached by a direct
-// fetch to their *.workers.dev host (Cloudflare error 1042), so when a service
-// binding named RP_<APP_ID> exists we route through it; external RPs use fetch.
-// Best-effort with a short timeout — logout must not hang on an unreachable RP.
+// ユーザーがログイン中の RP のうち、backchannel_logout_uri を登録しているもの全てに
+// 通知する。同一アカウントの Worker はその *.workers.dev ホストへ直接 fetch しても届かない
+// (Cloudflare エラー 1042)ため、RP_<APP_ID> という名前のサービスバインディングがあれば
+// それ経由で送り、外部 RP は通常の fetch を使う。短いタイムアウトでベストエフォート —
+// 到達不能な RP でログアウトが固まってはならない。
 async function sendBackchannelLogouts(c: any, issuer: string, userId: string): Promise<void> {
     const { results } = await c.env.DB.prepare(
         `SELECT DISTINCT a.id AS app_id, a.backchannel_logout_uri AS uri
@@ -965,13 +960,13 @@ async function sendBackchannelLogouts(c: any, issuer: string, userId: string): P
     }))
 }
 
-// RP-initiated logout (OIDC RP-Initiated Logout 1.0). Supports GET and POST.
-// Params: post_logout_redirect_uri (+ Auth0-style returnTo alias), id_token_hint,
-// state. Ends the browser SSO session AND revokes the user's issued OIDC tokens
-// (app_sessions), so logout actually invalidates access/refresh tokens. Also
-// fires OIDC Back-Channel Logout to every RP the user is signed into.
+// RP起点ログアウト(OIDC RP-Initiated Logout 1.0)。GET と POST に対応。
+// パラメータ: post_logout_redirect_uri(+ Auth0風の returnTo エイリアス)、id_token_hint、
+// state。ブラウザの SSO セッションを終了し、かつ発行済み OIDC トークン(app_sessions)を
+// 失効させるので、ログアウトで実際に access/refresh が無効になる。さらにユーザーがログイン
+// 中の全 RP へ OIDC Back-Channel Logout を送出する。
 app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
-    // Read params from the query string and, for POST form posts, the body.
+    // パラメータはクエリ文字列から読み、POST フォーム送信ならボディからも読む。
     const q = c.req.query()
     let p: Record<string, string> = { ...q }
     if (c.req.method === 'POST') {
@@ -984,9 +979,9 @@ app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
     const state = p.state
     const dest = p.post_logout_redirect_uri || p.returnTo
 
-    // Identify the end user. Prefer the active SSO session; fall back to the sub
-    // in id_token_hint (a verified token we issued), so token revocation still
-    // works even if the browser session cookie is already gone.
+    // エンドユーザーを特定する。有効な SSO セッションを優先し、無ければ id_token_hint
+    // (自身が発行した検証済みトークン)内の sub にフォールバックする。これにより、
+    // ブラウザのセッションCookieが既に消えていてもトークン失効は機能する。
     const sessionId = getCookie(c, '__Host-idp_session')
     let userId: string | null = null
     if (sessionId) {
@@ -994,7 +989,7 @@ app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
         if (session) userId = session.user_id
     }
 
-    // Validate id_token_hint (signature only — it is routinely expired at logout).
+    // id_token_hint を検証する(署名のみ — ログアウト時には通常すでに失効している)。
     let hintAud: string | null = null
     if (idTokenHint) {
         const payload = await verifyRS256(idTokenHint, c.env.DB, c.env.OIDC_KEK)
@@ -1005,24 +1000,24 @@ app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
         }
     }
 
-    // Back-Channel Logout: notify each RP the user is signed into BEFORE we drop
-    // the app_sessions (we read them to know which RPs to reach).
+    // バックチャネルログアウト: app_sessions を削除する前に、ユーザーがログイン中の各 RP へ
+    // 通知する(どの RP に届けるかを知るために app_sessions を読むため)。
     if (userId) {
         try { await sendBackchannelLogouts(c, new URL(c.req.url).origin, userId) } catch (e) { }
     }
-    // #9: revoke this user's OIDC tokens so access/refresh stop working.
+    // #9: このユーザーの OIDC トークンを失効させ、access/refresh を無効化する。
     if (userId) {
         try { await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(userId).run() } catch (e) { }
     }
-    // End the browser SSO session and clear the cookie.
+    // ブラウザの SSO セッションを終了し Cookie をクリアする。
     if (sessionId) {
         try { await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run() } catch (e) { }
     }
     setCookie(c, '__Host-idp_session', '', { path: '/', secure: true, httpOnly: true, expires: new Date(0) })
 
-    // Redirect back to the RP only if the destination is registered (no open
-    // redirect). When id_token_hint is present, also require the destination to
-    // belong to that token's client (aud). #11: echo state back unchanged.
+    // 遷移先が登録済みの場合のみ RP へリダイレクトする(オープンリダイレクト防止)。
+    // id_token_hint がある場合は、遷移先がそのトークンのクライアント(aud)に属することも
+    // 要求する。#11: state はそのままエコーする。
     if (dest) {
         const { results } = await c.env.DB.prepare('SELECT id, base_url, redirect_uris FROM apps WHERE status = ?').bind('active').all() as any
         const matching = (results as any[]).filter((a: any) => isAllowedRedirectUri(dest, a))
@@ -1037,16 +1032,16 @@ app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
     return c.redirect('/login')
 })
 
-// Token revocation (RFC 7009). The RP presents an access_token or refresh_token
-// and (if confidential) authenticates; the matching app_session is deleted.
-// Per §2.2 the endpoint returns 200 for any well-formed request, even when the
-// token is unknown/already-invalid, so clients can't probe token validity.
+// トークン失効(RFC 7009)。RP が access_token または refresh_token を提示し、
+// (機密クライアントなら)認証する。一致した app_session を削除する。
+// §2.2 により、形式が正しいリクエストにはトークンが未知/既に無効でも 200 を返す。
+// これによりクライアントはトークンの有効性を探れない。
 app.post('/oauth/revoke', async (c) => {
     c.header('Cache-Control', 'no-store')
     c.header('Pragma', 'no-cache')
     const body = await parseClientBody(c)
 
-    // Client auth: client_secret_post (body) or client_secret_basic (header).
+    // クライアント認証: client_secret_post(ボディ)または client_secret_basic(ヘッダ)。
     const basic = parseBasicAuth(c)
     const providedSecret = (body.client_secret as string) || basic.secret
 
@@ -1054,15 +1049,15 @@ app.post('/oauth/revoke', async (c) => {
     if (!token) return tokenError(c, 'invalid_request', 'missing token')
     const hint = body.token_type_hint
 
-    // Look the token up as either an access token or a refresh token. token_type_hint
-    // is just an optimisation; RFC 7009 §2.1 requires trying the other type too.
+    // トークンを access token または refresh token として引き当てる。token_type_hint は
+    // あくまで最適化であり、RFC 7009 §2.1 はもう一方の種別も試すことを要求する。
     const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(token)
     const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(token)
     let session = await (hint === 'access_token' ? byAccess : byRefresh).first() as any
     if (!session) session = await (hint === 'access_token' ? byRefresh : byAccess).first() as any
 
     if (session) {
-        // Only the client the token was issued to may revoke it.
+        // トークンが発行されたクライアントだけがそれを失効できる。
         const auth = await authenticateClient(c, session.app_id, providedSecret, true)
         if (!auth.ok) return auth.res
         const clientId = (body.client_id as string) || basic.clientId
@@ -1070,13 +1065,13 @@ app.post('/oauth/revoke', async (c) => {
             await c.env.DB.prepare('DELETE FROM app_sessions WHERE id = ?').bind(session.id).run()
         }
     }
-    // Unknown token → succeed silently (§2.2).
+    // 未知のトークン → 何もせず成功扱い(§2.2)。
     return c.body(null, 200)
 })
 
-// Token introspection (RFC 7662). The RP presents an access_token or refresh_token
-// and authenticates; the IdP reports whether it is active plus its metadata.
-// Tokens not belonging to the calling client are reported as inactive (§4 privacy).
+// トークンイントロスペクション(RFC 7662)。RP が access_token または refresh_token を
+// 提示して認証する。IdP はそれが active かどうかとメタデータを返す。
+// 呼び出し元クライアント以外に属するトークンは inactive として返す(§4 プライバシー)。
 app.post('/oauth/introspect', async (c) => {
     c.header('Cache-Control', 'no-store')
     c.header('Pragma', 'no-cache')
@@ -1088,10 +1083,10 @@ app.post('/oauth/introspect', async (c) => {
     const token = body.token
     if (!token) return tokenError(c, 'invalid_request', 'missing token')
 
-    // The caller must authenticate as a registered client (RFC 7662 §2.1). We
-    // authenticate the *caller's own* identity here — not the token's owner — so
-    // that a token belonging to another client is reported inactive rather than
-    // leaking its existence via an invalid_client error.
+    // 呼び出し元は登録済みクライアントとして認証しなければならない(RFC 7662 §2.1)。
+    // ここでは*呼び出し元自身*の身元を認証する — トークンの所有者ではない — ので、
+    // 他クライアントに属するトークンは invalid_client エラーで存在を漏らす代わりに
+    // inactive として返される。
     if (!callerId) return tokenError(c, 'invalid_client', 'client authentication required', 401)
     const auth = await authenticateClient(c, callerId, providedSecret, true)
     if (!auth.ok) return auth.res
@@ -1101,18 +1096,18 @@ app.post('/oauth/introspect', async (c) => {
 
     const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(token)
     const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(token)
-    // Track which form matched so we can label token_type / honour access-token expiry.
+    // どちらの形式で一致したかを記録し、token_type のラベル付けと access token の失効判定に使う。
     let session = await (hint === 'refresh_token' ? byRefresh : byAccess).first() as any
     let matchedAccess = !!session && session.token === token
     if (!session) {
         session = await (hint === 'refresh_token' ? byAccess : byRefresh).first() as any
         matchedAccess = !!session && session.token === token
     }
-    // Unknown token, or a token belonging to a different client → inactive (§4 privacy).
+    // 未知のトークン、または別クライアントに属するトークン → inactive(§4 プライバシー)。
     if (!session || session.app_id !== callerId) return inactive()
 
     const now = Math.floor(Date.now() / 1000)
-    // Access tokens expire at expires_at; refresh tokens stay valid until rotated/revoked.
+    // access token は expires_at で失効。refresh token はローテーション/失効まで有効。
     if (matchedAccess && session.expires_at <= now) return inactive()
 
     return c.json({
@@ -1126,10 +1121,10 @@ app.post('/oauth/introspect', async (c) => {
     })
 })
 
-// OIDC Dynamic Client Registration (RFC 7591). Protected registration: the
-// caller must present an admin-issued Initial Access Token as a Bearer token.
-// On success a new confidential (or public) client is created in `apps`, exactly
-// like the admin "create app" form, and its credentials are returned.
+// OIDC 動的クライアント登録(RFC 7591)。保護付き登録: 呼び出し元は管理者が発行した
+// Initial Access Token を Bearer トークンとして提示しなければならない。成功すると、
+// 管理画面の「アプリ作成」フォームと全く同様に新しい機密(またはパブリック)クライアントが
+// `apps` に作成され、その資格情報が返される。
 app.post('/register', async (c) => {
     c.header('Cache-Control', 'no-store')
     c.header('Pragma', 'no-cache')
@@ -1137,7 +1132,7 @@ app.post('/register', async (c) => {
     const unauthorized = (desc: string) =>
         c.json({ error: 'invalid_token', error_description: desc }, 401, { 'WWW-Authenticate': 'Bearer error="invalid_token"' })
 
-    // RFC 7591 §1.2: require an Initial Access Token (admin-issued, revocable).
+    // RFC 7591 §1.2: Initial Access Token を必須化(管理者発行・失効可能)。
     const authz = c.req.header('Authorization') || ''
     const iat = authz.startsWith('Bearer ') ? authz.slice(7).trim() : ''
     if (!iat) return unauthorized('an Initial Access Token is required (Authorization: Bearer ...)')
@@ -1147,19 +1142,19 @@ app.post('/register', async (c) => {
         return unauthorized('the Initial Access Token is invalid or expired')
     }
 
-    // Client metadata is a JSON object (RFC 7591 §2 / §3.1).
+    // クライアントメタデータは JSON オブジェクト(RFC 7591 §2 / §3.1)。
     let meta: any
     try { meta = await c.req.json() } catch { return regError('invalid_client_metadata', 'request body must be a JSON object') }
     if (!meta || typeof meta !== 'object') return regError('invalid_client_metadata', 'request body must be a JSON object')
 
-    // grant_types: we support authorization_code (+ refresh_token). Default per spec.
+    // grant_types: authorization_code(+ refresh_token)に対応。既定値は仕様準拠。
     const requestedGrants: string[] = Array.isArray(meta.grant_types) && meta.grant_types.length ? meta.grant_types : ['authorization_code']
     const supportedGrants = ['authorization_code', 'refresh_token']
     for (const g of requestedGrants) if (!supportedGrants.includes(g)) return regError('invalid_client_metadata', 'unsupported grant_type: ' + g)
     const needsRedirect = requestedGrants.includes('authorization_code')
 
-    // redirect_uris: required for the authorization_code grant; each must be an
-    // absolute https URI (http only for localhost) with no fragment (RFC 7591 §2 / §5).
+    // redirect_uris: authorization_code グラントでは必須。各々が絶対 https URI で
+    // (http は localhost のみ)、フラグメントを含まないこと(RFC 7591 §2 / §5)。
     const redirectUris: string[] = Array.isArray(meta.redirect_uris) ? meta.redirect_uris.filter((u: any) => typeof u === 'string') : []
     if (needsRedirect && redirectUris.length === 0) return regError('invalid_redirect_uri', 'redirect_uris is required for the authorization_code grant')
     for (const u of redirectUris) {
@@ -1170,7 +1165,7 @@ app.post('/register', async (c) => {
         if (parsed.hash) return regError('invalid_redirect_uri', 'must not contain a fragment: ' + u)
     }
 
-    // token_endpoint_auth_method: 'none' => public client (PKCE, no secret).
+    // token_endpoint_auth_method: 'none' => パブリッククライアント(PKCE、シークレットなし)。
     const authMethod = typeof meta.token_endpoint_auth_method === 'string' ? meta.token_endpoint_auth_method : 'client_secret_basic'
     if (!['none', 'client_secret_basic', 'client_secret_post'].includes(authMethod)) return regError('invalid_client_metadata', 'unsupported token_endpoint_auth_method: ' + authMethod)
     const isPublic = authMethod === 'none'
@@ -1178,8 +1173,8 @@ app.post('/register', async (c) => {
     const clientId = 'dcr-' + generateToken()
     const clientSecret = isPublic ? null : (generateToken() + generateToken().replace(/-/g, ''))
     const clientName = (typeof meta.client_name === 'string' && meta.client_name.trim()) ? meta.client_name.trim() : clientId
-    // base_url backs the admin display + legacy redirect fallback; derive it from
-    // client_uri or the first redirect_uri's origin.
+    // base_url は管理画面表示と旧方式リダイレクトのフォールバックに使う。client_uri か
+    // 最初の redirect_uri のオリジンから導出する。
     let baseUrl = ''
     if (typeof meta.client_uri === 'string') { try { baseUrl = new URL(meta.client_uri).origin } catch { /* ignore */ } }
     if (!baseUrl && redirectUris.length) { try { baseUrl = new URL(redirectUris[0]).origin } catch { /* ignore */ } }
@@ -1192,7 +1187,7 @@ app.post('/register', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
         .bind('APP_REGISTERED', JSON.stringify({ key: 'log_app_created', params: { appName: clientName, id: clientId, admin: 'dynamic-registration (' + (tokenRow.created_by || 'iat') + ')' } })).run()
 
-    // RFC 7591 §3.2.1 success: 201 with the registered metadata + credentials.
+    // RFC 7591 §3.2.1 成功: 登録メタデータ + 資格情報を 201 で返す。
     const resp: Record<string, unknown> = {
         client_id: clientId,
         client_id_issued_at: nowSec,
@@ -1208,7 +1203,7 @@ app.post('/register', async (c) => {
     return c.json(resp, 201)
 })
 
-// --- Admin ---
+// --- 管理(Admin) ---
 app.get('/admin', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
@@ -1232,8 +1227,8 @@ app.get('/admin/apps', async (c) => {
     return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} regTokens={regTokens.results as any} siteName={siteName} appConfig={config} />)
 })
 
-// Mint an Initial Access Token for RFC 7591 dynamic registration. Optional
-// `days` sets an expiry (blank/0 = never). Admin-only.
+// RFC 7591 動的登録用の Initial Access Token を発行する。任意の `days` で有効期限を
+// 設定する(空欄/0 = 無期限)。管理者専用。
 app.post('/admin/registration-tokens', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
@@ -1249,7 +1244,7 @@ app.post('/admin/registration-tokens', async (c) => {
     return c.redirect('/admin/apps')
 })
 
-// Revoke (delete) an Initial Access Token. Admin-only.
+// Initial Access Token を失効(削除)する。管理者専用。
 app.post('/admin/registration-tokens/delete', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
@@ -1260,19 +1255,19 @@ app.post('/admin/registration-tokens/delete', async (c) => {
     return c.redirect('/admin/apps')
 })
 
-// === MODIFIED CREATE APP ===
+// === アプリ作成(改修版) ===
 app.post('/admin/apps', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const body = await c.req.parseBody()
     const now = Math.floor(Date.now() / 1000)
     
-    // Icon Upload
+    // アイコンアップロード
     const iconData = await handleIconUpload(body)
     const iconUrl = iconData || (body['icon_url'] as string) || await fetchAppIcon(body['base_url'] as string)
-    
-    // New apps are confidential by default (a secret is generated). Make it a
-    // public/SPA client later via the "make public" action in the edit modal.
+
+    // 新規アプリは既定で機密(シークレットを生成)。パブリック/SPA クライアントにするのは
+    // 後から編集モーダルの「パブリックにする」操作で行う。
     const clientSecret = generateToken() + generateToken().replace(/-/g, '')
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
@@ -1285,7 +1280,7 @@ app.post('/admin/apps', async (c) => {
     return c.redirect('/admin/apps')
 })
 
-// Regenerate or clear (=make public) an app's client_secret.
+// アプリの client_secret を再生成、またはクリア(=パブリック化)する。
 app.post('/admin/apps/secret', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
@@ -1299,17 +1294,17 @@ app.post('/admin/apps/secret', async (c) => {
     return c.redirect('/admin/apps')
 })
 
-// === MODIFIED UPDATE APP ===
+// === アプリ更新(改修版) ===
 app.post('/admin/apps/update', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const body = await c.req.parseBody()
     const id = body['id']
     
-    // Icon Upload Logic:
-    // 1. Uploaded file? -> Use it.
-    // 2. Hidden field (existing url) or Text input? -> Use it.
-    // 3. Fallback -> Auto fetch or keep old? (Here we use form inputs primarily)
+    // アイコンアップロードのロジック:
+    // 1. アップロードされたファイルがある? -> それを使う。
+    // 2. 隠しフィールド(既存URL)またはテキスト入力がある? -> それを使う。
+    // 3. フォールバック -> 自動取得 or 旧値維持?(ここでは主にフォーム入力を使う)
     const iconData = await handleIconUpload(body)
     const iconUrl = iconData || (body['icon_url'] as string) || await fetchAppIcon(body['base_url'] as string)
 
@@ -1351,7 +1346,7 @@ app.post('/admin/apps/delete', async (c) => {
     return c.redirect('/admin/apps')
 })
 
-// Groups, Users, etc... are same as original but included for integrity
+// グループ・ユーザー等... は元のままだが、整合性のために含めている
 app.get('/admin/groups', async (c) => {
     try {
         const user = await getAdmin(c)
@@ -1635,7 +1630,7 @@ app.get('/admin/logs', async (c) => {
     />)
 })
 
-// Invite, ForgotPW, etc. routes unchanged
+// 招待・パスワード忘れ等のルートは変更なし
 app.get('/invite', async (c) => {
     const t = getLang(c)
     const token = c.req.query('token')
@@ -1734,7 +1729,7 @@ app.post('/admin/config', async (c) => {
     }
 })
 
-// 2FA Verification Routes
+// 2要素認証(2FA)の検証ルート
 app.get('/login/2fa', async (c) => {
     const t = getLang(c)
     const token = getCookie(c, 'pre_2fa_token')

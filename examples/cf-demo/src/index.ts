@@ -1,14 +1,13 @@
-// Minimal OIDC "relying party" (login client) on Cloudflare Workers.
+// Cloudflare Workers 上で動く最小限の OIDC「リライングパーティ(RP / ログインを使う側)」。
 //
-// It implements the Authorization Code flow against a tobirax2 IdP, with no
-// third-party libraries — just the Workers runtime + WebCrypto. On callback it
-// verifies the id_token's RS256 signature against the IdP's JWKS and checks
-// iss / aud / nonce / exp, exactly like a real OIDC SDK would.
+// tobirax2 IdP に対して Authorization Code フローを実装する。サードパーティ製ライブラリは
+// 使わず、Workers ランタイム + WebCrypto のみ。コールバックでは本物の OIDC SDK と同様に、
+// id_token の RS256 署名を IdP の JWKS で検証し、iss / aud / nonce / exp を確認する。
 //
-//   /          -> show the logged-in user's claims, or a "Login" button
-//   /login     -> redirect to the IdP /authorize
-//   /callback  -> exchange code, verify id_token, set session cookie
-//   /logout    -> clear session + RP-initiated logout at the IdP
+//   /          -> ログイン中ユーザーのクレーム、または「ログイン」ボタンを表示
+//   /login     -> IdP の /authorize へリダイレクト
+//   /callback  -> code を交換し id_token を検証、セッションCookieを設定
+//   /logout    -> セッション破棄 + IdP への RP起点ログアウト
 
 interface Env {
   IDP_ISSUER: string
@@ -16,17 +15,17 @@ interface Env {
   CLIENT_SECRET: string
   APP_BASE_URL: string
   COOKIE_SECRET: string
-  // Human label so the two demo RPs are visually distinguishable.
+  // 2つのデモRPを画面上で区別するための表示ラベル。
   APP_NAME?: string
-  // Service binding to the tobirax2 IdP Worker (for server-to-server calls).
+  // tobirax2 IdP Worker へのサービスバインディング(サーバー間通信用)。
   IDP: { fetch: typeof fetch }
-  // OIDC Back-Channel Logout denylist. When the IdP POSTs a logout_token to
-  // /backchannel-logout, we record bcl:<CLIENT_ID>:<sub> = logout time here; the
-  // home page treats any session whose id_token.iat <= that time as logged out.
+  // OIDC Back-Channel Logout の失効リスト。IdP が /backchannel-logout に logout_token を
+  // POST してきたら、ここに bcl:<CLIENT_ID>:<sub> = ログアウト時刻 を記録する。ホーム画面は
+  // id_token.iat がその時刻以前のセッションをログアウト済みとして扱う。
   BCL: KVNamespace
 }
 
-// ---- small helpers ---------------------------------------------------------
+// ---- 小さなヘルパー群 -------------------------------------------------------
 
 const enc = new TextEncoder()
 const b64url = (buf: ArrayBuffer | Uint8Array) => {
@@ -58,7 +57,7 @@ function parseCookies(req: Request): Record<string, string> {
 async function hmacKey(secret: string) {
   return crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])
 }
-// value.signature — tamper-evident cookie payload
+// value.signature の形式 — 改ざん検知できるCookieペイロード
 async function signValue(secret: string, value: string) {
   const key = await hmacKey(secret)
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(value))
@@ -74,7 +73,7 @@ async function verifyValue(secret: string, signed: string): Promise<string | nul
   return ok ? value : null
 }
 
-// ---- id_token verification via JWKS ----------------------------------------
+// ---- JWKS による id_token 検証 ----------------------------------------------
 
 let jwksCache: { keys: any[] } | null = null
 async function getJwks(env: Env, forceRefresh = false) {
@@ -93,8 +92,8 @@ async function verifyIdToken(idToken: string, env: Env): Promise<any | null> {
   } catch {
     return null
   }
-  // Match the signing key by kid. If it's unknown (e.g. the IdP rotated its
-  // key), refresh the JWKS once before giving up — same as a real OIDC SDK.
+  // 署名鍵を kid で照合する。未知の場合(例: IdP が鍵をローテーションした)は、
+  // 諦める前に一度だけ JWKS を再取得する — 本物の OIDC SDK と同じ挙動。
   let jwks = await getJwks(env)
   let jwk = jwks.keys.find((k: any) => k.kid === header.kid)
   if (!jwk) {
@@ -112,12 +111,12 @@ async function verifyIdToken(idToken: string, env: Env): Promise<any | null> {
   return payload
 }
 
-// ---- Back-Channel Logout (OIDC Back-Channel Logout 1.0) ---------------------
+// ---- バックチャネルログアウト (OIDC Back-Channel Logout 1.0) -----------------
 
-// Verify a logout_token the IdP POSTed to /backchannel-logout. Returns the
-// subject (sub) when valid, else null. Checks: RS256 signature via JWKS,
-// iss == our IdP, aud == our client_id, the backchannel-logout `events` member,
-// and that `nonce` is absent (spec §2.4 prohibits it in logout tokens).
+// IdP が /backchannel-logout に POST してきた logout_token を検証する。妥当なら
+// subject(sub)を、そうでなければ null を返す。検証項目: JWKS による RS256 署名、
+// iss == 自分の IdP、aud == 自分の client_id、backchannel-logout の `events` メンバー、
+// そして `nonce` が無いこと(仕様 §2.4 で logout token への nonce は禁止)。
 async function verifyLogoutToken(logoutToken: string, env: Env): Promise<string | null> {
   const [h, p, s] = logoutToken.split('.')
   if (!h || !p || !s) return null
@@ -135,20 +134,20 @@ async function verifyLogoutToken(logoutToken: string, env: Env): Promise<string 
   if (!ok) return null
   if (payload.iss !== env.IDP_ISSUER) return null
   if (payload.aud !== env.CLIENT_ID) return null
-  if ('nonce' in payload) return null // prohibited in logout tokens
+  if ('nonce' in payload) return null // logout token には nonce 禁止
   const events = payload.events
   if (!events || typeof events !== 'object' || !('http://schemas.openid.net/event/backchannel-logout' in events)) return null
   return typeof payload.sub === 'string' ? payload.sub : null
 }
 
-// Has this subject been logged out via back-channel since the id_token was issued?
+// この subject は id_token 発行後にバックチャネルでログアウトされたか？
 async function isBackchannelLoggedOut(env: Env, claims: any): Promise<boolean> {
   const t = await env.BCL.get(`bcl:${env.CLIENT_ID}:${claims.sub}`)
   if (!t) return false
   return Number(claims.iat || 0) <= Number(t)
 }
 
-// ---- HTML -------------------------------------------------------------------
+// ---- HTML --------------------------------------------------------------------
 
 const page = (body: string, appName = 'tobirax2 公開デモ', setCookie?: string) => new Response(
   `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
@@ -168,20 +167,20 @@ const page = (body: string, appName = 'tobirax2 公開デモ', setCookie?: strin
 )
 const clearSession = 'rp_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'
 
-// ---- routes -----------------------------------------------------------------
+// ---- ルート ------------------------------------------------------------------
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url)
     const cookies = parseCookies(req)
 
-    // Home: show claims if logged in, else a login button.
+    // ホーム: ログイン中ならクレームを、未ログインならログインボタンを表示。
     if (url.pathname === '/') {
       const appName = env.APP_NAME || 'tobirax2 公開デモ'
       const session = cookies['rp_session']
       let claims = session ? await verifyIdToken(session, env) : null
-      // Back-Channel Logout: even with a still-valid id_token cookie, treat the
-      // session as ended if the IdP told us this subject logged out.
+      // バックチャネルログアウト: id_token Cookie がまだ有効でも、この subject が
+      // ログアウト済みと IdP から通知されていればセッション終了として扱う。
       const loggedOutByBcl = !!(claims && await isBackchannelLoggedOut(env, claims))
       if (claims && !loggedOutByBcl) {
         return page(`
@@ -194,8 +193,8 @@ export default {
           <pre>${JSON.stringify(claims, null, 2).replace(/</g, '&lt;')}</pre>
           <p><a class="logout" href="/logout">ログアウト</a></p>`, appName)
       }
-      // Logged out (never logged in, or back-channel logout took effect). Clear a
-      // stale cookie so the browser stops presenting the dead session.
+      // 未ログイン状態(一度もログインしていない、またはバックチャネルログアウトが効いた)。
+      // 死んだセッションをブラウザが提示し続けないよう、古いCookieをクリアする。
       const banner = loggedOutByBcl
         ? `<p class="sub" style="color:#b45309">🔒 別のアプリでログアウトされたため、このアプリのセッションも終了しました（Back-Channel Logout）。</p>`
         : `<p class="sub">「ログインを使う側のアプリ」のサンプルです（Cloudflare Workers / OIDC Authorization Code フロー）。</p>`
@@ -206,24 +205,24 @@ export default {
         <p><a class="btn" href="/login">ログイン / 新規登録</a></p>`, appName, session ? clearSession : undefined)
     }
 
-    // Back-Channel Logout receiver (OIDC Back-Channel Logout 1.0 §2.5). The IdP
-    // POSTs a signed logout_token here (server-to-server, no browser). We verify
-    // it and record the logout so the home page invalidates the user's session.
+    // バックチャネルログアウト受信口(OIDC Back-Channel Logout 1.0 §2.5)。IdP が
+    // 署名付き logout_token をここへ POST する(サーバー間通信、ブラウザを介さない)。
+    // 検証してログアウトを記録し、ホーム画面側でユーザーのセッションを無効化させる。
     if (url.pathname === '/backchannel-logout' && req.method === 'POST') {
       const noStore = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
       let logoutToken = ''
       try {
         const form = await req.formData()
         logoutToken = String(form.get('logout_token') || '')
-      } catch { /* not form-encoded */ }
+      } catch { /* form-encoded ではない */ }
       const sub = logoutToken ? await verifyLogoutToken(logoutToken, env) : null
       if (!sub) return new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400, headers: noStore })
-      // iat-comparison key: sessions whose id_token was issued at/before now are dead.
+      // iat比較用のキー: id_token が現在時刻以前に発行されたセッションは無効とみなす。
       await env.BCL.put(`bcl:${env.CLIENT_ID}:${sub}`, String(Math.floor(Date.now() / 1000)), { expirationTtl: 3600 })
       return new Response(null, { status: 200, headers: { 'Cache-Control': 'no-store' } })
     }
 
-    // Start login: build state+nonce, stash a signed transaction cookie, redirect.
+    // ログイン開始: state+nonce を生成し、署名付きトランザクションCookieを保存してリダイレクト。
     if (url.pathname === '/login') {
       const state = randomString()
       const nonce = randomString()
@@ -244,7 +243,7 @@ export default {
       })
     }
 
-    // Callback: validate state, exchange code, verify id_token, set session.
+    // コールバック: state を検証し、code を交換、id_token を検証してセッションを設定。
     if (url.pathname === '/callback') {
       const err = url.searchParams.get('error')
       if (err) return page(`<h1>ログインできませんでした</h1><p class="sub">IdP からのエラー: <code>${err}</code> — ${url.searchParams.get('error_description') || ''}</p><p><a class="btn" href="/">戻る</a></p>`)
@@ -287,7 +286,7 @@ export default {
       })
     }
 
-    // Logout: clear our session, then RP-initiated logout at the IdP.
+    // ログアウト: 自分のセッションを破棄し、続けて IdP への RP起点ログアウトへ。
     if (url.pathname === '/logout') {
       const end = `${env.IDP_ISSUER}/oidc/logout?post_logout_redirect_uri=${encodeURIComponent(env.APP_BASE_URL)}`
       return new Response(null, {
