@@ -50,8 +50,9 @@
 | `GET /.well-known/jwks.json` | 公開署名鍵 (RS256) |
 | `GET /authorize` | Authorization Code フロー（PKCE: S256 / plain、`prompt`・`max_age`） |
 | `POST /oauth/token` | `authorization_code` + `refresh_token` グラント |
+| `POST /oauth/revoke` | トークン失効（RFC 7009、access / refresh いずれも可） |
 | `GET\|POST /userinfo` | Bearer access_token に対する OIDC クレーム |
-| `GET /oidc/logout` | RP-initiated ログアウト（`post_logout_redirect_uri` / `returnTo`） |
+| `GET\|POST /oidc/logout` | RP-initiated ログアウト（`post_logout_redirect_uri` / `returnTo`、`id_token_hint`、`state`）。ユーザーのトークンも失効 |
 
 `id_token` は JWKS で検証できる本物の RS256 JWT、`access_token` は不透明（opaque）で
 `/userinfo` で解決します。

@@ -8,7 +8,7 @@ import { verifyPassword, hashPassword, generateToken, getCookieOptions } from '.
 import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
-import { signRS256, verifyPkce } from './oidc/jwt'
+import { signRS256, verifyPkce, verifyRS256 } from './oidc/jwt'
 import { getJwksKeys } from './oidc/keys'
 import { Login } from './views/Login'
 import { Signup } from './views/Signup'
@@ -34,8 +34,12 @@ const app = new Hono<{ Bindings: Env }>()
 // (/oauth/token, /userinfo) and the legacy JSON API are called
 // cross-origin by SDKs/backends, so they are exempt. /authorize is a
 // GET and not guarded by csrf() anyway.
+// /oidc/logout is RP-initiated (inherently cross-site, and may be POSTed per
+// OIDC RP-Initiated Logout). /oauth/revoke (RFC 7009) is a machine endpoint
+// called by RP backends. Both are exempt like the other OIDC endpoints.
 const oidcCsrfExempt = (path: string) =>
-    path === '/oauth/token' || path === '/userinfo' || path.startsWith('/api/')
+    path === '/oauth/token' || path === '/oauth/revoke' || path === '/userinfo' ||
+    path === '/oidc/logout' || path.startsWith('/api/')
 app.use('*', async (c, next) => {
     if (oidcCsrfExempt(c.req.path)) return next()
     return csrf()(c, next)
@@ -497,10 +501,10 @@ app.post('/user/profile', async (c) => {
 // --- API Token ---
 app.get('/api/me', async (c) => {
     const authHeader = c.req.header('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) return c.json({ error: 'Unauthorized' }, 401)
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return bearerUnauthorized(c)
     const token = authHeader.split(' ')[1]
     const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?').bind(token, Math.floor(Date.now() / 1000)).first()
-    if (!session) return c.json({ error: 'Invalid Token' }, 401)
+    if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
     const user = await c.env.DB.prepare('SELECT id, email, group_id, created_at FROM users WHERE id = ?').bind(session.user_id).first()
     if (!user) return c.json({ error: 'User not found' }, 404)
     return c.json(user)
@@ -565,6 +569,19 @@ function buildRedirect(redirectUri: string, mode: string | undefined, params: Re
 
 function tokenError(c: any, error: string, description: string, status: 400 | 401 = 400) {
     return c.json({ error, error_description: description }, status)
+}
+
+// RFC 6750 §3: Bearer-protected resources must answer a failed request with a
+// WWW-Authenticate challenge. When no credentials were supplied at all, the
+// challenge omits the error code; an invalid/expired token gets error="invalid_token".
+function bearerUnauthorized(c: any, error?: string, description?: string) {
+    let challenge = 'Bearer realm="tobira"'
+    if (error) {
+        challenge += `, error="${error}"`
+        if (description) challenge += `, error_description="${description}"`
+    }
+    c.header('WWW-Authenticate', challenge)
+    return c.json({ error: error || 'invalid_request', error_description: description }, 401)
 }
 
 // Constant-time string comparison (avoids leaking the secret via timing).
@@ -664,6 +681,8 @@ app.get('/.well-known/openid-configuration', (c) => {
         userinfo_endpoint: `${issuer}/userinfo`,
         jwks_uri: `${issuer}/.well-known/jwks.json`,
         end_session_endpoint: `${issuer}/oidc/logout`,
+        revocation_endpoint: `${issuer}/oauth/revoke`,
+        revocation_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
         subject_types_supported: ['public'],
@@ -822,13 +841,13 @@ app.post('/oauth/token', async (c) => {
 
 app.on(['GET', 'POST'], '/userinfo', async (c) => {
     const auth = c.req.header('Authorization') || ''
-    if (!auth.startsWith('Bearer ')) return c.json({ error: 'invalid_token' }, 401)
+    if (!auth.startsWith('Bearer ')) return bearerUnauthorized(c)
     const token = auth.slice(7)
     const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?')
         .bind(token, Math.floor(Date.now() / 1000)).first() as any
-    if (!session) return c.json({ error: 'invalid_token' }, 401)
+    if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
-    if (!user) return c.json({ error: 'invalid_token' }, 401)
+    if (!user) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
     // sub is always returned; other claims depend on the token's granted scope.
     return c.json({
         sub: user.id,
@@ -836,23 +855,117 @@ app.on(['GET', 'POST'], '/userinfo', async (c) => {
     })
 })
 
-// RP-initiated logout. Accepts standard post_logout_redirect_uri and
-// the Auth0-style returnTo param.
-app.get('/oidc/logout', async (c) => {
+// RP-initiated logout (OIDC RP-Initiated Logout 1.0). Supports GET and POST.
+// Params: post_logout_redirect_uri (+ Auth0-style returnTo alias), id_token_hint,
+// state. Ends the browser SSO session AND revokes the user's issued OIDC tokens
+// (app_sessions), so logout actually invalidates access/refresh tokens.
+app.on(['GET', 'POST'], '/oidc/logout', async (c) => {
+    // Read params from the query string and, for POST form posts, the body.
+    const q = c.req.query()
+    let p: Record<string, string> = { ...q }
+    if (c.req.method === 'POST') {
+        try {
+            const body = await c.req.parseBody()
+            for (const [k, v] of Object.entries(body)) if (typeof v === 'string') p[k] = v
+        } catch { /* ignore */ }
+    }
+    const idTokenHint = p.id_token_hint
+    const state = p.state
+    const dest = p.post_logout_redirect_uri || p.returnTo
+
+    // Identify the end user. Prefer the active SSO session; fall back to the sub
+    // in id_token_hint (a verified token we issued), so token revocation still
+    // works even if the browser session cookie is already gone.
     const sessionId = getCookie(c, '__Host-idp_session')
+    let userId: string | null = null
+    if (sessionId) {
+        const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ?').bind(sessionId).first() as Session | null
+        if (session) userId = session.user_id
+    }
+
+    // Validate id_token_hint (signature only — it is routinely expired at logout).
+    let hintAud: string | null = null
+    if (idTokenHint) {
+        const payload = await verifyRS256(idTokenHint, c.env.DB, c.env.OIDC_KEK)
+        if (payload) {
+            hintAud = typeof payload.aud === 'string' ? payload.aud
+                : Array.isArray(payload.aud) ? String(payload.aud[0]) : null
+            if (!userId && typeof payload.sub === 'string') userId = payload.sub
+        }
+    }
+
+    // #9: revoke this user's OIDC tokens so access/refresh stop working.
+    if (userId) {
+        try { await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(userId).run() } catch (e) { }
+    }
+    // End the browser SSO session and clear the cookie.
     if (sessionId) {
         try { await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run() } catch (e) { }
     }
     setCookie(c, '__Host-idp_session', '', { path: '/', secure: true, httpOnly: true, expires: new Date(0) })
-    const dest = c.req.query('post_logout_redirect_uri') || c.req.query('returnTo')
-    // Only redirect to a URL that matches a registered client; otherwise this is
-    // an open redirect. Unrecognised destinations fall back to the login page.
+
+    // Redirect back to the RP only if the destination is registered (no open
+    // redirect). When id_token_hint is present, also require the destination to
+    // belong to that token's client (aud). #11: echo state back unchanged.
     if (dest) {
-        const { results } = await c.env.DB.prepare('SELECT base_url, redirect_uris FROM apps WHERE status = ?').bind('active').all() as any
-        const allowed = (results as any[]).some((a: any) => isAllowedRedirectUri(dest, a))
-        if (allowed) return c.redirect(dest)
+        const { results } = await c.env.DB.prepare('SELECT id, base_url, redirect_uris FROM apps WHERE status = ?').bind('active').all() as any
+        const matching = (results as any[]).filter((a: any) => isAllowedRedirectUri(dest, a))
+        const allowed = hintAud
+            ? matching.some((a: any) => a.id === hintAud)
+            : matching.length > 0
+        if (allowed) {
+            const target = state ? dest + (dest.includes('?') ? '&' : '?') + 'state=' + encodeURIComponent(state) : dest
+            return c.redirect(target)
+        }
     }
     return c.redirect('/login')
+})
+
+// Token revocation (RFC 7009). The RP presents an access_token or refresh_token
+// and (if confidential) authenticates; the matching app_session is deleted.
+// Per §2.2 the endpoint returns 200 for any well-formed request, even when the
+// token is unknown/already-invalid, so clients can't probe token validity.
+app.post('/oauth/revoke', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    c.header('Pragma', 'no-cache')
+    const body = await parseClientBody(c)
+
+    // Client auth: client_secret_post (body) or client_secret_basic (header).
+    let basicClientId: string | undefined
+    let basicClientSecret: string | undefined
+    const authz = c.req.header('Authorization')
+    if (authz && authz.startsWith('Basic ')) {
+        try {
+            const dec = atob(authz.slice(6))
+            const i = dec.indexOf(':')
+            basicClientId = decodeURIComponent(dec.slice(0, i))
+            basicClientSecret = decodeURIComponent(dec.slice(i + 1))
+        } catch { /* ignore */ }
+    }
+    const providedSecret = (body.client_secret as string) || basicClientSecret
+
+    const token = body.token
+    if (!token) return tokenError(c, 'invalid_request', 'missing token')
+    const hint = body.token_type_hint
+
+    // Look the token up as either an access token or a refresh token. token_type_hint
+    // is just an optimisation; RFC 7009 §2.1 requires trying the other type too.
+    const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(token)
+    const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(token)
+    let session = await (hint === 'access_token' ? byAccess : byRefresh).first() as any
+    if (!session) session = await (hint === 'access_token' ? byRefresh : byAccess).first() as any
+
+    if (session) {
+        // Only the client the token was issued to may revoke it.
+        const auth = await authenticateClient(c, session.app_id, providedSecret, true)
+        if (!auth.ok) return auth.res
+        const clientId = (body.client_id as string) || basicClientId
+        if (!clientId || clientId === session.app_id) {
+            await c.env.DB.prepare('DELETE FROM app_sessions WHERE id = ?').bind(session.id).run()
+        }
+    }
+    // Unknown token → succeed silently (§2.2).
+    return c.body(null, 200)
 })
 
 // --- Admin ---
