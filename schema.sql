@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     auth_time INTEGER
 );
 
+-- OIDC Dynamic Client Registration (RFC 7591): admin-issued Initial Access
+-- Tokens. A caller must present one as a Bearer token to POST /register.
+CREATE TABLE IF NOT EXISTS registration_tokens (
+    token TEXT PRIMARY KEY,
+    created_by TEXT,                 -- admin email that minted it
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER               -- NULL = never expires (revoke by deleting)
+);
+
 -- Management features
 CREATE TABLE IF NOT EXISTS invitations (
     id TEXT PRIMARY KEY,

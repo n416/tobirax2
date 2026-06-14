@@ -39,6 +39,7 @@ const app = new Hono<{ Bindings: Env }>()
 // called by RP backends. Both are exempt like the other OIDC endpoints.
 const oidcCsrfExempt = (path: string) =>
     path === '/oauth/token' || path === '/oauth/revoke' || path === '/oauth/introspect' ||
+    path === '/register' ||
     path === '/userinfo' || path === '/oidc/logout' || path.startsWith('/api/')
 app.use('*', async (c, next) => {
     if (oidcCsrfExempt(c.req.path)) return next()
@@ -723,6 +724,8 @@ app.get('/.well-known/openid-configuration', (c) => {
         revocation_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
         introspection_endpoint: `${issuer}/oauth/introspect`,
         introspection_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
+        // RFC 7591 Dynamic Client Registration (protected: needs an Initial Access Token).
+        registration_endpoint: `${issuer}/register`,
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
         subject_types_supported: ['public'],
@@ -1123,6 +1126,88 @@ app.post('/oauth/introspect', async (c) => {
     })
 })
 
+// OIDC Dynamic Client Registration (RFC 7591). Protected registration: the
+// caller must present an admin-issued Initial Access Token as a Bearer token.
+// On success a new confidential (or public) client is created in `apps`, exactly
+// like the admin "create app" form, and its credentials are returned.
+app.post('/register', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    c.header('Pragma', 'no-cache')
+    const regError = (code: string, desc: string) => c.json({ error: code, error_description: desc }, 400)
+    const unauthorized = (desc: string) =>
+        c.json({ error: 'invalid_token', error_description: desc }, 401, { 'WWW-Authenticate': 'Bearer error="invalid_token"' })
+
+    // RFC 7591 §1.2: require an Initial Access Token (admin-issued, revocable).
+    const authz = c.req.header('Authorization') || ''
+    const iat = authz.startsWith('Bearer ') ? authz.slice(7).trim() : ''
+    if (!iat) return unauthorized('an Initial Access Token is required (Authorization: Bearer ...)')
+    const nowSec = Math.floor(Date.now() / 1000)
+    const tokenRow = await c.env.DB.prepare('SELECT * FROM registration_tokens WHERE token = ?').bind(iat).first() as any
+    if (!tokenRow || (tokenRow.expires_at && tokenRow.expires_at < nowSec)) {
+        return unauthorized('the Initial Access Token is invalid or expired')
+    }
+
+    // Client metadata is a JSON object (RFC 7591 §2 / §3.1).
+    let meta: any
+    try { meta = await c.req.json() } catch { return regError('invalid_client_metadata', 'request body must be a JSON object') }
+    if (!meta || typeof meta !== 'object') return regError('invalid_client_metadata', 'request body must be a JSON object')
+
+    // grant_types: we support authorization_code (+ refresh_token). Default per spec.
+    const requestedGrants: string[] = Array.isArray(meta.grant_types) && meta.grant_types.length ? meta.grant_types : ['authorization_code']
+    const supportedGrants = ['authorization_code', 'refresh_token']
+    for (const g of requestedGrants) if (!supportedGrants.includes(g)) return regError('invalid_client_metadata', 'unsupported grant_type: ' + g)
+    const needsRedirect = requestedGrants.includes('authorization_code')
+
+    // redirect_uris: required for the authorization_code grant; each must be an
+    // absolute https URI (http only for localhost) with no fragment (RFC 7591 §2 / §5).
+    const redirectUris: string[] = Array.isArray(meta.redirect_uris) ? meta.redirect_uris.filter((u: any) => typeof u === 'string') : []
+    if (needsRedirect && redirectUris.length === 0) return regError('invalid_redirect_uri', 'redirect_uris is required for the authorization_code grant')
+    for (const u of redirectUris) {
+        let parsed: URL
+        try { parsed = new URL(u) } catch { return regError('invalid_redirect_uri', 'not a valid absolute URI: ' + u) }
+        const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+        if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocal)) return regError('invalid_redirect_uri', 'must be https (http allowed only for localhost): ' + u)
+        if (parsed.hash) return regError('invalid_redirect_uri', 'must not contain a fragment: ' + u)
+    }
+
+    // token_endpoint_auth_method: 'none' => public client (PKCE, no secret).
+    const authMethod = typeof meta.token_endpoint_auth_method === 'string' ? meta.token_endpoint_auth_method : 'client_secret_basic'
+    if (!['none', 'client_secret_basic', 'client_secret_post'].includes(authMethod)) return regError('invalid_client_metadata', 'unsupported token_endpoint_auth_method: ' + authMethod)
+    const isPublic = authMethod === 'none'
+
+    const clientId = 'dcr-' + generateToken()
+    const clientSecret = isPublic ? null : (generateToken() + generateToken().replace(/-/g, ''))
+    const clientName = (typeof meta.client_name === 'string' && meta.client_name.trim()) ? meta.client_name.trim() : clientId
+    // base_url backs the admin display + legacy redirect fallback; derive it from
+    // client_uri or the first redirect_uri's origin.
+    let baseUrl = ''
+    if (typeof meta.client_uri === 'string') { try { baseUrl = new URL(meta.client_uri).origin } catch { /* ignore */ } }
+    if (!baseUrl && redirectUris.length) { try { baseUrl = new URL(redirectUris[0]).origin } catch { /* ignore */ } }
+    if (!baseUrl) baseUrl = 'https://example.invalid'
+    const backchannel = (typeof meta.backchannel_logout_uri === 'string' && meta.backchannel_logout_uri.trim()) ? meta.backchannel_logout_uri.trim() : null
+    const iconUrl = typeof meta.logo_uri === 'string' ? meta.logo_uri : null
+
+    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, icon_url, client_secret, redirect_uris, backchannel_logout_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(clientId, clientName, baseUrl, 'active', nowSec, iconUrl, clientSecret, redirectUris.join('\n'), backchannel).run()
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
+        .bind('APP_REGISTERED', JSON.stringify({ key: 'log_app_created', params: { appName: clientName, id: clientId, admin: 'dynamic-registration (' + (tokenRow.created_by || 'iat') + ')' } })).run()
+
+    // RFC 7591 §3.2.1 success: 201 with the registered metadata + credentials.
+    const resp: Record<string, unknown> = {
+        client_id: clientId,
+        client_id_issued_at: nowSec,
+        redirect_uris: redirectUris,
+        grant_types: requestedGrants,
+        response_types: needsRedirect ? ['code'] : [],
+        token_endpoint_auth_method: authMethod,
+        client_name: clientName,
+    }
+    if (clientSecret) { resp.client_secret = clientSecret; resp.client_secret_expires_at = 0 }
+    if (backchannel) resp.backchannel_logout_uri = backchannel
+    if (typeof meta.scope === 'string') resp.scope = meta.scope
+    return c.json(resp, 201)
+})
+
 // --- Admin ---
 app.get('/admin', async (c) => {
     const user = await getAdmin(c)
@@ -1143,7 +1228,36 @@ app.get('/admin/apps', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const { results } = await c.env.DB.prepare('SELECT * FROM apps ORDER BY created_at DESC').all()
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} siteName={siteName} appConfig={config} />)
+    const regTokens = await c.env.DB.prepare('SELECT token, created_at, expires_at FROM registration_tokens ORDER BY created_at DESC').all()
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} regTokens={regTokens.results as any} siteName={siteName} appConfig={config} />)
+})
+
+// Mint an Initial Access Token for RFC 7591 dynamic registration. Optional
+// `days` sets an expiry (blank/0 = never). Admin-only.
+app.post('/admin/registration-tokens', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const days = parseInt((body['days'] as string) || '0', 10)
+    const now = Math.floor(Date.now() / 1000)
+    const expiresAt = Number.isFinite(days) && days > 0 ? now + days * 86400 : null
+    const token = 'iat-' + generateToken() + generateToken().replace(/-/g, '')
+    await c.env.DB.prepare('INSERT INTO registration_tokens (token, created_by, created_at, expires_at) VALUES (?, ?, ?, ?)')
+        .bind(token, user.email, now, expiresAt).run()
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
+        .bind('REG_TOKEN_CREATED', JSON.stringify({ key: 'log_app_updated', params: { appName: 'registration token', status: 'created', admin: user.email } })).run()
+    return c.redirect('/admin/apps')
+})
+
+// Revoke (delete) an Initial Access Token. Admin-only.
+app.post('/admin/registration-tokens/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    await c.env.DB.prepare('DELETE FROM registration_tokens WHERE token = ?').bind(body['token']).run()
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
+        .bind('REG_TOKEN_REVOKED', JSON.stringify({ key: 'log_app_updated', params: { appName: 'registration token', status: 'revoked', admin: user.email } })).run()
+    return c.redirect('/admin/apps')
 })
 
 // === MODIFIED CREATE APP ===
