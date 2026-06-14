@@ -111,6 +111,13 @@ CREATE TABLE IF NOT EXISTS system_config (
     value TEXT
 );
 
+-- Fixed-window rate limiting (per-IP login/signup throttling)
+CREATE TABLE IF NOT EXISTS rate_limits (
+    k TEXT PRIMARY KEY,
+    count INTEGER NOT NULL,
+    reset_at INTEGER NOT NULL
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);

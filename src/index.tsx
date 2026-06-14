@@ -122,6 +122,23 @@ async function checkPermission(c: any, userId: string, appId: string): Promise<{
     return { allowed: false, reason: 'No permission found' }
 }
 
+// Fixed-window per-key rate limiter backed by D1. Returns true if allowed.
+// (Cloudflare's native rate-limit binding is best-effort/eventually-consistent
+// and was not enforcing reliably here, so we keep an authoritative counter.)
+async function rateLimit(db: D1Database, key: string, limit: number, windowSec: number): Promise<boolean> {
+    const now = Math.floor(Date.now() / 1000)
+    const row = await db.prepare('SELECT count, reset_at FROM rate_limits WHERE k = ?')
+        .bind(key).first<{ count: number; reset_at: number }>()
+    if (!row || row.reset_at <= now) {
+        await db.prepare('INSERT INTO rate_limits (k, count, reset_at) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET count = 1, reset_at = excluded.reset_at')
+            .bind(key, now + windowSec).run()
+        return true
+    }
+    if (row.count >= limit) return false
+    await db.prepare('UPDATE rate_limits SET count = count + 1 WHERE k = ?').bind(key).run()
+    return true
+}
+
 async function getAdmin(c: any) {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
@@ -196,6 +213,13 @@ app.post('/login', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
+
+    // Per-IP rate limit to slow down password brute-forcing.
+    const loginIp = c.req.header('CF-Connecting-IP') || 'unknown'
+    if (!(await rateLimit(c.env.DB, `login:${loginIp}`, 10, 60))) {
+        return c.html(<Login t={t} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
+    }
+
     const body = await c.req.parseBody()
     const email = body['email'] as string
     const password = body['password'] as string
@@ -277,6 +301,12 @@ app.post('/signup', async (c) => {
     const returnTo = body['return_to'] as string
 
     const view = (error: string) => c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} error={error} siteName={siteName} siteSubtitle={siteSubtitle} />)
+
+    // Per-IP rate limit to curb automated mass signups.
+    const signupIp = c.req.header('CF-Connecting-IP') || 'unknown'
+    if (!(await rateLimit(c.env.DB, `signup:${signupIp}`, 5, 60))) {
+        return c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
+    }
 
     if (!email || !password) return view(t.error_required)
 

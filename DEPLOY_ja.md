@@ -366,9 +366,16 @@ npx wrangler deploy -c examples/cf-demo/wrangler.jsonc
 
 `examples/cf-demo/wrangler.jsonc` の `vars`（IDP_ISSUER / CLIENT_ID / CLIENT_SECRET / APP_BASE_URL / COOKIE_SECRET）を自分の環境に合わせて編集してください。`CLIENT_ID`・`CLIENT_SECRET` は IdP 管理画面で登録したアプリの値と一致させます。
 
-> ⚠️ **セルフ登録のスパム対策（重要・未実装）**：現状 `/signup` は誰でも無制限に登録できます。本格運用するなら **Cloudflare Turnstile（CAPTCHA）** や Rate Limiting を `/signup` の前段に入れてください。今は検証用のため未導入です。
-> 一時的に登録を止めたい場合は、`signup_group_id` を消すと新規ユーザーは権限なし（デモを使えない）状態になります。
-> セルフ登録自体を無効化したい場合は `/signup` ルートを外して再デプロイしてください。
+> 🛡 **レート制限（実装済み）**：`/login`（10回/60秒/IP）と `/signup`（5回/60秒/IP）に
+> D1ベースの固定ウィンドウ・レート制限を入れてあります（超過は429）。総当たりや自動大量
+> 登録の抑止用。閾値は `src/index.tsx` の `rateLimit(...)` 呼び出しで調整可能。共有IP（NAT）
+> 配下で大人数に同時に試させる場合は `/signup` の上限を上げてください。
+> さらに固める場合は、独自ドメインを当てて **Cloudflare WAF / Rate Limiting Rules** を前段に
+> 重ねると多層になります。**Turnstile（CAPTCHA）は今回は意図的に未導入**（挙動ベースとはいえ
+> 決定的でなく、用途的に過剰と判断）。
+>
+> 一時的に登録を止めたい場合は、`signup_group_id` を消すと新規ユーザーは権限なし（デモを使えない）
+> 状態になります。セルフ登録自体を無効化したい場合は `/signup` ルートを外して再デプロイしてください。
 
 ---
 
