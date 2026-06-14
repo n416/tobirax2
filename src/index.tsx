@@ -9,7 +9,7 @@ import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
 import { signRS256, verifyPkce } from './oidc/jwt'
-import { getOidcKeys } from './oidc/keys'
+import { getJwksKeys } from './oidc/keys'
 import { Login } from './views/Login'
 import { Signup } from './views/Signup'
 import { UserDashboard } from './views/UserDashboard'
@@ -558,8 +558,8 @@ app.get('/.well-known/openid-configuration', (c) => {
 })
 
 app.get('/.well-known/jwks.json', async (c) => {
-    const { kid, publicJwk } = await getOidcKeys(c.env.DB, c.env.OIDC_KEK)
-    return c.json({ keys: [{ ...publicJwk, alg: 'RS256', use: 'sig', kid }] })
+    const keys = await getJwksKeys(c.env.DB, c.env.OIDC_KEK)
+    return c.json({ keys: keys.map(k => ({ ...k, alg: 'RS256', use: 'sig' })) })
 })
 
 app.get('/authorize', async (c) => {

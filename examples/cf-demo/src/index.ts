@@ -71,8 +71,8 @@ async function verifyValue(secret: string, signed: string): Promise<string | nul
 // ---- id_token verification via JWKS ----------------------------------------
 
 let jwksCache: { keys: any[] } | null = null
-async function getJwks(env: Env) {
-  if (jwksCache) return jwksCache
+async function getJwks(env: Env, forceRefresh = false) {
+  if (jwksCache && !forceRefresh) return jwksCache
   jwksCache = await (await env.IDP.fetch(`${env.IDP_ISSUER}/.well-known/jwks.json`)).json()
   return jwksCache!
 }
@@ -87,8 +87,14 @@ async function verifyIdToken(idToken: string, env: Env): Promise<any | null> {
   } catch {
     return null
   }
-  const jwks = await getJwks(env)
-  const jwk = jwks.keys.find((k: any) => k.kid === header.kid) || jwks.keys[0]
+  // Match the signing key by kid. If it's unknown (e.g. the IdP rotated its
+  // key), refresh the JWKS once before giving up — same as a real OIDC SDK.
+  let jwks = await getJwks(env)
+  let jwk = jwks.keys.find((k: any) => k.kid === header.kid)
+  if (!jwk) {
+    jwks = await getJwks(env, true)
+    jwk = jwks.keys.find((k: any) => k.kid === header.kid)
+  }
   if (!jwk) return null
   const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify'])
   const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlToBytes(s), enc.encode(`${h}.${p}`))
