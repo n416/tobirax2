@@ -37,6 +37,8 @@ export interface Session {
   id: string
   user_id: string
   expires_at: number
+  // OIDC: actual end-user authentication time (unix seconds).
+  auth_time?: number | null
 }
 
 export interface Permission {
@@ -67,6 +69,8 @@ export interface AuthCode {
   code_challenge_method?: string | null
   redirect_uri?: string | null
   scope?: string | null
+  // OIDC: end-user auth_time carried from the session at /authorize time.
+  auth_time?: number | null
 }
 
 export interface LocalizedText {

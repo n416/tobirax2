@@ -157,6 +157,26 @@ async function getUser(c: any) {
     return await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
 }
 
+// Fetch the current (unexpired) session row, including auth_time. Used where we
+// need the authentication time, not just the user (OIDC /authorize).
+async function getSessionRow(c: any): Promise<Session | null> {
+    const sessionId = getCookie(c, '__Host-idp_session')
+    if (!sessionId) return null
+    return await c.env.DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires_at > ?')
+        .bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
+}
+
+// Create a fresh login session and set its cookie. Records auth_time (the real
+// authentication moment) so OIDC auth_time / max_age / prompt=login work.
+async function createSession(c: any, userId: string): Promise<void> {
+    const sessionId = generateToken()
+    const now = Math.floor(Date.now() / 1000)
+    const expires = now + 86400
+    await c.env.DB.prepare('INSERT INTO sessions (id, user_id, expires_at, auth_time) VALUES (?, ?, ?, ?)')
+        .bind(sessionId, userId, expires, now).run()
+    setCookie(c, '__Host-idp_session', sessionId, getCookieOptions(expires))
+}
+
 // Parse a client's registered redirect_uris (newline-separated) into a list.
 function parseRedirectUris(raw: string | null | undefined): string[] {
     return (raw || '').split(/[\r\n]+/).map(s => s.trim()).filter(Boolean)
@@ -230,9 +250,13 @@ app.get('/login', async (c) => {
     const msgKey = c.req.query('msg')
     // @ts-ignore
     const message = msgKey && t[msgKey] ? t[msgKey] : undefined
+    // OIDC prompt=login / max_age forces re-authentication: /authorize sends us
+    // here with reauth=1 so we show the form instead of silently reusing the
+    // still-valid SSO session.
+    const reauth = c.req.query('reauth') === '1'
 
     const user = await getUser(c)
-    if (user) {
+    if (user && !reauth) {
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
         if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
         const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user.email).first()
@@ -278,10 +302,7 @@ app.post('/login', async (c) => {
         return c.redirect('/login/2fa' + (qs ? '?' + qs : ''))
     }
 
-    const sessionId = generateToken()
-    const expires = Math.floor(Date.now() / 1000) + 86400
-    await c.env.DB.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, user.id, expires).run()
-    setCookie(c, '__Host-idp_session', sessionId, getCookieOptions(expires))
+    await createSession(c, user.id)
 
     let targetAppName = 'Tobira Dashboard';
     const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(email).first()
@@ -365,10 +386,7 @@ app.post('/signup', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SIGNUP', details).run()
 
     // Auto-login the freshly created account.
-    const sessionId = generateToken()
-    const expires = now + 86400
-    await c.env.DB.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, userId, expires).run()
-    setCookie(c, '__Host-idp_session', sessionId, getCookieOptions(expires))
+    await createSession(c, userId)
 
     if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
     if (redirectTo) return issueCodeAndRedirect(c, userId, redirectTo)
@@ -389,7 +407,8 @@ async function issueCodeAndRedirect(c: any, userId: string, redirectTo: string) 
 
     const code = generateToken()
     const expires = Math.floor(Date.now() / 1000) + 300
-    await c.env.DB.prepare('INSERT INTO auth_codes (code, user_id, app_id, expires_at) VALUES (?, ?, ?, ?)').bind(code, userId, app.id, expires).run()
+    const session = await getSessionRow(c)
+    await c.env.DB.prepare('INSERT INTO auth_codes (code, user_id, app_id, expires_at, auth_time) VALUES (?, ?, ?, ?, ?)').bind(code, userId, app.id, expires, session?.auth_time ?? null).run()
 
     const separator = redirectTo.includes('?') ? '&' : '?'
     return c.redirect(`${redirectTo}${separator}code=${code}`)
@@ -602,14 +621,17 @@ function buildOidcClaims(user: User, scope: string | null): Record<string, unkno
     return claims
 }
 
-async function issueOidcTokens(c: any, user: User, clientId: string, nonce: string | null, scope: string | null) {
+async function issueOidcTokens(c: any, user: User, clientId: string, nonce: string | null, scope: string | null, authTime: number | null) {
     const now = Math.floor(Date.now() / 1000)
     const expiresIn = 3600
     const grantedScope = scope || 'openid'
+    // Real end-user authentication time. Falls back to now only for legacy codes
+    // / sessions issued before auth_time was tracked.
+    const effectiveAuthTime = authTime ?? now
     const accessToken = generateToken()
     const refreshToken = generateToken()
-    await c.env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn, grantedScope).run()
+    await c.env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn, grantedScope, effectiveAuthTime).run()
 
     const issuer = new URL(c.req.url).origin
     const idToken = await signRS256({
@@ -618,7 +640,7 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         aud: clientId,
         iat: now,
         exp: now + expiresIn,
-        auth_time: now,
+        auth_time: effectiveAuthTime,
         ...(nonce ? { nonce } : {}),
         ...buildOidcClaims(user, grantedScope),
     }, c.env.DB, c.env.OIDC_KEK)
@@ -674,11 +696,41 @@ app.get('/authorize', async (c) => {
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'unsupported_response_type', error_description: 'only response_type=code is supported', state }))
     }
 
+    // OIDC Core 3.1.2.1: prompt + max_age drive whether we (re-)authenticate.
+    const now = Math.floor(Date.now() / 1000)
+    const promptValues = (q.prompt || '').split(/\s+/).filter(Boolean)
+    const promptNone = promptValues.includes('none')
+    // We have no consent UI, so prompt=consent is a no-op; login/select_account
+    // both mean "make the user authenticate again".
+    const forceLogin = promptValues.includes('login') || promptValues.includes('select_account')
+    const maxAge = /^\d+$/.test(q.max_age || '') ? parseInt(q.max_age, 10) : null
+
     // Require an authenticated session; bounce to login and resume here.
-    const user = await getUser(c)
-    if (!user) {
-        const returnTo = '/authorize' + new URL(c.req.url).search
-        return c.redirect('/login?return_to=' + encodeURIComponent(returnTo))
+    const session = await getSessionRow(c)
+    const user = session
+        ? await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
+        : null
+
+    const maxAgeExceeded = !!(user && maxAge !== null && now - (session?.auth_time ?? 0) > maxAge)
+    const needReauth = !user || forceLogin || maxAgeExceeded
+
+    if (needReauth) {
+        // prompt=none forbids any UI: report back instead of showing a login form.
+        if (promptNone) {
+            return c.redirect(buildRedirect(redirectUri, responseMode, {
+                error: 'login_required',
+                error_description: user ? 're-authentication required but prompt=none' : 'no active session and prompt=none',
+                state,
+            }))
+        }
+        // Resume this exact request after login, but strip `prompt` so the
+        // resumed authorize doesn't force login again and loop. max_age is kept:
+        // a fresh session naturally satisfies it. `reauth=1` tells /login not to
+        // silently reuse the still-valid session (prompt=login / stale max_age).
+        const resume = new URL(c.req.url)
+        resume.searchParams.delete('prompt')
+        const returnTo = '/authorize' + resume.search
+        return c.redirect('/login?reauth=1&return_to=' + encodeURIComponent(returnTo))
     }
 
     // Enforce tobira's per-app permission gate.
@@ -689,9 +741,11 @@ app.get('/authorize', async (c) => {
 
     const code = generateToken()
     const expires = Math.floor(Date.now() / 1000) + 300
+    // Carry the session's real auth_time into the code so the id_token reflects
+    // when the user actually authenticated (OIDC auth_time).
     await c.env.DB.prepare(
-        'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(code, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope).run()
+        'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(code, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope, session?.auth_time ?? null).run()
 
     return c.redirect(buildRedirect(redirectUri, responseMode, { code, state }))
 })
@@ -739,7 +793,7 @@ app.post('/oauth/token', async (c) => {
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(ac.user_id).first() as User | null
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
 
-        return issueOidcTokens(c, user, ac.app_id, (ac.nonce as any) || null, (ac.scope as any) || null)
+        return issueOidcTokens(c, user, ac.app_id, (ac.nonce as any) || null, (ac.scope as any) || null, (ac.auth_time as any) ?? null)
     }
 
     if (grantType === 'refresh_token') {
@@ -758,8 +812,9 @@ app.post('/oauth/token', async (c) => {
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
         await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
-        // Preserve the originally-granted scope across the refresh.
-        return issueOidcTokens(c, user, session.app_id, null, (session.scope as string) || null)
+        // Preserve the originally-granted scope and auth_time across the refresh,
+        // so a refreshed id_token keeps the original authentication time.
+        return issueOidcTokens(c, user, session.app_id, null, (session.scope as string) || null, (session.auth_time as number) ?? null)
     }
 
     return tokenError(c, 'unsupported_grant_type', grantType ? `grant_type '${grantType}' is not supported` : 'missing grant_type')
@@ -1319,10 +1374,7 @@ app.post('/login/2fa', async (c) => {
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first() as User | null
     if (!user || !user.two_factor_secret) return c.redirect('/login')
     if (verifyToken(otp, user.two_factor_secret)) {
-        const sessionId = generateToken()
-        const expires = Math.floor(Date.now() / 1000) + 86400
-        await c.env.DB.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, user.id, expires).run()
-        setCookie(c, '__Host-idp_session', sessionId, getCookieOptions(expires))
+        await createSession(c, user.id)
         deleteCookie(c, 'pre_2fa_token')
 
         let targetAppName = 'Tobira Dashboard';

@@ -19,6 +19,9 @@
 
 * **標準的な OIDC プロバイダ** — Discovery、JWKS、Authorization Code + PKCE、
   リフレッシュトークン、UserInfo、RP-initiated ログアウト。
+* **再認証コントロール** — `prompt`（`none` / `login` / `select_account`）と
+  `max_age` に対応。ユーザーが実際に認証した時刻を表す本物の `auth_time` クレームを
+  発行し（リフレッシュ後も保持）。
 * **本物の RS256 id_token** — 署名鍵はDBごとに生成され、**保存時に暗号化**
   （`OIDC_KEK` シークレットによる AES-256-GCM）、さらに **自動ローテーション**。
   JWKSに重複期間を設けるので、発行済みトークンは引き続き検証できます。
@@ -45,7 +48,7 @@
 |---|---|
 | `GET /.well-known/openid-configuration` | Discovery ドキュメント |
 | `GET /.well-known/jwks.json` | 公開署名鍵 (RS256) |
-| `GET /authorize` | Authorization Code フロー（PKCE: S256 / plain） |
+| `GET /authorize` | Authorization Code フロー（PKCE: S256 / plain、`prompt`・`max_age`） |
 | `POST /oauth/token` | `authorization_code` + `refresh_token` グラント |
 | `GET\|POST /userinfo` | Bearer access_token に対する OIDC クレーム |
 | `GET /oidc/logout` | RP-initiated ログアウト（`post_logout_redirect_uri` / `returnTo`） |

@@ -19,6 +19,9 @@ your users, groups and permissions in your own D1 database.
 
 * **Standard OIDC provider** — Discovery, JWKS, Authorization Code + PKCE,
   refresh tokens, UserInfo, RP-initiated logout.
+* **Re-authentication controls** — honours `prompt` (`none` / `login` /
+  `select_account`) and `max_age`, and emits a real `auth_time` claim reflecting
+  when the user actually authenticated (preserved across refresh).
 * **Real RS256 id_tokens** — signing keys are generated per-database, **encrypted
   at rest** (AES-256-GCM via the `OIDC_KEK` secret) and **rotated automatically**
   with an overlapping JWKS window so in-flight tokens keep verifying.
@@ -44,7 +47,7 @@ your users, groups and permissions in your own D1 database.
 |---|---|
 | `GET /.well-known/openid-configuration` | Discovery document |
 | `GET /.well-known/jwks.json` | Public signing keys (RS256) |
-| `GET /authorize` | Authorization Code flow (PKCE: S256 / plain) |
+| `GET /authorize` | Authorization Code flow (PKCE: S256 / plain; `prompt`, `max_age`) |
 | `POST /oauth/token` | `authorization_code` + `refresh_token` grants |
 | `GET\|POST /userinfo` | OIDC claims for a Bearer access_token |
 | `GET /oidc/logout` | RP-initiated logout (`post_logout_redirect_uri` / `returnTo`) |

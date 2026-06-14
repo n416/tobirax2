@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
+    expires_at INTEGER NOT NULL,
+    -- OIDC: actual end-user authentication time (unix seconds). Drives id_token
+    -- auth_time and the max_age / prompt=login re-authentication checks.
+    auth_time INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS admins (
@@ -80,7 +83,10 @@ CREATE TABLE IF NOT EXISTS auth_codes (
     code_challenge TEXT,
     code_challenge_method TEXT,
     redirect_uri TEXT,
-    scope TEXT
+    scope TEXT,
+    -- OIDC: end-user auth_time carried from the session, so the issued id_token
+    -- reflects when the user actually authenticated (not when the token issued).
+    auth_time INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS app_sessions (
@@ -91,7 +97,10 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     app_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
     -- OIDC scope granted for this token (drives which claims userinfo returns)
-    scope TEXT
+    scope TEXT,
+    -- OIDC: end-user auth_time, preserved across refresh so re-issued id_tokens
+    -- keep the original authentication time.
+    auth_time INTEGER
 );
 
 -- Management features
