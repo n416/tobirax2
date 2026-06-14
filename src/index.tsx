@@ -157,6 +157,40 @@ async function getUser(c: any) {
     return await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
 }
 
+// Parse a client's registered redirect_uris (newline-separated) into a list.
+function parseRedirectUris(raw: string | null | undefined): string[] {
+    return (raw || '').split(/[\r\n]+/).map(s => s.trim()).filter(Boolean)
+}
+
+// Validate a requested redirect_uri against a registered client.
+//
+// Preferred path (OIDC Core 3.1.2.1): if the client has an explicit list of
+// redirect_uris registered, the request must match one of them by exact string
+// comparison. This is the spec-correct behaviour.
+//
+// Legacy fallback: clients registered before redirect_uris existed only have a
+// base_url. For those we require the origin to match exactly and allow any path
+// at or below base_url's path. The exact-origin check still closes the
+// prefix-match hole (e.g. "https://app.example.evil.com" / "...@evil.com").
+function isAllowedRedirectUri(redirectUri: string, app: { base_url: string; redirect_uris?: string | null }): boolean {
+    const registered = parseRedirectUris(app.redirect_uris)
+    if (registered.length > 0) return registered.includes(redirectUri)
+
+    let redir: URL, base: URL
+    try {
+        redir = new URL(redirectUri)
+        base = new URL(app.base_url)
+    } catch {
+        return false
+    }
+    // Only http(s) redirect targets are permitted.
+    if (redir.protocol !== 'https:' && redir.protocol !== 'http:') return false
+    if (redir.origin !== base.origin) return false
+    const basePath = base.pathname.replace(/\/+$/, '')
+    if (basePath === '') return true // base registered at origin root: any path allowed
+    return redir.pathname === basePath || redir.pathname.startsWith(basePath + '/')
+}
+
 // ------------------------------------------------------------------
 // Routes
 // ------------------------------------------------------------------
@@ -180,7 +214,7 @@ app.get('/', async (c) => {
           ((up.valid_from <= ? AND up.valid_to >= ?) OR (up.id IS NULL AND gp.valid_from <= ? AND gp.valid_to >= ?))
       `).bind(user.id, user.group_id || null, now, now, now, now).all()
 
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} has2FA={!!user.two_factor_secret} />)
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} />)
     } catch (e: any) {
         return c.json({ error: e.message, stack: e.stack }, 500)
     }
@@ -253,7 +287,7 @@ app.post('/login', async (c) => {
     const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(email).first()
     if (redirectTo) {
         const { results } = await c.env.DB.prepare('SELECT * FROM apps WHERE status = ?').bind('active').all() as any;
-        const app = (results as any[]).find((a: any) => redirectTo.startsWith(a.base_url));
+        const app = (results as any[]).find((a: any) => isAllowedRedirectUri(redirectTo, a));
         if (app) targetAppName = app.name;
     } else if (admin) {
         targetAppName = 'Tobira Admin';
@@ -343,7 +377,7 @@ app.post('/signup', async (c) => {
 
 async function issueCodeAndRedirect(c: any, userId: string, redirectTo: string) {
     const { results } = await c.env.DB.prepare('SELECT * FROM apps WHERE status = ?').bind('active').all() as any
-    const app = (results as App[]).find(a => redirectTo.startsWith(a.base_url))
+    const app = (results as App[]).find(a => isAllowedRedirectUri(redirectTo, a))
 
     if (!app) {
         console.error(`[Auth] No app matches redirect_to: ${redirectTo}`);
@@ -426,6 +460,20 @@ app.post('/change-password', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PASSWORD_CHANGE', details).run()
     return c.html(<ChangePassword t={getLang(c)} message={getLang(c).msg_password_changed} />)
 })
+// Self-service OIDC profile (name / preferred_username / picture). Blank = unset
+// (falls back to email in claims).
+app.post('/user/profile', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const name = ((body['name'] as string) || '').trim() || null
+    const preferredUsername = ((body['preferred_username'] as string) || '').trim() || null
+    const picture = ((body['picture'] as string) || '').trim() || null
+    const now = Math.floor(Date.now() / 1000)
+    await c.env.DB.prepare('UPDATE users SET name = ?, preferred_username = ?, picture = ?, updated_at = ? WHERE id = ?')
+        .bind(name, preferredUsername, picture, now, user.id).run()
+    return c.redirect('/')
+})
 
 // --- API Token ---
 app.get('/api/me', async (c) => {
@@ -476,7 +524,8 @@ app.post('/api/refresh', async (c) => {
 //
 // Relying parties register as "apps" in the admin UI:
 //   - app.id       == client_id
-//   - app.base_url == prefix that redirect_uri must start with
+//   - app.base_url == registered origin (+ optional path) the redirect_uri
+//                     must match; see isAllowedRedirectUri
 // tobira's per-app permission gate is enforced at /authorize.
 // access_token is opaque (looked up at /userinfo); id_token is a
 // real RS256 JWT verifiable via /.well-known/jwks.json.
@@ -534,13 +583,33 @@ async function parseClientBody(c: any): Promise<Record<string, string>> {
     return out
 }
 
+// Map a granted scope string to OIDC claims (OIDC Core 5.4). Only the standard
+// claims for the granted scopes are returned, so an `openid`-only request does
+// not leak email/profile data. Profile fields fall back to email when unset.
+function buildOidcClaims(user: User, scope: string | null): Record<string, unknown> {
+    const scopes = (scope || '').split(/\s+/).filter(Boolean)
+    const claims: Record<string, unknown> = {}
+    if (scopes.includes('profile')) {
+        claims.name = user.name || user.email
+        claims.preferred_username = user.preferred_username || user.email
+        if (user.picture) claims.picture = user.picture
+        claims.updated_at = user.updated_at
+    }
+    if (scopes.includes('email')) {
+        claims.email = user.email
+        claims.email_verified = true
+    }
+    return claims
+}
+
 async function issueOidcTokens(c: any, user: User, clientId: string, nonce: string | null, scope: string | null) {
     const now = Math.floor(Date.now() / 1000)
     const expiresIn = 3600
+    const grantedScope = scope || 'openid'
     const accessToken = generateToken()
     const refreshToken = generateToken()
-    await c.env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at) VALUES (?, ?, ?, ?, ?)')
-        .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn).run()
+    await c.env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn, grantedScope).run()
 
     const issuer = new URL(c.req.url).origin
     const idToken = await signRS256({
@@ -551,10 +620,7 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         exp: now + expiresIn,
         auth_time: now,
         ...(nonce ? { nonce } : {}),
-        email: user.email,
-        email_verified: true,
-        name: user.email,
-        preferred_username: user.email,
+        ...buildOidcClaims(user, grantedScope),
     }, c.env.DB, c.env.OIDC_KEK)
 
     return c.json({
@@ -563,7 +629,7 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         token_type: 'Bearer',
         expires_in: expiresIn,
         refresh_token: refreshToken,
-        scope: scope || 'openid profile email',
+        scope: grantedScope,
     })
 }
 
@@ -602,7 +668,7 @@ app.get('/authorize', async (c) => {
 
     const app = await c.env.DB.prepare('SELECT * FROM apps WHERE id = ?').bind(clientId).first() as App | null
     if (!app) return c.text('invalid_client: unknown client_id', 400)
-    if (!redirectUri.startsWith(app.base_url)) return c.text('invalid_request: redirect_uri is not registered for this client', 400)
+    if (!isAllowedRedirectUri(redirectUri, app)) return c.text('invalid_request: redirect_uri is not registered for this client', 400)
 
     if (responseType && responseType !== 'code') {
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'unsupported_response_type', error_description: 'only response_type=code is supported', state }))
@@ -631,6 +697,9 @@ app.get('/authorize', async (c) => {
 })
 
 app.post('/oauth/token', async (c) => {
+    // RFC 6749 §5.1: token endpoint responses must not be cached.
+    c.header('Cache-Control', 'no-store')
+    c.header('Pragma', 'no-cache')
     const body = await parseClientBody(c)
 
     // Client auth: client_secret_post (body) or client_secret_basic (header).
@@ -689,7 +758,8 @@ app.post('/oauth/token', async (c) => {
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
         await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
-        return issueOidcTokens(c, user, session.app_id, null, null)
+        // Preserve the originally-granted scope across the refresh.
+        return issueOidcTokens(c, user, session.app_id, null, (session.scope as string) || null)
     }
 
     return tokenError(c, 'unsupported_grant_type', grantType ? `grant_type '${grantType}' is not supported` : 'missing grant_type')
@@ -704,13 +774,10 @@ app.on(['GET', 'POST'], '/userinfo', async (c) => {
     if (!session) return c.json({ error: 'invalid_token' }, 401)
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
     if (!user) return c.json({ error: 'invalid_token' }, 401)
+    // sub is always returned; other claims depend on the token's granted scope.
     return c.json({
         sub: user.id,
-        email: user.email,
-        email_verified: true,
-        name: user.email,
-        preferred_username: user.email,
-        updated_at: user.updated_at,
+        ...buildOidcClaims(user, (session.scope as string) || null),
     })
 })
 
@@ -723,7 +790,14 @@ app.get('/oidc/logout', async (c) => {
     }
     setCookie(c, '__Host-idp_session', '', { path: '/', secure: true, httpOnly: true, expires: new Date(0) })
     const dest = c.req.query('post_logout_redirect_uri') || c.req.query('returnTo')
-    return c.redirect(dest || '/login')
+    // Only redirect to a URL that matches a registered client; otherwise this is
+    // an open redirect. Unrecognised destinations fall back to the login page.
+    if (dest) {
+        const { results } = await c.env.DB.prepare('SELECT base_url, redirect_uris FROM apps WHERE status = ?').bind('active').all() as any
+        const allowed = (results as any[]).some((a: any) => isAllowedRedirectUri(dest, a))
+        if (allowed) return c.redirect(dest)
+    }
+    return c.redirect('/login')
 })
 
 // --- Admin ---
@@ -764,8 +838,9 @@ app.post('/admin/apps', async (c) => {
     // public/SPA client later via the "make public" action in the edit modal.
     const clientSecret = generateToken() + generateToken().replace(/-/g, '')
 
-    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret).run()
+    const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
+    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris).run()
 
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
@@ -800,8 +875,9 @@ app.post('/admin/apps/update', async (c) => {
     const iconData = await handleIconUpload(body)
     const iconUrl = iconData || (body['icon_url'] as string) || await fetchAppIcon(body['base_url'] as string)
 
-    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ? WHERE id = ?')
-        .bind(body['name'], body['base_url'], body['description'], iconUrl, id).run()
+    const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ? WHERE id = ?')
+        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, id).run()
         
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: body['name'], status: 'Updated', admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
@@ -1253,7 +1329,7 @@ app.post('/login/2fa', async (c) => {
         const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user.email).first()
         if (redirectTo) {
             const { results } = await c.env.DB.prepare('SELECT * FROM apps WHERE status = ?').bind('active').all() as any;
-            const app = (results as any[]).find((a: any) => redirectTo.startsWith(a.base_url));
+            const app = (results as any[]).find((a: any) => isAllowedRedirectUri(redirectTo, a));
             if (app) targetAppName = app.name;
         } else if (admin) {
             targetAppName = 'Tobira Admin';

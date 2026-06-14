@@ -16,6 +16,9 @@ export interface User {
   two_factor_secret?: string | null
   recovery_codes?: string | null
   updated_at: number
+  name?: string | null
+  preferred_username?: string | null
+  picture?: string | null
 }
 
 export interface App {
@@ -27,6 +30,7 @@ export interface App {
   description?: string
   created_at: number
   client_secret?: string | null // null/undefined = public client (PKCE)
+  redirect_uris?: string | null // newline-separated exact redirect_uris (OIDC); empty = base_url origin fallback
 }
 
 export interface Session {

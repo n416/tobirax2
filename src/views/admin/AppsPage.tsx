@@ -49,6 +49,10 @@ export const AppsPage = (props: Props) => {
                 // 説明文
                 var descEl = form.querySelector('textarea[name="description"]');
                 if(descEl) descEl.value = btn.dataset.desc || '';
+
+                // Redirect URIs (OIDC)
+                var ruEl = form.querySelector('textarea[name="redirect_uris"]');
+                if(ruEl) ruEl.value = btn.dataset.redirectUris || '';
                 
                 // アイコン関連
                 var iconEl = form.querySelector('input[name="icon_url"]');
@@ -249,7 +253,13 @@ export const AppsPage = (props: Props) => {
                       <span class="form-label">${t.label_base_url}</span>
                       <input type="url" name="base_url" placeholder="https://..." required />
                     </label>
-                    
+
+                    <label style="width:100%;">
+                      <span class="form-label">Redirect URIs (OIDC)</span>
+                      <textarea name="redirect_uris" placeholder="https://app.example.com/callback&#10;(one per line — exact match)" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem; min-height:70px;"></textarea>
+                      <small style="display:block; color:#64748b; margin-top:0.35rem;">One exact redirect_uri per line. Leave empty to allow any path under Base URL (legacy).</small>
+                    </label>
+
                     <label style="width:100%;">
                         <span class="form-label">${t.label_app_icon}</span>
                         <div style="display:flex; gap:0.5rem; align-items:center;">
@@ -296,6 +306,7 @@ export const AppsPage = (props: Props) => {
                data-desc="${app.description || ''}"
                data-icon="${app.icon_url || ''}"
                data-secret="${app.client_secret || ''}"
+               data-redirect-uris="${app.redirect_uris || ''}"
                onclick="openEditAppModal(this)">
             
             <div style="flex-grow:1;">
@@ -344,6 +355,12 @@ export const AppsPage = (props: Props) => {
                     <label style="width:100%;">
                         <span class="form-label">${t.label_base_url}</span>
                         <input type="url" name="base_url" required />
+                    </label>
+
+                    <label style="width:100%;">
+                        <span class="form-label">Redirect URIs (OIDC)</span>
+                        <textarea name="redirect_uris" placeholder="https://app.example.com/callback&#10;(one per line — exact match)" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem; min-height:70px;"></textarea>
+                        <small style="display:block; color:#64748b; margin-top:0.35rem;">One exact redirect_uri per line. Leave empty to allow any path under Base URL (legacy).</small>
                     </label>
 
                     <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">

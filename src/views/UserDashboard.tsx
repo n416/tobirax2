@@ -13,6 +13,9 @@ interface Props {
   apps: App[]
   siteName: string
   has2FA: boolean
+  profileName?: string | null
+  profileUsername?: string | null
+  profilePicture?: string | null
 }
 
 export const UserDashboard = (props: Props) => {
@@ -152,6 +155,25 @@ export const UserDashboard = (props: Props) => {
         </section>
         
         
+        <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255,255,255,0.3);">
+            <h4 style="margin-bottom: 0.5rem; font-size: 1.1rem; color: var(--text-main); font-weight: 600;">${t.profile_header}</h4>
+            <p style="font-size: 0.85rem; color: var(--text-sub); margin-bottom: 1rem;">${t.profile_hint}</p>
+            <form method="POST" action="/user/profile" style="display:flex; flex-direction:column; gap:0.75rem; max-width:440px;">
+                <label style="font-size:0.9rem; color:var(--text-main);">${t.label_name}
+                    <input type="text" name="name" value="${props.profileName || ''}" placeholder="${props.userEmail}" style="width:100%; margin-top:0.25rem;" />
+                </label>
+                <label style="font-size:0.9rem; color:var(--text-main);">${t.label_preferred_username}
+                    <input type="text" name="preferred_username" value="${props.profileUsername || ''}" placeholder="${props.userEmail}" style="width:100%; margin-top:0.25rem;" />
+                </label>
+                <label style="font-size:0.9rem; color:var(--text-main);">${t.label_picture}
+                    <input type="url" name="picture" value="${props.profilePicture || ''}" placeholder="https://..." style="width:100%; margin-top:0.25rem;" />
+                </label>
+                <div style="text-align:right;">
+                    <button type="submit" style="background: var(--primary); color: white; padding: 0.45rem 1.1rem; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer;">${t.save}</button>
+                </div>
+            </form>
+        </div>
+
         <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <span class="material-symbols-outlined" style="color: var(--text-sub);">security</span>

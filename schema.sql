@@ -7,7 +7,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     two_factor_secret TEXT,
-    recovery_codes TEXT
+    recovery_codes TEXT,
+    -- OIDC profile-scope claims (NULL falls back to email at token time)
+    name TEXT,
+    preferred_username TEXT,
+    picture TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -31,7 +35,11 @@ CREATE TABLE IF NOT EXISTS apps (
     description TEXT,
     created_at INTEGER NOT NULL,
     -- OIDC: NULL = public client (PKCE required); set = confidential client
-    client_secret TEXT
+    client_secret TEXT,
+    -- OIDC: newline-separated list of exact redirect_uris. When set, redirect_uri
+    -- must match one of these exactly (spec-correct). When NULL/empty, falls back
+    -- to origin matching against base_url (legacy).
+    redirect_uris TEXT
 );
 
 CREATE TABLE IF NOT EXISTS groups (
@@ -81,7 +89,9 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     refresh_token TEXT NOT NULL UNIQUE,
     user_id TEXT NOT NULL,
     app_id TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
+    expires_at INTEGER NOT NULL,
+    -- OIDC scope granted for this token (drives which claims userinfo returns)
+    scope TEXT
 );
 
 -- Management features
