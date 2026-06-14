@@ -38,8 +38,8 @@ const app = new Hono<{ Bindings: Env }>()
 // OIDC RP-Initiated Logout). /oauth/revoke (RFC 7009) is a machine endpoint
 // called by RP backends. Both are exempt like the other OIDC endpoints.
 const oidcCsrfExempt = (path: string) =>
-    path === '/oauth/token' || path === '/oauth/revoke' || path === '/userinfo' ||
-    path === '/oidc/logout' || path.startsWith('/api/')
+    path === '/oauth/token' || path === '/oauth/revoke' || path === '/oauth/introspect' ||
+    path === '/userinfo' || path === '/oidc/logout' || path.startsWith('/api/')
 app.use('*', async (c, next) => {
     if (oidcCsrfExempt(c.req.path)) return next()
     return csrf()(c, next)
@@ -258,6 +258,8 @@ app.get('/login', async (c) => {
     // here with reauth=1 so we show the form instead of silently reusing the
     // still-valid SSO session.
     const reauth = c.req.query('reauth') === '1'
+    // OIDC login_hint: RP-supplied identifier to pre-fill the email field.
+    const loginHint = c.req.query('login_hint')
 
     const user = await getUser(c)
     if (user && !reauth) {
@@ -267,7 +269,7 @@ app.get('/login', async (c) => {
         return c.redirect(admin ? '/admin' : '/')
     }
 
-    return c.html(<Login t={t} redirectTo={redirectTo} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} />)
+    return c.html(<Login t={t} redirectTo={redirectTo} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} email={loginHint} />)
 })
 
 app.post('/login', async (c) => {
@@ -610,6 +612,19 @@ async function authenticateClient(
     return { ok: true }
 }
 
+// Extract client_secret_basic credentials from the Authorization header, if any.
+function parseBasicAuth(c: any): { clientId?: string; secret?: string } {
+    const authz = c.req.header('Authorization')
+    if (!authz || !authz.startsWith('Basic ')) return {}
+    try {
+        const dec = atob(authz.slice(6))
+        const i = dec.indexOf(':')
+        return { clientId: decodeURIComponent(dec.slice(0, i)), secret: decodeURIComponent(dec.slice(i + 1)) }
+    } catch {
+        return {}
+    }
+}
+
 async function parseClientBody(c: any): Promise<Record<string, string>> {
     const ct = c.req.header('Content-Type') || ''
     if (ct.includes('application/json')) return (await c.req.json().catch(() => ({}))) as any
@@ -638,6 +653,15 @@ function buildOidcClaims(user: User, scope: string | null): Record<string, unkno
     return claims
 }
 
+// OIDC at_hash: base64url(left-most 128 bits of SHA-256(access_token)).
+async function computeAtHash(accessToken: string): Promise<string> {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(accessToken)))
+    const half = digest.slice(0, 16)
+    let bin = ''
+    for (let i = 0; i < half.length; i++) bin += String.fromCharCode(half[i])
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
 async function issueOidcTokens(c: any, user: User, clientId: string, nonce: string | null, scope: string | null, authTime: number | null) {
     const now = Math.floor(Date.now() / 1000)
     const expiresIn = 3600
@@ -656,6 +680,10 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn, grantedScope, effectiveAuthTime).run()
 
     const issuer = new URL(c.req.url).origin
+    // OIDC Core 3.1.3.6: at_hash = base64url(left-most half of SHA-256(access_token)).
+    // RS256 → SHA-256, so the half is the first 16 bytes. Lets the RP bind the
+    // id_token to this access_token.
+    const atHash = await computeAtHash(accessToken)
     const idToken = await signRS256({
         iss: issuer,
         sub: user.id,
@@ -663,6 +691,7 @@ async function issueOidcTokens(c: any, user: User, clientId: string, nonce: stri
         iat: now,
         exp: now + expiresIn,
         auth_time: effectiveAuthTime,
+        at_hash: atHash,
         ...(nonce ? { nonce } : {}),
         ...buildOidcClaims(user, grantedScope),
     }, c.env.DB, c.env.OIDC_KEK)
@@ -688,6 +717,8 @@ app.get('/.well-known/openid-configuration', (c) => {
         end_session_endpoint: `${issuer}/oidc/logout`,
         revocation_endpoint: `${issuer}/oauth/revoke`,
         revocation_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
+        introspection_endpoint: `${issuer}/oauth/introspect`,
+        introspection_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
         subject_types_supported: ['public'],
@@ -695,7 +726,7 @@ app.get('/.well-known/openid-configuration', (c) => {
         scopes_supported: ['openid', 'profile', 'email', 'offline_access'],
         token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
         code_challenge_methods_supported: ['S256', 'plain'],
-        claims_supported: ['sub', 'email', 'email_verified', 'name', 'preferred_username', 'iss', 'aud', 'exp', 'iat', 'nonce', 'auth_time'],
+        claims_supported: ['sub', 'email', 'email_verified', 'name', 'preferred_username', 'iss', 'aud', 'exp', 'iat', 'nonce', 'auth_time', 'at_hash'],
     })
 })
 
@@ -754,7 +785,9 @@ app.get('/authorize', async (c) => {
         const resume = new URL(c.req.url)
         resume.searchParams.delete('prompt')
         const returnTo = '/authorize' + resume.search
-        return c.redirect('/login?reauth=1&return_to=' + encodeURIComponent(returnTo))
+        // Carry login_hint to /login so the email field is pre-filled (OIDC 3.1.2.1).
+        const hint = q.login_hint ? '&login_hint=' + encodeURIComponent(q.login_hint) : ''
+        return c.redirect('/login?reauth=1' + hint + '&return_to=' + encodeURIComponent(returnTo))
     }
 
     // Enforce tobira's per-app permission gate.
@@ -943,18 +976,8 @@ app.post('/oauth/revoke', async (c) => {
     const body = await parseClientBody(c)
 
     // Client auth: client_secret_post (body) or client_secret_basic (header).
-    let basicClientId: string | undefined
-    let basicClientSecret: string | undefined
-    const authz = c.req.header('Authorization')
-    if (authz && authz.startsWith('Basic ')) {
-        try {
-            const dec = atob(authz.slice(6))
-            const i = dec.indexOf(':')
-            basicClientId = decodeURIComponent(dec.slice(0, i))
-            basicClientSecret = decodeURIComponent(dec.slice(i + 1))
-        } catch { /* ignore */ }
-    }
-    const providedSecret = (body.client_secret as string) || basicClientSecret
+    const basic = parseBasicAuth(c)
+    const providedSecret = (body.client_secret as string) || basic.secret
 
     const token = body.token
     if (!token) return tokenError(c, 'invalid_request', 'missing token')
@@ -971,13 +994,65 @@ app.post('/oauth/revoke', async (c) => {
         // Only the client the token was issued to may revoke it.
         const auth = await authenticateClient(c, session.app_id, providedSecret, true)
         if (!auth.ok) return auth.res
-        const clientId = (body.client_id as string) || basicClientId
+        const clientId = (body.client_id as string) || basic.clientId
         if (!clientId || clientId === session.app_id) {
             await c.env.DB.prepare('DELETE FROM app_sessions WHERE id = ?').bind(session.id).run()
         }
     }
     // Unknown token → succeed silently (§2.2).
     return c.body(null, 200)
+})
+
+// Token introspection (RFC 7662). The RP presents an access_token or refresh_token
+// and authenticates; the IdP reports whether it is active plus its metadata.
+// Tokens not belonging to the calling client are reported as inactive (§4 privacy).
+app.post('/oauth/introspect', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    c.header('Pragma', 'no-cache')
+    const body = await parseClientBody(c)
+    const basic = parseBasicAuth(c)
+    const providedSecret = (body.client_secret as string) || basic.secret
+    const callerId = (body.client_id as string) || basic.clientId
+
+    const token = body.token
+    if (!token) return tokenError(c, 'invalid_request', 'missing token')
+
+    // The caller must authenticate as a registered client (RFC 7662 §2.1). We
+    // authenticate the *caller's own* identity here — not the token's owner — so
+    // that a token belonging to another client is reported inactive rather than
+    // leaking its existence via an invalid_client error.
+    if (!callerId) return tokenError(c, 'invalid_client', 'client authentication required', 401)
+    const auth = await authenticateClient(c, callerId, providedSecret, true)
+    if (!auth.ok) return auth.res
+
+    const hint = body.token_type_hint
+    const inactive = () => c.json({ active: false })
+
+    const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(token)
+    const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(token)
+    // Track which form matched so we can label token_type / honour access-token expiry.
+    let session = await (hint === 'refresh_token' ? byRefresh : byAccess).first() as any
+    let matchedAccess = !!session && session.token === token
+    if (!session) {
+        session = await (hint === 'refresh_token' ? byAccess : byRefresh).first() as any
+        matchedAccess = !!session && session.token === token
+    }
+    // Unknown token, or a token belonging to a different client → inactive (§4 privacy).
+    if (!session || session.app_id !== callerId) return inactive()
+
+    const now = Math.floor(Date.now() / 1000)
+    // Access tokens expire at expires_at; refresh tokens stay valid until rotated/revoked.
+    if (matchedAccess && session.expires_at <= now) return inactive()
+
+    return c.json({
+        active: true,
+        scope: session.scope || undefined,
+        client_id: session.app_id,
+        sub: session.user_id,
+        token_type: matchedAccess ? 'Bearer' : 'refresh_token',
+        ...(matchedAccess ? { exp: session.expires_at } : {}),
+        ...(session.auth_time != null ? { auth_time: session.auth_time } : {}),
+    })
 })
 
 // --- Admin ---
