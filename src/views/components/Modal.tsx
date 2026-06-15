@@ -23,6 +23,10 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
         z-index: 1000;
         max-width: 100%;
         max-height: 100%;
+        /* showModal() の中央寄せはブラウザ既定の margin:auto に依存する。
+           ユーザー向け Layout の "* { margin: 0 }" がそれを打ち消して左上に寄るため、
+           ここで明示的に中央寄せを復活させる(共通部品なので全モーダルに効く)。 */
+        margin: auto;
 
         &::backdrop {
             background: rgba(15, 23, 42, 0.4);
