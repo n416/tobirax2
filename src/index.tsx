@@ -46,7 +46,8 @@ const app = new Hono<{ Bindings: Env }>()
 const oidcCsrfExempt = (path: string) =>
     path === '/oauth/token' || path === '/oauth/revoke' || path === '/oauth/introspect' ||
     path === '/register' ||
-    path === '/userinfo' || path === '/oidc/logout' || path.startsWith('/api/')
+    path === '/userinfo' || path === '/oidc/logout' || path.startsWith('/api/') ||
+    path.startsWith('/entitlements/')
 app.use('*', async (c, next) => {
     if (oidcCsrfExempt(c.req.path)) return next()
     return csrf()(c, next)
@@ -246,6 +247,51 @@ async function createAssignment(c: any, p: { userId: string; groupId: string; se
         ON CONFLICT(user_id, group_id, service_id, facility_id) DO UPDATE SET service_role_id=excluded.service_role_id, valid_from=excluded.valid_from, valid_to=excluded.valid_to
     `).bind(p.userId, p.groupId, p.serviceId, p.facilityId, p.roleId, p.validFrom, p.validTo).run()
     return 'ok'
+}
+
+// ランタイム・エンタイトルメント判定(読み取り): 指定ユーザー×サービスについて、
+//   3ゲート(①グループ所属 → ②利用枠 → ③利用者割当)を now 時点で全通過した
+//   エンタイトルメント行を列挙する。書き込み側 createAssignment と判定の真実を一致させる。
+//   ①②③のどれか欠ければその行は出ない(自動継承なし)。将来の check も本ヘルパを使う。
+//   1本の JOIN で評価する:
+//     ③ service_user_assignments を起点に、対象 user×service の有効な割当を取り、
+//     ① group_memberships(同 user×group が now 有効) を INNER JOIN、
+//     ② group_service_grants(同 group×service が now 有効) を INNER JOIN、
+//     表示用に groups / facilities / service_role_master を JOIN する。
+async function getEntitlements(c: any, userId: string, serviceId: string): Promise<any[]> {
+    const now = Math.floor(Date.now() / 1000)
+    const { results } = await c.env.DB.prepare(`
+        SELECT
+            a.group_id        AS group_id,
+            g.name            AS group_name,
+            m.role            AS membership_role,
+            a.facility_id     AS facility_id,
+            f.structure_no    AS structure_no,
+            f.building_use    AS building_use,
+            rm.role_name      AS role_name,
+            a.valid_from      AS valid_from,
+            a.valid_to        AS valid_to
+        FROM service_user_assignments a
+        JOIN group_memberships m
+            ON m.user_id = a.user_id AND m.group_id = a.group_id
+           AND m.valid_from <= ? AND m.valid_to >= ?
+        JOIN group_service_grants gr
+            ON gr.group_id = a.group_id AND gr.service_id = a.service_id
+           AND gr.valid_from <= ? AND gr.valid_to >= ?
+        JOIN groups g              ON g.id = a.group_id
+        JOIN facilities f          ON f.id = a.facility_id
+        JOIN service_role_master rm ON rm.id = a.service_role_id
+        WHERE a.user_id = ? AND a.service_id = ?
+          AND a.valid_from <= ? AND a.valid_to >= ?
+        ORDER BY g.name, f.structure_no
+    `).bind(now, now, now, now, userId, serviceId, now, now).all()
+    return (results as any[]).map(r => ({
+        group:    { id: r.group_id, name: r.group_name, membership_role: r.membership_role },
+        facility: { id: r.facility_id, structure_no: r.structure_no, building_use: r.building_use },
+        role:     r.role_name,
+        valid_from: r.valid_from,
+        valid_to:   r.valid_to,
+    }))
 }
 
 // 監査ログを1行記録する。details は i18n キー方式({ key, params }) で保存する。
@@ -1342,6 +1388,47 @@ app.on(['GET', 'POST'], '/userinfo', async (c) => {
     return c.json({
         sub: user.id,
         ...buildOidcClaims(user, (session.scope as string) || null),
+    })
+})
+
+// ============================================================
+// ランタイム・エンタイトルメントAPI (v1: ユーザーコンテキスト)
+//   外部サービス(点検等)が、OIDCログインで得たユーザーのアクセストークンを Bearer 転送し、
+//   「このユーザーは今どのグループ・どの建物で・何の役割か(=①②③全通過)」を問い合わせる。
+//   - 認証: /userinfo と同じく app_sessions から不透明トークンを引き当てる。
+//   - サービス束縛: トークンの app_id(=OIDCクライアント) → apps.service_id。
+//     NULL のクライアントはエンタイトルメント問い合わせ用に紐付いていない = 403。
+//     これにより点検会社のトークンは点検サービスのエンタイトルメントしか読めない(テナント分離)。
+//   - 結果: ①②③を now 時点で全通過した割当の列挙。空配列でも 200 を返す(=権限なし)。
+// ============================================================
+app.get('/entitlements/me', async (c) => {
+    const auth = c.req.header('Authorization') || ''
+    if (!auth.startsWith('Bearer ')) return bearerUnauthorized(c)
+    const token = auth.slice(7)
+    const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?')
+        .bind(token, Math.floor(Date.now() / 1000)).first() as any
+    if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
+
+    // トークンを発行した OIDC クライアント → ドメインサービスを引く。
+    const appRow = await c.env.DB.prepare('SELECT id, service_id FROM apps WHERE id = ?')
+        .bind(session.app_id).first() as { id: string; service_id: string | null } | null
+    if (!appRow || !appRow.service_id) {
+        // 403: このクライアントはどのサービスにも束縛されていない(エンタイトルメント用ではない)。
+        return c.json({ error: 'not_entitlement_client', error_description: 'this client is not bound to a service' }, 403)
+    }
+    const service = await c.env.DB.prepare('SELECT id, name FROM services WHERE id = ?')
+        .bind(appRow.service_id).first() as { id: string; name: string } | null
+    if (!service) {
+        // 束縛先サービスが削除済み等で見つからない場合も問い合わせ不可とする。
+        return c.json({ error: 'not_entitlement_client', error_description: 'the bound service does not exist' }, 403)
+    }
+
+    const entitlements = await getEntitlements(c, session.user_id, service.id)
+    return c.json({
+        subject: session.user_id,
+        service: { id: service.id, name: service.name },
+        as_of: Math.floor(Date.now() / 1000),
+        entitlements,
     })
 })
 
