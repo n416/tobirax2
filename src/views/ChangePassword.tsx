@@ -133,7 +133,7 @@ export const ChangePassword = (props: Props) => {
           <form method="POST" action="/change-password">
             <label class="${field}">
               <span class="lbl">${t.label_new_password}</span>
-              <input type="password" name="password" required placeholder="••••••••" />
+              <input type="password" name="password" autocomplete="new-password" required placeholder="••••••••" />
             </label>
             <div style="text-align:right;">
               <button type="submit" class="${primaryBtn}"><span class="material-symbols-outlined">save</span>${t.save}</button>

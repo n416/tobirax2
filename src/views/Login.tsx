@@ -198,7 +198,7 @@ export const Login = (props: Props) => {
                 ${props.returnTo ? html`<input type="hidden" name="return_to" value="${props.returnTo}" />` : ''}
 
                 <div class="${inputGroupClass}">
-                    <input type="email" name="email" placeholder="${t.email}" required class="${inputClass}" value="${props.email || ''}">
+                    <input type="email" name="email" autocomplete="username" placeholder="${t.email}" required class="${inputClass}" value="${props.email || ''}">
                     <div class="${iconClass} input-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -207,7 +207,7 @@ export const Login = (props: Props) => {
                 </div>
 
                 <div class="${inputGroupClass}">
-                    <input type="password" name="password" placeholder="${t.password}" required class="${inputClass}">
+                    <input type="password" name="password" autocomplete="current-password" placeholder="${t.password}" required class="${inputClass}">
                     <div class="${iconClass} input-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zM12 9a4 4 0 110-8 4 4 0 010 8z" />
