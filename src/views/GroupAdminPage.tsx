@@ -218,6 +218,17 @@ export const GroupAdminPage = (props: Props) => {
     &:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
   `
 
+  // 素の <select> はユーザー向け Layout だと無装飾で小さく潰れるため、入力欄と統一する。
+  // ネイティブの矢印を消し、右側にシェブロンを描画する。
+  const selectInput = css`
+    width: 100%; padding: 0.7rem 2.2rem 0.7rem 1rem; background-color: #fff;
+    border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; color: #334155; cursor: pointer;
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 1rem;
+    &:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+  `
+
   const infoBox = css`
     display: flex;
     align-items: flex-start;
@@ -823,7 +834,7 @@ export const GroupAdminPage = (props: Props) => {
             </div>
             <div>
               <label class="${formLabel}">${t.am_label_role}</label>
-              <select id="m-role">
+              <select id="m-role" class="${selectInput}">
                 <option value="member">${t.am_role_member}</option>
                 <option value="group_admin">${t.am_role_group_admin}</option>
               </select>
@@ -871,19 +882,19 @@ export const GroupAdminPage = (props: Props) => {
             </div>
             <div>
               <label class="${formLabel}">${t.ga_assign_user}</label>
-              <select id="a-user"></select>
+              <select id="a-user" class="${selectInput}"></select>
             </div>
             <div>
               <label class="${formLabel}">${t.ga_assign_service}</label>
-              <select id="a-service" onchange="refreshAssignRoles()"></select>
+              <select id="a-service" class="${selectInput}" onchange="refreshAssignRoles()"></select>
             </div>
             <div>
               <label class="${formLabel}">${t.ga_assign_facility}</label>
-              <select id="a-facility" onchange="refreshAssignRoles()"></select>
+              <select id="a-facility" class="${selectInput}" onchange="refreshAssignRoles()"></select>
             </div>
             <div>
               <label class="${formLabel}">${t.ga_assign_role}</label>
-              <select id="a-role"></select>
+              <select id="a-role" class="${selectInput}"></select>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
               <div>
@@ -928,7 +939,7 @@ export const GroupAdminPage = (props: Props) => {
             </div>
             <div>
               <label class="${formLabel}">${t.ga_grant_contract}</label>
-              <select id="g-contract"></select>
+              <select id="g-contract" class="${selectInput}"></select>
             </div>
             <div>
               <label class="${formLabel}">${t.ga_grant_seat}</label>
