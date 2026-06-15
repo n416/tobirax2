@@ -14,6 +14,7 @@ interface Props {
   profileUsername?: string | null
   profilePicture?: string | null
   message?: string
+  isGroupAdmin?: boolean
 }
 
 // プロフィール編集 + セキュリティ(2段階認証 / パスワード変更)の専用画面。
@@ -138,6 +139,7 @@ export const AccountPage = (props: Props) => {
         ${UserTopbar({
           t, siteName: props.siteName, userEmail: props.userEmail, active: 'account',
           profileName: props.profileName, profilePicture: props.profilePicture,
+          isGroupAdmin: props.isGroupAdmin,
         })}
 
         <div class="${pageHead}">

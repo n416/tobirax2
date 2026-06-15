@@ -19,7 +19,7 @@ export const dict = {
     nav_account: 'Account Manager',
     // Sidebar section headers
     nav_section_account: 'Account Manager',
-    nav_section_idp: 'OIDC / IdP',
+    nav_section_idp: 'Access Management',
     nav_section_system: 'System',
 
     // Account Manager: Group management
@@ -45,7 +45,7 @@ export const dict = {
 
     // --- AM: サービスマスタ（ゲート①） ---
     am_section_services: 'Services',
-    am_services_subtitle: 'Register providers, services and contracts (Gate 1)',
+    am_services_subtitle: 'Register providers, services and contracts',
     am_providers_header: 'Service Providers',
     am_btn_add_provider: 'New Provider',
     am_label_provider_name: 'Provider Name',
@@ -72,7 +72,7 @@ export const dict = {
 
     // --- AM: 利用枠（ゲート②） ---
     am_section_grants: 'Service Grants',
-    am_grants_subtitle: 'Open contracted services to group nodes (Gate 2, no inheritance)',
+    am_grants_subtitle: 'Open contracted services to group nodes (no auto-inheritance)',
     am_btn_add_grant: 'New Grant',
     am_label_grant_group: 'Group',
     am_label_grant_contract: 'Contract (Service)',
@@ -92,7 +92,7 @@ export const dict = {
 
     // --- AM: 役割マスタ + 利用者割当（ゲート③） ---
     am_section_assignments: 'User Assignments',
-    am_assignments_subtitle: 'Assign users per building with a service role (Gate 3)',
+    am_assignments_subtitle: 'Assign users per building with a service role',
     am_roles_header: 'Service Role Master',
     am_btn_add_role: 'New Role',
     am_label_role_service: 'Service',
@@ -113,6 +113,29 @@ export const dict = {
     am_none_assignments: 'No assignments.',
     am_alert_seat_exceeded: 'Seat limit reached for this contract/grant.',
     am_alert_no_role: 'No role available. Define a role in the master first.',
+
+    // グループ管理者ポータル
+    ga_title: 'Group Admin Portal',
+    ga_subtitle: 'Manage members and service assignments for your groups',
+    ga_nav: 'Group Admin',
+    ga_tab_members: 'Members',
+    ga_tab_assignments: 'Service Assignments',
+    ga_tab_access: 'App Access',
+    ga_no_groups: 'You are not assigned as a group admin for any groups.',
+    ga_select_group: 'Select Group',
+    ga_access_readonly: 'Read-only. Contact system admin to change permissions.',
+    ga_permission_app: 'App',
+    ga_permission_source: 'Source',
+    ga_permission_valid: 'Valid Period',
+    ga_source_user: 'User specific',
+    ga_source_group: 'Group',
+    ga_no_access: 'No app access assigned.',
+    ga_no_assignments: 'No service assignments for this group.',
+    ga_assign_user: 'User',
+    ga_assign_facility: 'Facility',
+    ga_assign_role: 'Role',
+    ga_assign_service: 'Service',
+    ga_assign_valid: 'Valid Period',
 
     login_header: 'Login to',
     email: 'Email',
@@ -368,7 +391,7 @@ export const dict = {
     nav_account: 'アカウント管理',
     // サイドバーのセクション見出し
     nav_section_account: 'アカウントマネージャ',
-    nav_section_idp: 'OIDC / IdP',
+    nav_section_idp: 'アクセス管理',
     nav_section_system: 'システム',
 
     // アカウントマネージャ: グループ管理
@@ -394,7 +417,7 @@ export const dict = {
 
     // --- AM: サービスマスタ（ゲート①） ---
     am_section_services: 'サービス管理',
-    am_services_subtitle: '提供企業・サービス・契約を登録します（ゲート①）',
+    am_services_subtitle: '提供企業・サービス・契約を登録します',
     am_providers_header: 'サービス提供企業',
     am_btn_add_provider: '新規提供企業',
     am_label_provider_name: '提供企業名',
@@ -421,7 +444,7 @@ export const dict = {
 
     // --- AM: 利用枠（ゲート②） ---
     am_section_grants: '利用枠',
-    am_grants_subtitle: '契約済みサービスをグループノードへ明示開放します（ゲート②・自動継承なし）',
+    am_grants_subtitle: '契約済みサービスをグループへ開放します（自動継承なし）',
     am_btn_add_grant: '利用枠を追加',
     am_label_grant_group: 'グループ',
     am_label_grant_contract: '契約（サービス）',
@@ -441,7 +464,7 @@ export const dict = {
 
     // --- AM: 役割マスタ + 利用者割当（ゲート③） ---
     am_section_assignments: '利用者割当',
-    am_assignments_subtitle: '建物ごとに利用者へサービス役割を割り当てます（ゲート③）',
+    am_assignments_subtitle: '建物ごとに利用者へサービス役割を割り当てます',
     am_roles_header: 'サービス役割マスタ',
     am_btn_add_role: '新規役割',
     am_label_role_service: 'サービス',
@@ -462,6 +485,29 @@ export const dict = {
     am_none_assignments: '割当がありません',
     am_alert_seat_exceeded: 'この契約／利用枠の席数上限に達しています。',
     am_alert_no_role: '選べる役割がありません。先に役割マスタで役割を定義してください。',
+
+    // グループ管理者ポータル
+    ga_title: 'グループ管理ポータル',
+    ga_subtitle: '管理グループのメンバーとサービス割当を管理します',
+    ga_nav: 'グループ管理',
+    ga_tab_members: 'メンバー',
+    ga_tab_assignments: 'サービス割当',
+    ga_tab_access: 'アクセス権',
+    ga_no_groups: 'グループ管理者として割り当てられているグループがありません。',
+    ga_select_group: 'グループを選択',
+    ga_access_readonly: '閲覧のみ。変更はシステム管理者に依頼してください。',
+    ga_permission_app: 'アプリ',
+    ga_permission_source: '適用元',
+    ga_permission_valid: '有効期間',
+    ga_source_user: 'ユーザー個別',
+    ga_source_group: 'グループ',
+    ga_no_access: 'アクセス権がありません',
+    ga_no_assignments: 'このグループのサービス割当がありません。',
+    ga_assign_user: '利用者',
+    ga_assign_facility: '施設',
+    ga_assign_role: '役割',
+    ga_assign_service: 'サービス',
+    ga_assign_valid: '有効期間',
 
     login_header: 'ログイン:',
     email: 'メールアドレス',

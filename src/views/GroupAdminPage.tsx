@@ -1,0 +1,570 @@
+import { html, raw } from 'hono/html'
+import { css } from 'hono/css'
+import { dict } from '../i18n'
+import { Layout } from './components/Layout'
+import { UserTopbar } from './components/UserTopbar'
+import { Group, App } from '../types'
+import { Button } from './components/Button'
+import { Modal } from './components/Modal'
+import { MultiSelect } from './components/MultiSelect'
+
+interface ManagedGroup extends Group {
+  member_count: number
+}
+
+interface GroupMember {
+  id: number
+  user_id: string
+  email: string
+  name: string | null
+  role: 'group_admin' | 'member'
+  valid_from: number
+  valid_to: number
+}
+
+interface Assignment {
+  id: number
+  user_email: string
+  user_name: string | null
+  service_name: string
+  facility_id: string
+  structure_no: string | null
+  building_use: string | null
+  role_name: string
+  valid_from: number
+  valid_to: number
+}
+
+interface AppPermission {
+  app_id: string
+  app_name: string
+  source: 'user' | 'group'
+  valid_from: number
+  valid_to: number
+  user_email: string
+}
+
+interface Props {
+  t: typeof dict.en
+  userEmail: string
+  siteName: string
+  profileName?: string | null
+  profilePicture?: string | null
+  managedGroups: ManagedGroup[]
+  allUsers: { id: string; email: string; name: string | null }[]
+  // グループIDをキーとした各種データ
+  membersByGroup: Record<string, GroupMember[]>
+  assignmentsByGroup: Record<string, Assignment[]>
+  permissionsByGroup: Record<string, AppPermission[]>
+  apps: App[]
+}
+
+export const GroupAdminPage = (props: Props) => {
+  const t = props.t
+  const groups = props.managedGroups
+
+  const userOptions = props.allUsers.map(u => ({
+    value: u.id,
+    text: u.name ? `${u.name} <${u.email}>` : u.email,
+  }))
+  const allUsersJson = JSON.stringify(userOptions)
+
+  // タブ切替 + グループ切替はすべてクライアントJS で処理する。
+  // グループ×タブのデータは JSON として埋め込み、再フェッチ不要にする。
+  const membersByGroupJson = JSON.stringify(props.membersByGroup)
+  const assignmentsByGroupJson = JSON.stringify(props.assignmentsByGroup)
+  const permsByGroupJson = JSON.stringify(props.permissionsByGroup)
+
+  const sectionTitle = css`
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    & .material-symbols-outlined { color: var(--primary); }
+  `
+
+  const card = css`
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.6);
+    border-radius: 16px;
+    box-shadow: 0 4px 16px -6px rgba(31,38,135,0.18);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  `
+
+  const tabBar = css`
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 1.75rem;
+    background: rgba(255,255,255,0.5);
+    border-radius: 12px;
+    padding: 0.35rem;
+    & button {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      border: none !important;
+      border-radius: 9px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--text-sub);
+      background: transparent !important;
+      box-shadow: none !important;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      & .material-symbols-outlined { font-size: 19px; }
+    }
+    & button:hover { background: rgba(255,255,255,0.7) !important; color: var(--primary); }
+    & button.active { background: #fff !important; color: var(--primary); box-shadow: 0 2px 6px -2px rgba(0,0,0,0.1) !important; }
+  `
+
+  const groupSelect = css`
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-main);
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    background: rgba(255,255,255,0.9) !important;
+    padding: 0.7rem 1rem !important;
+    margin-bottom: 1.5rem;
+    width: auto !important;
+    cursor: pointer;
+  `
+
+  const badge = css`
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+  `
+
+  const tableWrap = css`
+    overflow-x: auto;
+    & table { width: 100%; border-collapse: separate; border-spacing: 0 0.4rem; }
+    & th { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-sub); padding: 0.4rem 0.75rem; border-bottom: none; }
+    & td { background: rgba(255,255,255,0.5); padding: 0.8rem 0.75rem; font-size: 0.92rem; vertical-align: middle; border: none; }
+    & td:first-child { border-radius: 10px 0 0 10px; }
+    & td:last-child { border-radius: 0 10px 10px 0; }
+  `
+
+  const formLabel = css`display: block; font-weight: 700; font-size: 0.9rem; color: #1e293b; margin-bottom: 0.4rem;`
+
+  const dateInput = css`
+    width: 100%; padding: 0.7rem 1rem; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; color: #334155;
+    &:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+  `
+
+  const infoBox = css`
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.85rem 1rem;
+    background: rgba(79,70,229,0.06);
+    border: 1px solid rgba(79,70,229,0.15);
+    border-radius: 10px;
+    font-size: 0.88rem;
+    color: var(--text-sub);
+    margin-bottom: 1rem;
+    & .material-symbols-outlined { color: var(--primary); font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  `
+
+  const actionBtn = css`
+    background: transparent !important; border: none !important; color: #94a3b8 !important; cursor: pointer !important;
+    padding: 7px !important; border-radius: 50% !important; transition: all 0.2s !important; box-shadow: none !important;
+    display: inline-flex !important; align-items: center !important; justify-content: center !important;
+    width: 34px !important; height: 34px !important; flex-shrink: 0 !important;
+    &:hover { background: #fef2f2 !important; color: #ef4444 !important; }
+  `
+
+  const scriptContent = raw(`
+    (function() {
+      var membersByGroup = null;
+      var assignsByGroup = null;
+      var permsByGroup = null;
+      var currentTab = 'members';
+      var currentGroupId = '';
+
+      document.addEventListener('DOMContentLoaded', function() {
+        var md = document.getElementById('ga-members-data');
+        var ad = document.getElementById('ga-assigns-data');
+        var pd = document.getElementById('ga-perms-data');
+        if (md) membersByGroup = JSON.parse(md.textContent);
+        if (ad) assignsByGroup = JSON.parse(ad.textContent);
+        if (pd) permsByGroup = JSON.parse(pd.textContent);
+
+        var sel = document.getElementById('group-select');
+        if (sel && sel.value) {
+          currentGroupId = sel.value;
+          renderAll();
+        }
+        if (typeof TomSelect !== 'undefined') {
+          var el = document.getElementById('m-user-id');
+          if (el) {
+            window.tsCtrl = new TomSelect('#m-user-id', { plugins: ['remove_button'], create: false, maxItems: null });
+          }
+        }
+      });
+
+      window.switchGroup = function() {
+        var sel = document.getElementById('group-select');
+        currentGroupId = sel ? sel.value : '';
+        renderAll();
+      };
+
+      window.switchTab = function(tab) {
+        currentTab = tab;
+        ['members', 'assignments', 'access'].forEach(function(t) {
+          var btn = document.getElementById('tab-btn-' + t);
+          var pane = document.getElementById('tab-' + t);
+          if (btn) btn.className = btn.className.replace(' active', '') + (t === tab ? ' active' : '');
+          if (pane) pane.style.display = t === tab ? '' : 'none';
+        });
+      };
+
+      function renderAll() {
+        renderMembers();
+        renderAssignments();
+        renderPerms();
+      }
+
+      function fmt(ts) {
+        if (!ts) return '—';
+        if (ts > 2000000000) return '無期限';
+        return new Date(ts * 1000).toLocaleDateString();
+      }
+
+      function renderMembers() {
+        var el = document.getElementById('members-table-body');
+        if (!el) return;
+        var list = membersByGroup && currentGroupId ? (membersByGroup[currentGroupId] || []) : [];
+        if (list.length === 0) {
+          el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noMembers || '(メンバーなし)') + '</td></tr>';
+          return;
+        }
+        el.innerHTML = list.map(function(m) {
+          var isAdmin = m.role === 'group_admin';
+          var badgeHtml = '<span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + (isAdmin ? '#9a3412' : '#475569') + '; background:' + (isAdmin ? '#ffedd5' : '#f1f5f9') + ';">' + (isAdmin ? (window.i18n.roleAdmin || 'グループ管理者') : (window.i18n.roleMember || 'メンバー')) + '</span>';
+          var displayName = m.name || m.email;
+          var subEmail = m.name ? ('<div style="font-size:0.8rem; color:#94a3b8;">' + m.email + '</div>') : '';
+          return '<tr>'
+            + '<td><div>' + displayName + '</div>' + subEmail + '</td>'
+            + '<td>' + badgeHtml + '</td>'
+            + '<td style="font-size:0.85rem; color:#64748b;">' + fmt(m.valid_from) + ' ～ ' + fmt(m.valid_to) + '</td>'
+            + '<td style="text-align:right;"><button type="button" onclick="removeMember(' + m.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">person_remove</span></button></td>'
+            + '</tr>';
+        }).join('');
+      }
+
+      function renderAssignments() {
+        var el = document.getElementById('assigns-table-body');
+        if (!el) return;
+        var list = assignsByGroup && currentGroupId ? (assignsByGroup[currentGroupId] || []) : [];
+        if (list.length === 0) {
+          el.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noAssignments || '割当がありません') + '</td></tr>';
+          return;
+        }
+        el.innerHTML = list.map(function(a) {
+          var facility = a.structure_no || a.facility_id;
+          if (a.building_use) facility += ' (' + a.building_use + ')';
+          var user = a.user_name || a.user_email;
+          return '<tr>'
+            + '<td>' + user + (a.user_name ? '<div style="font-size:0.8rem;color:#94a3b8;">' + a.user_email + '</div>' : '') + '</td>'
+            + '<td style="font-size:0.88rem;">' + a.service_name + '</td>'
+            + '<td style="font-size:0.85rem; color:#64748b;">' + facility + '</td>'
+            + '<td style="font-size:0.85rem;">' + a.role_name + '</td>'
+            + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(a.valid_from) + ' ～ ' + fmt(a.valid_to) + '</td>'
+            + '</tr>';
+        }).join('');
+      }
+
+      function renderPerms() {
+        var el = document.getElementById('perms-table-body');
+        if (!el) return;
+        var list = permsByGroup && currentGroupId ? (permsByGroup[currentGroupId] || []) : [];
+        if (list.length === 0) {
+          el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noAccess || 'アクセス権がありません') + '</td></tr>';
+          return;
+        }
+        el.innerHTML = list.map(function(p) {
+          var srcLabel = p.source === 'user' ? (window.i18n.srcUser || 'ユーザー個別') : (window.i18n.srcGroup || 'グループ');
+          var srcColor = p.source === 'user' ? '#1d4ed8' : '#047857';
+          var srcBg = p.source === 'user' ? '#dbeafe' : '#d1fae5';
+          return '<tr>'
+            + '<td style="font-size:0.88rem;">' + p.user_email + '</td>'
+            + '<td><strong>' + p.app_name + '</strong></td>'
+            + '<td><span style="font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + srcColor + '; background:' + srcBg + ';">' + srcLabel + '</span></td>'
+            + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(p.valid_from) + ' ～ ' + fmt(p.valid_to) + '</td>'
+            + '</tr>';
+        }).join('');
+      }
+
+      var removeTargetId = null;
+      window.removeMember = function(mid) {
+        removeTargetId = mid;
+        var m = document.getElementById('remove-confirm-modal');
+        if (m) m.showModal();
+      };
+      window.closeRemoveModal = function() {
+        var m = document.getElementById('remove-confirm-modal');
+        if (m) m.close();
+        removeTargetId = null;
+      };
+      window.executeRemove = function() {
+        if (!removeTargetId) return;
+        fetch('/admin/api/am/membership/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: removeTargetId }) })
+          .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function() {
+            window.closeRemoveModal();
+            // ローカルデータからも削除してリレンダー
+            if (membersByGroup && currentGroupId) {
+              membersByGroup[currentGroupId] = (membersByGroup[currentGroupId] || []).filter(function(m) { return m.id !== removeTargetId; });
+            }
+            removeTargetId = null;
+            renderMembers();
+          })
+          .catch(function(e) { alert('Error: ' + e.message); });
+      };
+
+      window.addMember = function() {
+        var userIds = window.tsCtrl ? window.tsCtrl.getValue() : [];
+        if (!Array.isArray(userIds)) userIds = [userIds];
+        userIds = userIds.filter(function(id) { return id; });
+        if (!userIds.length) { alert('ユーザーを選択してください'); return; }
+        var role = document.getElementById('m-role').value || 'member';
+        var startVal = document.getElementById('m-valid-from').value;
+        var endVal = document.getElementById('m-valid-to').value;
+        var validFrom = startVal ? Math.floor(new Date(startVal).getTime()/1000) : Math.floor(Date.now()/1000);
+        var validTo = endVal ? Math.floor(new Date(endVal).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
+        fetch('/admin/api/am/membership/add', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, user_ids: userIds, role: role, valid_from: validFrom, valid_to: validTo })
+        })
+        .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        .then(function() { window.location.reload(); })
+        .catch(function(e) { alert('Error: ' + e.message); });
+      };
+
+      window.openAddModal = function() {
+        var m = document.getElementById('add-member-modal');
+        if (m) m.showModal();
+        if (window.tsCtrl) window.tsCtrl.clear();
+        var vf = document.getElementById('m-valid-from'); if(vf) vf.value = new Date().toISOString().split('T')[0];
+        var vt = document.getElementById('m-valid-to'); if(vt) vt.value = '';
+      };
+
+    })();
+  `)
+
+  if (groups.length === 0) {
+    return Layout({
+      title: t.ga_title,
+      siteName: props.siteName,
+      lang: t.lang,
+      width: 800,
+      align: 'top',
+      children: html`
+        ${UserTopbar({ t, siteName: props.siteName, userEmail: props.userEmail, active: 'group-admin', profileName: props.profileName, profilePicture: props.profilePicture, isGroupAdmin: true })}
+        <div style="text-align:center; padding:4rem 2rem; color:var(--text-sub);">
+          <span class="material-symbols-outlined" style="font-size:48px; color:#c7d2fe; display:block; margin-bottom:1rem;">group_off</span>
+          <p>${t.ga_no_groups}</p>
+          <a href="/" style="color:var(--primary); font-weight:600; text-decoration:none;">&larr; ${t.nav_dashboard}</a>
+        </div>
+      `
+    })
+  }
+
+  const firstGroupId = groups[0].id
+
+  return Layout({
+    title: t.ga_title,
+    siteName: props.siteName,
+    lang: t.lang,
+    width: 1000,
+    align: 'top',
+    children: html`
+      ${UserTopbar({ t, siteName: props.siteName, userEmail: props.userEmail, active: 'group-admin', profileName: props.profileName, profilePicture: props.profilePicture, isGroupAdmin: true })}
+
+      <div style="margin-bottom:1.75rem;">
+        <h1 style="font-size:1.5rem; font-weight:800; color:var(--text-main); letter-spacing:-0.02em; margin-bottom:0.25rem;">
+          <span class="material-symbols-outlined" style="color:var(--primary); vertical-align:middle; margin-right:0.4rem;">admin_panel_settings</span>${t.ga_title}
+        </h1>
+        <p style="font-size:0.95rem; color:var(--text-sub);">${t.ga_subtitle}</p>
+      </div>
+
+      ${groups.length > 1 ? html`
+        <div style="margin-bottom:1.5rem; display:flex; align-items:center; gap:0.75rem;">
+          <span class="material-symbols-outlined" style="color:var(--primary);">group</span>
+          <select id="group-select" class="${groupSelect}" onchange="switchGroup()" style="margin-bottom:0;">
+            ${groups.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+          </select>
+        </div>
+      ` : html`
+        <div style="margin-bottom:1.5rem; display:flex; align-items:center; gap:0.75rem;">
+          <span class="material-symbols-outlined" style="color:var(--primary);">group</span>
+          <strong style="font-size:1.1rem;">${groups[0].name}</strong>
+          <input type="hidden" id="group-select" value="${firstGroupId}" />
+        </div>
+      `}
+
+      <div class="${tabBar}">
+        <button id="tab-btn-members" class="active" onclick="switchTab('members')">
+          <span class="material-symbols-outlined">group</span>${t.ga_tab_members}
+        </button>
+        <button id="tab-btn-assignments" onclick="switchTab('assignments')">
+          <span class="material-symbols-outlined">assignment_ind</span>${t.ga_tab_assignments}
+        </button>
+        <button id="tab-btn-access" onclick="switchTab('access')">
+          <span class="material-symbols-outlined">lock_open</span>${t.ga_tab_access}
+        </button>
+      </div>
+
+      <!-- メンバータブ -->
+      <div id="tab-members">
+        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+          ${Button({ onclick: "openAddModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">person_add</span> ${t.am_add_member}` })}
+        </div>
+        <div class="${card}">
+          <div class="${tableWrap}">
+            <table>
+              <thead>
+                <tr>
+                  <th>${t.ga_assign_user}</th>
+                  <th>${t.am_label_role}</th>
+                  <th>${t.ga_assign_valid}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="members-table-body">
+                <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 割当タブ -->
+      <div id="tab-assignments" style="display:none;">
+        <div class="${card}">
+          <div class="${tableWrap}">
+            <table>
+              <thead>
+                <tr>
+                  <th>${t.ga_assign_user}</th>
+                  <th>${t.ga_assign_service}</th>
+                  <th>${t.ga_assign_facility}</th>
+                  <th>${t.ga_assign_role}</th>
+                  <th>${t.ga_assign_valid}</th>
+                </tr>
+              </thead>
+              <tbody id="assigns-table-body">
+                <tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- アクセス権タブ -->
+      <div id="tab-access" style="display:none;">
+        <div class="${infoBox}">
+          <span class="material-symbols-outlined">info</span>
+          ${t.ga_access_readonly}
+        </div>
+        <div class="${card}">
+          <div class="${tableWrap}">
+            <table>
+              <thead>
+                <tr>
+                  <th>${t.ga_assign_user}</th>
+                  <th>${t.ga_permission_app}</th>
+                  <th>${t.ga_permission_source}</th>
+                  <th>${t.ga_permission_valid}</th>
+                </tr>
+              </thead>
+              <tbody id="perms-table-body">
+                <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- メンバー追加モーダル -->
+      ${Modal({
+        id: 'add-member-modal',
+        title: t.am_add_member,
+        closeAction: "this.closest('dialog').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <div>
+              <label class="${formLabel}">${t.am_label_member}</label>
+              ${MultiSelect({ id: 'm-user-id', placeholder: t.placeholder_select, options: userOptions })}
+            </div>
+            <div>
+              <label class="${formLabel}">${t.am_label_role}</label>
+              <select id="m-role">
+                <option value="member">${t.am_role_member}</option>
+                <option value="group_admin">${t.am_role_group_admin}</option>
+              </select>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+              <div>
+                <label class="${formLabel}">${t.label_valid_from}</label>
+                <input type="date" id="m-valid-from" class="${dateInput}" />
+              </div>
+              <div>
+                <label class="${formLabel}">${t.label_valid_to}</label>
+                <input type="date" id="m-valid-to" class="${dateInput}" />
+              </div>
+            </div>
+            <div style="margin-top:0.5rem;">
+              ${Button({ onclick: "addMember()", children: html`<span class="material-symbols-outlined">person_add</span> ${t.am_add_member}` })}
+            </div>
+          </div>
+        `
+      })}
+
+      <!-- メンバー削除確認モーダル -->
+      ${Modal({
+        id: 'remove-confirm-modal',
+        title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.am_btn_remove}</span>`,
+        closeAction: 'closeRemoveModal()',
+        children: html`
+          <p style="color:#475569; font-size:1rem; line-height:1.5; margin-bottom:2rem;">${t.am_confirm_remove_member}</p>
+          <div style="display:flex; justify-content:flex-end; gap:1rem;">
+            <button type="button" onclick="closeRemoveModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+            <button type="button" onclick="executeRemove()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">person_remove</span>${t.am_btn_remove}</button>
+          </div>
+        `
+      })}
+
+      <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
+      <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>
+      <script type="application/json" id="ga-perms-data">${raw(permsByGroupJson)}</script>
+      <script type="application/json" id="ga-users-data">${raw(allUsersJson)}</script>
+      <script>
+        window.i18n = {
+          noMembers: '${t.am_no_members}',
+          roleAdmin: '${t.am_role_group_admin}',
+          roleMember: '${t.am_role_member}',
+          noAssignments: '${t.ga_no_assignments}',
+          noAccess: '${t.ga_no_access}',
+          srcUser: '${t.ga_source_user}',
+          srcGroup: '${t.ga_source_group}',
+        };
+      </script>
+      <script>
+      ${scriptContent}
+      </script>
+    `
+  })
+}

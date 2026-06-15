@@ -12,6 +12,7 @@ interface Props {
   siteName: string
   profileName?: string | null
   profilePicture?: string | null
+  isGroupAdmin?: boolean
 }
 
 export const UserDashboard = (props: Props) => {
@@ -124,6 +125,7 @@ export const UserDashboard = (props: Props) => {
         ${UserTopbar({
           t, siteName: props.siteName, userEmail: props.userEmail, active: 'dashboard',
           profileName: props.profileName, profilePicture: props.profilePicture,
+          isGroupAdmin: props.isGroupAdmin,
         })}
 
         <div class="${welcome}">

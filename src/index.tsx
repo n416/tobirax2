@@ -21,6 +21,7 @@ import { ChangePassword } from './views/ChangePassword'
 import { Setup2FA } from './views/Setup2FA'
 import { Login2FA } from './views/Login2FA'
 
+import { GroupAdminPage } from './views/GroupAdminPage'
 import { AdminHome } from './views/admin/AdminHome'
 import { AppsPage } from './views/admin/AppsPage'
 import { GroupsPage } from './views/admin/GroupsPage'
@@ -167,6 +168,17 @@ async function getUser(c: any) {
     return await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
 }
 
+// ユーザー取得 + group_admin 判定をまとめて返す。ユーザー向け画面で共通利用。
+async function getUserCtx(c: any): Promise<{ user: User; isGroupAdmin: boolean } | null> {
+    const user = await getUser(c)
+    if (!user) return null
+    const now = Math.floor(Date.now() / 1000)
+    const ga = await c.env.DB.prepare(
+        `SELECT 1 FROM group_memberships WHERE user_id = ? AND role = 'group_admin' AND valid_from <= ? AND valid_to >= ? LIMIT 1`
+    ).bind(user.id, now, now).first()
+    return { user, isGroupAdmin: !!ga }
+}
+
 // 監査ログを1行記録する。details は i18n キー方式({ key, params }) で保存する。
 async function logAudit(c: any, eventType: string, details: object) {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
@@ -246,38 +258,145 @@ function isAllowedRedirectUri(redirectUri: string, app: { base_url: string; redi
 app.get('/', async (c) => {
     try {
         const t = getLang(c)
-        const user = await getUser(c)
+        const ctx = await getUserCtx(c)
+        if (!ctx) return c.redirect('/login')
+        const { user, isGroupAdmin } = ctx
         const config = await getSystemConfig(c.env.DB)
         const siteName = getLocalizedValue(c, config.appName)
-
-        if (!user) return c.redirect('/login')
 
         const now = Math.floor(Date.now() / 1000)
         const { results: apps } = await c.env.DB.prepare(`
         SELECT DISTINCT a.* FROM apps a
         LEFT JOIN permissions up ON a.id = up.app_id AND up.user_id = ?
         LEFT JOIN group_permissions gp ON a.id = gp.app_id AND gp.group_id = ?
-        WHERE 
+        WHERE
           (a.status IS NULL OR a.status = 'active') AND
           ((up.valid_from <= ? AND up.valid_to >= ?) OR (up.id IS NULL AND gp.valid_from <= ? AND gp.valid_to >= ?))
       `).bind(user.id, user.group_id || null, now, now, now, now).all()
 
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} />)
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
     } catch (e: any) {
         return c.json({ error: e.message, stack: e.stack }, 500)
     }
 })
 
-// アカウント設定(プロフィール編集 + セキュリティ)の専用画面。
-app.get('/account', async (c) => {
+// グループ管理者ポータル: group_memberships で role='group_admin' のユーザー専用。
+// システム管理者(admins テーブル)は /admin を使うためここには来ない想定だが、
+// group_admin ロールも持っていれば閲覧できて問題ない。
+app.get('/group-admin', async (c) => {
+  try {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
     const t = getLang(c)
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
+    const now = Math.floor(Date.now() / 1000)
+
+    // 自分が group_admin として所属している有効なグループ一覧
+    const { results: managedGroups } = await c.env.DB.prepare(`
+        SELECT g.*, (SELECT COUNT(*) FROM group_memberships m2 WHERE m2.group_id = g.id AND m2.valid_from <= ? AND m2.valid_to >= ?) AS member_count
+        FROM groups g
+        JOIN group_memberships m ON m.group_id = g.id
+        WHERE m.user_id = ? AND m.role = 'group_admin' AND m.valid_from <= ? AND m.valid_to >= ?
+        ORDER BY g.name
+    `).bind(now, now, user.id, now, now).all()
+
+    if (!managedGroups || managedGroups.length === 0) {
+        const allUsers: any[] = []
+        return c.html(<GroupAdminPage t={t} userEmail={user.email} siteName={siteName}
+            profileName={user.name} profilePicture={user.picture}
+            managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}} apps={[]} />)
+    }
+
+    const groupIds = managedGroups.map((g: any) => g.id as string)
+
+    // 全ユーザー（メンバー追加候補）
+    const { results: allUsers } = await c.env.DB.prepare('SELECT id, email, name FROM users ORDER BY email').all()
+
+    // グループ別メンバー一覧
+    const membersByGroup: Record<string, any[]> = {}
+    for (const gid of groupIds) {
+        const { results } = await c.env.DB.prepare(`
+            SELECT m.id, m.user_id, u.email, u.name, m.role, m.valid_from, m.valid_to
+            FROM group_memberships m JOIN users u ON m.user_id = u.id
+            WHERE m.group_id = ? ORDER BY (m.role = 'group_admin') DESC, u.email
+        `).bind(gid).all()
+        membersByGroup[gid] = results || []
+    }
+
+    // グループ別サービス割当
+    const assignmentsByGroup: Record<string, any[]> = {}
+    for (const gid of groupIds) {
+        const { results } = await c.env.DB.prepare(`
+            SELECT a.id, u.email AS user_email, u.name AS user_name,
+                   s.name AS service_name, a.facility_id,
+                   f.structure_no, f.building_use,
+                   r.role_name, a.valid_from, a.valid_to
+            FROM service_user_assignments a
+            LEFT JOIN users u ON a.user_id = u.id
+            LEFT JOIN services s ON a.service_id = s.id
+            LEFT JOIN facilities f ON a.facility_id = f.id
+            LEFT JOIN service_role_master r ON a.service_role_id = r.id
+            WHERE a.group_id = ?
+            ORDER BY u.email, s.name
+        `).bind(gid).all()
+        assignmentsByGroup[gid] = results || []
+    }
+
+    // グループ別アプリアクセス権（グループメンバー全員の有効権限を集約）
+    const permissionsByGroup: Record<string, any[]> = {}
+    for (const gid of groupIds) {
+        const perms: any[] = []
+        const members = membersByGroup[gid] || []
+        // ユーザー個別権限
+        for (const m of members) {
+            const { results: userPerms } = await c.env.DB.prepare(`
+                SELECT p.app_id, a.name AS app_name, p.valid_from, p.valid_to
+                FROM permissions p JOIN apps a ON p.app_id = a.id
+                WHERE p.user_id = ? AND p.valid_from <= ? AND p.valid_to >= ?
+            `).bind((m as any).user_id, now, now).all()
+            for (const p of (userPerms || [])) {
+                perms.push({ ...(p as any), source: 'user', user_email: (m as any).email })
+            }
+        }
+        // グループ共通権限（メンバー全員に適用）
+        const { results: grpPerms } = await c.env.DB.prepare(`
+            SELECT p.app_id, a.name AS app_name, p.valid_from, p.valid_to
+            FROM group_permissions p JOIN apps a ON p.app_id = a.id
+            WHERE p.group_id = ? AND p.valid_from <= ? AND p.valid_to >= ?
+        `).bind(gid, now, now).all()
+        for (const p of (grpPerms || [])) {
+            perms.push({ ...(p as any), source: 'group', user_email: '(グループ共通)' })
+        }
+        permissionsByGroup[gid] = perms
+    }
+
+    return c.html(<GroupAdminPage
+        t={t} userEmail={user.email} siteName={siteName}
+        profileName={user.name} profilePicture={user.picture}
+        managedGroups={managedGroups as any}
+        allUsers={allUsers as any}
+        membersByGroup={membersByGroup}
+        assignmentsByGroup={assignmentsByGroup}
+        permissionsByGroup={permissionsByGroup}
+        apps={[]}
+    />)
+  } catch (e: any) {
+    return c.json({ error: e.message, stack: e.stack }, 500)
+  }
+})
+
+// アカウント設定(プロフィール編集 + セキュリティ)の専用画面。
+app.get('/account', async (c) => {
+    const ctx = await getUserCtx(c)
+    if (!ctx) return c.redirect('/login')
+    const { user, isGroupAdmin } = ctx
+    const t = getLang(c)
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
     const msgKey = c.req.query('msg')
     const message = msgKey && (t as any)[msgKey] ? (t as any)[msgKey] : undefined
-    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} />)
+    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} isGroupAdmin={isGroupAdmin} />)
 })
 
 app.get('/login', async (c) => {

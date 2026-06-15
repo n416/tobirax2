@@ -6,9 +6,10 @@ interface Props {
   t: typeof dict.en
   siteName: string
   userEmail: string
-  active: 'dashboard' | 'account'
+  active: 'dashboard' | 'account' | 'group-admin'
   profileName?: string | null
   profilePicture?: string | null
+  isGroupAdmin?: boolean
 }
 
 // ユーザー向け画面の共通トップバー（ブランド + ナビ + アバター/ログアウト）。
@@ -127,6 +128,11 @@ export const UserTopbar = (props: Props) => {
         <a href="/account" class="${props.active === 'account' ? 'active' : ''}">
           <span class="material-symbols-outlined">manage_accounts</span><span>${t.account_settings}</span>
         </a>
+        ${props.isGroupAdmin ? html`
+        <a href="/group-admin" class="${props.active === 'group-admin' ? 'active' : ''}">
+          <span class="material-symbols-outlined">admin_panel_settings</span><span>${t.ga_nav}</span>
+        </a>
+        ` : ''}
       </nav>
       <div class="${right}">
         <div class="${avatar}">
