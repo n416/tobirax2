@@ -82,6 +82,8 @@ export const dict = {
     security_header: 'Security',
     desc_2fa_account: 'Require a one-time code at login for extra security.',
     msg_profile_saved: 'Profile updated.',
+    back_to_account: 'Back to Account Settings',
+    desc_change_password: 'Set a new password for signing in.',
 
     section_apps: 'Applications',
     header_new_app: 'Register New App',
@@ -358,6 +360,8 @@ export const dict = {
     security_header: 'セキュリティ',
     desc_2fa_account: 'ログイン時にワンタイムコードを要求し、セキュリティを高めます。',
     msg_profile_saved: 'プロフィールを更新しました。',
+    back_to_account: 'アカウント設定に戻る',
+    desc_change_password: 'サインインに使う新しいパスワードを設定します。',
 
     section_apps: '連携アプリ一覧',
     header_new_app: '新規アプリ登録',

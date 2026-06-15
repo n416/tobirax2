@@ -453,9 +453,11 @@ app.get('/user/2fa/setup', async (c) => {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
     const t = getLang(c)
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
     const secret = generateSecret()
     const qrCode = await generateQRCode(secret, user.email, 'Tobira')
-    return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} />)
+    return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} />)
 })
 app.post('/user/2fa/setup', async (c) => {
     const user = await getUser(c)
@@ -470,8 +472,10 @@ app.post('/user/2fa/setup', async (c) => {
         await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('2FA_ENABLE', details).run()
         return c.redirect('/account?msg=msg_2fa_enabled')
     } else {
+        const config = await getSystemConfig(c.env.DB)
+        const siteName = getLocalizedValue(c, config.appName)
         const qrCode = await generateQRCode(secret, user.email, 'Tobira')
-        return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} error={t.err_invalid_code} />)
+        return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} error={t.err_invalid_code} />)
     }
 })
 app.post('/user/2fa/disable', async (c) => {
@@ -485,7 +489,9 @@ app.post('/user/2fa/disable', async (c) => {
 app.get('/change-password', async (c) => {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
-    return c.html(<ChangePassword t={getLang(c)} />)
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    return c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} />)
 })
 app.post('/change-password', async (c) => {
     const user = await getUser(c)
@@ -496,7 +502,9 @@ app.post('/change-password', async (c) => {
     await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(pwHash, user.id).run()
     const details = JSON.stringify({ key: 'log_password_change', params: { email: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PASSWORD_CHANGE', details).run()
-    return c.html(<ChangePassword t={getLang(c)} message={getLang(c).msg_password_changed} />)
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    return c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} message={getLang(c).msg_password_changed} />)
 })
 // セルフサービスの OIDC プロフィール(name / preferred_username / picture)。
 // 空欄 = 未設定(クレームでは email にフォールバック)。
