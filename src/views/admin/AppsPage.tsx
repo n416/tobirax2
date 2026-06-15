@@ -16,6 +16,7 @@ interface Props {
   t: typeof dict.en
   userEmail: string
   apps: App[]
+  services?: { id: string; name: string }[]
   regTokens?: RegToken[]
   siteName: string
   appConfig: SystemConfig
@@ -64,6 +65,10 @@ export const AppsPage = (props: Props) => {
                 // Back-Channel Logout URI (OIDC)
                 var bclEl = form.querySelector('input[name="backchannel_logout_uri"]');
                 if(bclEl) bclEl.value = btn.dataset.backchannelLogoutUri || '';
+
+                // 紐付けサービス (service_id)
+                var svcEl = form.querySelector('select[name="service_id"]');
+                if(svcEl) svcEl.value = btn.dataset.serviceId || '';
 
                 // アイコン関連
                 var iconEl = form.querySelector('input[name="icon_url"]');
@@ -306,6 +311,15 @@ export const AppsPage = (props: Props) => {
                     </label>
 
                     <label style="width:100%;">
+                      <span class="form-label">紐付けサービス</span>
+                      <select name="service_id" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-size:1rem; background-color:#fff;">
+                        <option value="">-- 紐付けなし (エンタイトルメント対象外) --</option>
+                        ${(props.services || []).map(s => html`<option value="${s.id}">${s.name}</option>`)}
+                      </select>
+                      <small style="display:block; color:#64748b; margin-top:0.35rem;">アプリが要求する権限（ライセンス）の提供元となるサービスを選びます。</small>
+                    </label>
+
+                    <label style="width:100%;">
                         <span class="form-label">${t.label_app_icon}</span>
                         <div style="display:flex; gap:0.5rem; align-items:center;">
                             <input type="file" name="icon_file" accept="image/*" style="font-size:0.9rem; padding: 0.4rem; height: auto;" onchange="handleIconPreview(this, 'new-icon-preview')" />
@@ -353,6 +367,7 @@ export const AppsPage = (props: Props) => {
                data-secret="${app.client_secret || ''}"
                data-redirect-uris="${app.redirect_uris || ''}"
                data-backchannel-logout-uri="${app.backchannel_logout_uri || ''}"
+               data-service-id="${app.service_id || ''}"
                onclick="openEditAppModal(this)">
             
             <div style="flex-grow:1;">
@@ -362,6 +377,9 @@ export const AppsPage = (props: Props) => {
                     ${app.status === 'inactive'
                         ? html`<span style="color:#d97706; background:#fffbeb; border:1px solid #fcd34d; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${t.status_inactive}</span>`
                         : html`<span style="color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${t.status_active}</span>`}
+                    ${app.service_name 
+                        ? html`<span style="color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold; display:inline-flex; align-items:center; gap:0.2rem;"><span class="material-symbols-outlined" style="font-size:12px;">link</span> ${app.service_name}</span>` 
+                        : html`<span style="color:#64748b; background:#f1f5f9; border:1px solid #e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">紐付けなし</span>`}
                 </div>
                 ${app.description ? html`<div style="font-size:0.85rem; color:#64748b; margin-bottom:0.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:400px;">${app.description}</div>` : ''}
                 <div class="${itemSub}">
@@ -413,6 +431,15 @@ export const AppsPage = (props: Props) => {
                         <span class="form-label">${t.label_bcl_uri}</span>
                         <input type="url" name="backchannel_logout_uri" placeholder="https://app.example.com/backchannel-logout" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem;" />
                         <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_bcl_uri}</small>
+                    </label>
+
+                    <label style="width:100%;">
+                      <span class="form-label">紐付けサービス</span>
+                      <select name="service_id" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-size:1rem; background-color:#fff;">
+                        <option value="">-- 紐付けなし (エンタイトルメント対象外) --</option>
+                        ${(props.services || []).map(s => html`<option value="${s.id}">${s.name}</option>`)}
+                      </select>
+                      <small style="display:block; color:#64748b; margin-top:0.35rem;">アプリが要求する権限（ライセンス）の提供元となるサービスを選びます。</small>
                     </label>
 
                     <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">

@@ -1739,9 +1739,15 @@ app.get('/admin/apps', async (c) => {
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
-    const { results } = await c.env.DB.prepare('SELECT * FROM apps ORDER BY created_at DESC').all()
+    const { results } = await c.env.DB.prepare(`
+        SELECT a.*, s.name as service_name 
+        FROM apps a 
+        LEFT JOIN services s ON a.service_id = s.id 
+        ORDER BY a.created_at DESC
+    `).all()
+    const services = await c.env.DB.prepare('SELECT id, name FROM services ORDER BY created_at DESC').all()
     const regTokens = await c.env.DB.prepare('SELECT token, created_at, expires_at FROM registration_tokens ORDER BY created_at DESC').all()
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} regTokens={regTokens.results as any} siteName={siteName} appConfig={config} />)
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} services={services.results as any} regTokens={regTokens.results as any} siteName={siteName} appConfig={config} />)
 })
 
 // RFC 7591 動的登録用の Initial Access Token を発行する。任意の `days` で有効期限を
@@ -1789,8 +1795,9 @@ app.post('/admin/apps', async (c) => {
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
-    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri).run()
+    const serviceId = ((body['service_id'] as string) || '').trim() || null
+    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri, service_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri, serviceId).run()
 
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
@@ -1827,8 +1834,9 @@ app.post('/admin/apps/update', async (c) => {
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
-    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ?, backchannel_logout_uri = ? WHERE id = ?')
-        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, id).run()
+    const serviceId = ((body['service_id'] as string) || '').trim() || null
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ?, backchannel_logout_uri = ?, service_id = ? WHERE id = ?')
+        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, serviceId, id).run()
         
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: body['name'], status: 'Updated', admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()

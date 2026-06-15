@@ -45,7 +45,9 @@ CREATE TABLE IF NOT EXISTS apps (
     redirect_uris TEXT,
     -- OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント。値があれば /oidc/logout が
     -- 署名付き logout_token をここへ POST し、RP 側も自身のセッションを破棄できる。
-    backchannel_logout_uri TEXT
+    backchannel_logout_uri TEXT,
+    -- アカウントマネージャ: エンタイトルメント取得先となる対象サービス
+    service_id TEXT REFERENCES services(id)
 );
 
 CREATE TABLE IF NOT EXISTS groups (
