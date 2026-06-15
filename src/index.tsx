@@ -404,7 +404,7 @@ app.get('/group-admin', async (c) => {
         return c.html(<GroupAdminPage t={t} userEmail={user.email} siteName={siteName}
             profileName={user.name} profilePicture={user.picture}
             managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
-            grantsByGroup={{}} facilities={[]} rolesByService={{}} apps={[]} />)
+            grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}} apps={[]} />)
     }
 
     const groupIds = managedGroups.map((g: any) => g.id as string)
@@ -493,6 +493,26 @@ app.get('/group-admin', async (c) => {
         rolesByService[r.service_id].push(r)
     }
 
+    // 利用枠(ゲート②)タブ用データ:
+    //   - grantsDetailByGroup: 各グループの利用枠一覧(取消ボタン・契約・席数・期間つき)
+    //   - availableContracts: 配布可能な契約 = 顧客組織が自分の管理サブツリーにある契約
+    const grantsDetailByGroup: Record<string, any[]> = {}
+    for (const gid of groupIds) {
+        const { results } = await c.env.DB.prepare(`
+            SELECT gr.id, gr.service_id, s.name AS service_name, gr.contract_id, gr.seat_limit, gr.valid_from, gr.valid_to
+            FROM group_service_grants gr LEFT JOIN services s ON gr.service_id = s.id
+            WHERE gr.group_id = ? ORDER BY s.name
+        `).bind(gid).all()
+        grantsDetailByGroup[gid] = results || []
+    }
+    const { results: allContracts } = await c.env.DB.prepare(`
+        SELECT ct.id, ct.service_id, ct.customer_group_id, ct.seat_limit, s.name AS service_name, g.name AS group_name
+        FROM service_contracts ct
+        LEFT JOIN services s ON ct.service_id = s.id
+        LEFT JOIN groups g ON ct.customer_group_id = g.id
+    `).all()
+    const availableContracts = (allContracts as any[]).filter(ct => managedIds.has(ct.customer_group_id))
+
     return c.html(<GroupAdminPage
         t={t} userEmail={user.email} siteName={siteName}
         profileName={user.name} profilePicture={user.picture}
@@ -502,6 +522,8 @@ app.get('/group-admin', async (c) => {
         assignmentsByGroup={assignmentsByGroup}
         permissionsByGroup={permissionsByGroup}
         grantsByGroup={grantsByGroup}
+        grantsDetailByGroup={grantsDetailByGroup}
+        availableContracts={availableContracts as any}
         facilities={facilities as any}
         rolesByService={rolesByService}
         apps={[]}
@@ -587,6 +609,47 @@ app.post('/group-admin/api/assignment/remove', async (c) => {
     if (!managed.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
     await c.env.DB.prepare('DELETE FROM service_user_assignments WHERE id = ?').bind(id).run()
     await logAudit(c, 'DELEGATED_ASSIGNMENT_REMOVE', { key: 'log_assignment_delete', params: { id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// 委任: ゲート② 利用枠の開放/取消。組織管理者が自組織の契約を配下グループへ配る。
+//   開放先グループ・契約の顧客組織のいずれも自分の管理サブツリー内であることを要求する
+//   (= 自分が管理する組織の契約のみ、自分の配下ノードへ配布できる)。
+app.post('/group-admin/api/grant/add', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const contractId = body['contract_id'] as string
+    const seatRaw = ((body['seat_limit'] ?? '') + '').trim()
+    const seatLimit = seatRaw === '' ? null : Number(seatRaw)
+    const validFrom = Number(body['valid_from'])
+    const validTo = Number(body['valid_to'])
+    if (!groupId || !contractId) return c.json({ error: 'missing fields' }, 400)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    // 契約から service_id を引きつつ、契約の顧客組織も自分の管理下か検証する。
+    const ct = await c.env.DB.prepare('SELECT service_id, customer_group_id FROM service_contracts WHERE id = ?').bind(contractId).first() as { service_id: string; customer_group_id: string } | null
+    if (!ct) return c.json({ error: 'contract not found' }, 404)
+    if (!managed.has(ct.customer_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    // UNIQUE(group_id, service_id) で upsert(契約・席数・期間を更新)。
+    await c.env.DB.prepare(`
+        INSERT INTO group_service_grants (group_id, service_id, contract_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(group_id, service_id) DO UPDATE SET contract_id=excluded.contract_id, seat_limit=excluded.seat_limit, valid_from=excluded.valid_from, valid_to=excluded.valid_to
+    `).bind(groupId, ct.service_id, contractId, seatLimit, validFrom, validTo).run()
+    await logAudit(c, 'DELEGATED_GRANT_ADD', { key: 'log_grant_add', params: { group: groupId, service: ct.service_id, admin: user.email } })
+    return c.json({ success: true })
+})
+app.post('/group-admin/api/grant/remove', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const id = (await c.req.json())['id']
+    const row = await c.env.DB.prepare('SELECT group_id FROM group_service_grants WHERE id = ?').bind(id).first() as { group_id: string } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
+    await c.env.DB.prepare('DELETE FROM group_service_grants WHERE id = ?').bind(id).run()
+    await logAudit(c, 'DELEGATED_GRANT_REMOVE', { key: 'log_grant_delete', params: { id, admin: user.email } })
     return c.json({ success: true })
 })
 

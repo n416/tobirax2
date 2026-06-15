@@ -60,6 +60,9 @@ interface Props {
   grantsByGroup: Record<string, { service_id: string; service_name: string }[]>
   facilities: { id: string; structure_no: string | null; building_use: string | null; managing_group_id: string }[]
   rolesByService: Record<string, { id: number; service_id: string; facility_type: string | null; role_name: string }[]>
+  // 利用枠(ゲート②)用
+  grantsDetailByGroup: Record<string, { id: number; service_id: string; service_name: string; contract_id: string; seat_limit: number | null; valid_from: number; valid_to: number }[]>
+  availableContracts: { id: string; service_id: string; customer_group_id: string; seat_limit: number | null; service_name: string; group_name: string | null }[]
   apps: App[]
 }
 
@@ -81,6 +84,8 @@ export const GroupAdminPage = (props: Props) => {
   const grantsByGroupJson = JSON.stringify(props.grantsByGroup)
   const facilitiesJson = JSON.stringify(props.facilities)
   const rolesByServiceJson = JSON.stringify(props.rolesByService)
+  const grantsDetailByGroupJson = JSON.stringify(props.grantsDetailByGroup)
+  const availableContractsJson = JSON.stringify(props.availableContracts)
 
   const sectionTitle = css`
     font-size: 1.05rem;
@@ -243,6 +248,8 @@ export const GroupAdminPage = (props: Props) => {
       var grantsByGroup = null;
       var facilities = null;
       var rolesByService = null;
+      var grantsDetailByGroup = null;
+      var availableContracts = null;
       var currentTab = 'members';
       var currentGroupId = '';
 
@@ -259,6 +266,10 @@ export const GroupAdminPage = (props: Props) => {
         if (gd) grantsByGroup = JSON.parse(gd.textContent);
         if (fd) facilities = JSON.parse(fd.textContent);
         if (rd) rolesByService = JSON.parse(rd.textContent);
+        var grd = document.getElementById('ga-grants-detail-data');
+        var ctd = document.getElementById('ga-contracts-data');
+        if (grd) grantsDetailByGroup = JSON.parse(grd.textContent);
+        if (ctd) availableContracts = JSON.parse(ctd.textContent);
 
         var sel = document.getElementById('group-select');
         if (sel && typeof TomSelect !== 'undefined' && sel.tagName === 'SELECT') {
@@ -317,7 +328,7 @@ export const GroupAdminPage = (props: Props) => {
 
       window.switchTab = function(tab) {
         currentTab = tab;
-        ['members', 'assignments', 'access'].forEach(function(t) {
+        ['members', 'assignments', 'grants', 'access'].forEach(function(t) {
           var btn = document.getElementById('tab-btn-' + t);
           var pane = document.getElementById('tab-' + t);
           if (btn) {
@@ -334,6 +345,7 @@ export const GroupAdminPage = (props: Props) => {
       function renderAll() {
         renderMembers();
         renderAssignments();
+        renderGrants();
         renderPerms();
       }
 
@@ -554,6 +566,80 @@ export const GroupAdminPage = (props: Props) => {
           .catch(function(e){ alert('Error: ' + e.message); });
       };
 
+      // ===== ゲート② 利用枠の開放/取消(委任) =====
+      function renderGrants() {
+        var el = document.getElementById('grants-table-body');
+        if (!el) return;
+        var list = grantsDetailByGroup && currentGroupId ? (grantsDetailByGroup[currentGroupId] || []) : [];
+        if (list.length === 0) {
+          el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noGrants || '利用枠がありません') + '</td></tr>';
+          return;
+        }
+        el.innerHTML = list.map(function(g) {
+          var seat = (g.seat_limit == null) ? (window.i18n.seatUnlimited || '無制限') : g.seat_limit;
+          return '<tr>'
+            + '<td><strong>' + g.service_name + '</strong></td>'
+            + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
+            + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(g.valid_from) + ' ～ ' + fmt(g.valid_to) + '</td>'
+            + '<td style="text-align:right;"><button type="button" onclick="removeGrant(' + g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
+            + '</tr>';
+        }).join('');
+      }
+
+      window.openGrantModal = function() {
+        if (!currentGroupId) return;
+        var m = document.getElementById('add-grant-modal');
+        var contracts = availableContracts || [];
+        fillSelect(document.getElementById('g-contract'), contracts.map(function(ct){ return { id: ct.id, label: ct.service_name + (ct.group_name ? ' / ' + ct.group_name : '') + (ct.seat_limit != null ? ' (' + ct.seat_limit + ')' : '') }; }), 'id', 'label', window.i18n.selectContract || '契約を選択');
+        var seatEl = document.getElementById('g-seat'); if (seatEl) seatEl.value = '';
+        var vf = document.getElementById('g-valid-from'); if (vf) vf.value = new Date().toISOString().split('T')[0];
+        var vt = document.getElementById('g-valid-to'); if (vt) vt.value = '';
+        var warn = document.getElementById('g-no-contract'); if (warn) warn.style.display = contracts.length === 0 ? '' : 'none';
+        if (m) m.showModal();
+      };
+
+      window.addGrant = function() {
+        var contractId = (document.getElementById('g-contract') || {}).value;
+        var seatVal = (document.getElementById('g-seat') || {}).value;
+        var sv = document.getElementById('g-valid-from').value;
+        var ev = document.getElementById('g-valid-to').value;
+        if (!contractId) { alert(window.i18n.selectContract || '契約を選択してください'); return; }
+        var validFrom = sv ? Math.floor(new Date(sv).getTime()/1000) : Math.floor(Date.now()/1000);
+        var validTo = ev ? Math.floor(new Date(ev).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
+        fetch('/group-admin/api/grant/add', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, contract_id: contractId, seat_limit: seatVal, valid_from: validFrom, valid_to: validTo })
+        })
+        .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){ alert('Error: ' + e.message); });
+      };
+
+      var removeGrantTargetId = null;
+      window.removeGrant = function(gid) {
+        removeGrantTargetId = gid;
+        var m = document.getElementById('remove-grant-modal');
+        if (m) m.showModal();
+      };
+      window.closeRemoveGrantModal = function() {
+        var m = document.getElementById('remove-grant-modal');
+        if (m) m.close();
+        removeGrantTargetId = null;
+      };
+      window.executeRemoveGrant = function() {
+        if (!removeGrantTargetId) return;
+        fetch('/group-admin/api/grant/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: removeGrantTargetId }) })
+          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){
+            if (grantsDetailByGroup && currentGroupId) {
+              grantsDetailByGroup[currentGroupId] = (grantsDetailByGroup[currentGroupId] || []).filter(function(g){ return g.id !== removeGrantTargetId; });
+            }
+            window.closeRemoveGrantModal();
+            renderGrants();
+          })
+          .catch(function(e){ alert('Error: ' + e.message); });
+      };
+
     })();
   `)
 
@@ -617,6 +703,9 @@ export const GroupAdminPage = (props: Props) => {
         <button id="tab-btn-assignments" onclick="switchTab('assignments')">
           <span class="material-symbols-outlined">assignment_ind</span>${t.ga_tab_assignments}
         </button>
+        <button id="tab-btn-grants" onclick="switchTab('grants')">
+          <span class="material-symbols-outlined">card_membership</span>${t.ga_tab_grants}
+        </button>
         <button id="tab-btn-access" onclick="switchTab('access')">
           <span class="material-symbols-outlined">lock_open</span>${t.ga_tab_access}
         </button>
@@ -666,6 +755,30 @@ export const GroupAdminPage = (props: Props) => {
               </thead>
               <tbody id="assigns-table-body">
                 <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 利用枠タブ(ゲート②) -->
+      <div id="tab-grants" style="display:none;">
+        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+          ${Button({ onclick: "openGrantModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
+        </div>
+        <div class="${card}">
+          <div class="${tableWrap}">
+            <table>
+              <thead>
+                <tr>
+                  <th>${t.ga_grant_service}</th>
+                  <th>${t.ga_grant_seat}</th>
+                  <th>${t.ga_grant_valid}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="grants-table-body">
+                <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
               </tbody>
             </table>
           </div>
@@ -803,6 +916,55 @@ export const GroupAdminPage = (props: Props) => {
         `
       })}
 
+      <!-- 利用枠開放モーダル(ゲート②) -->
+      ${Modal({
+        id: 'add-grant-modal',
+        title: t.ga_open_grant,
+        closeAction: "this.closest('dialog').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.1rem;">
+            <div id="g-no-contract" style="display:none;" class="${infoBox}">
+              <span class="material-symbols-outlined">info</span>${t.ga_no_contracts}
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_grant_contract}</label>
+              <select id="g-contract"></select>
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_grant_seat}</label>
+              <input type="number" id="g-seat" min="0" class="${dateInput}" placeholder="${t.am_placeholder_seat}" />
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+              <div>
+                <label class="${formLabel}">${t.label_valid_from}</label>
+                <input type="date" id="g-valid-from" class="${dateInput}" />
+              </div>
+              <div>
+                <label class="${formLabel}">${t.label_valid_to}</label>
+                <input type="date" id="g-valid-to" class="${dateInput}" />
+              </div>
+            </div>
+            <div style="margin-top:0.5rem;">
+              ${Button({ onclick: "addGrant()", children: html`<span class="material-symbols-outlined">add_card</span> ${t.ga_open_grant}` })}
+            </div>
+          </div>
+        `
+      })}
+
+      <!-- 利用枠取消確認モーダル -->
+      ${Modal({
+        id: 'remove-grant-modal',
+        title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.am_btn_remove}</span>`,
+        closeAction: 'closeRemoveGrantModal()',
+        children: html`
+          <p style="color:#475569; font-size:1rem; line-height:1.5; margin-bottom:2rem;">${t.ga_confirm_remove_grant}</p>
+          <div style="display:flex; justify-content:flex-end; gap:1rem;">
+            <button type="button" onclick="closeRemoveGrantModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+            <button type="button" onclick="executeRemoveGrant()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span>${t.am_btn_remove}</button>
+          </div>
+        `
+      })}
+
       <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
       <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>
       <script type="application/json" id="ga-perms-data">${raw(permsByGroupJson)}</script>
@@ -810,6 +972,8 @@ export const GroupAdminPage = (props: Props) => {
       <script type="application/json" id="ga-grants-data">${raw(grantsByGroupJson)}</script>
       <script type="application/json" id="ga-facilities-data">${raw(facilitiesJson)}</script>
       <script type="application/json" id="ga-roles-data">${raw(rolesByServiceJson)}</script>
+      <script type="application/json" id="ga-grants-detail-data">${raw(grantsDetailByGroupJson)}</script>
+      <script type="application/json" id="ga-contracts-data">${raw(availableContractsJson)}</script>
       <script>
         window.i18n = {
           noMembers: '${t.am_no_members}',
@@ -826,6 +990,9 @@ export const GroupAdminPage = (props: Props) => {
           selectAll: '${t.ga_select_role}',
           errNoGrant: '${t.ga_err_no_grant}',
           errSeat: '${t.ga_err_seat}',
+          noGrants: '${t.ga_no_grants}',
+          selectContract: '${t.ga_select_contract}',
+          seatUnlimited: '${t.am_seat_unlimited}',
         };
       </script>
       <script>
