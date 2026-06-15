@@ -56,6 +56,10 @@ interface Props {
   membersByGroup: Record<string, GroupMember[]>
   assignmentsByGroup: Record<string, Assignment[]>
   permissionsByGroup: Record<string, AppPermission[]>
+  // 割当作成(ゲート③)用
+  grantsByGroup: Record<string, { service_id: string; service_name: string }[]>
+  facilities: { id: string; structure_no: string | null; building_use: string | null; managing_group_id: string }[]
+  rolesByService: Record<string, { id: number; service_id: string; facility_type: string | null; role_name: string }[]>
   apps: App[]
 }
 
@@ -74,6 +78,9 @@ export const GroupAdminPage = (props: Props) => {
   const membersByGroupJson = JSON.stringify(props.membersByGroup)
   const assignmentsByGroupJson = JSON.stringify(props.assignmentsByGroup)
   const permsByGroupJson = JSON.stringify(props.permissionsByGroup)
+  const grantsByGroupJson = JSON.stringify(props.grantsByGroup)
+  const facilitiesJson = JSON.stringify(props.facilities)
+  const rolesByServiceJson = JSON.stringify(props.rolesByService)
 
   const sectionTitle = css`
     font-size: 1.05rem;
@@ -233,6 +240,9 @@ export const GroupAdminPage = (props: Props) => {
       var membersByGroup = null;
       var assignsByGroup = null;
       var permsByGroup = null;
+      var grantsByGroup = null;
+      var facilities = null;
+      var rolesByService = null;
       var currentTab = 'members';
       var currentGroupId = '';
 
@@ -240,9 +250,15 @@ export const GroupAdminPage = (props: Props) => {
         var md = document.getElementById('ga-members-data');
         var ad = document.getElementById('ga-assigns-data');
         var pd = document.getElementById('ga-perms-data');
+        var gd = document.getElementById('ga-grants-data');
+        var fd = document.getElementById('ga-facilities-data');
+        var rd = document.getElementById('ga-roles-data');
         if (md) membersByGroup = JSON.parse(md.textContent);
         if (ad) assignsByGroup = JSON.parse(ad.textContent);
         if (pd) permsByGroup = JSON.parse(pd.textContent);
+        if (gd) grantsByGroup = JSON.parse(gd.textContent);
+        if (fd) facilities = JSON.parse(fd.textContent);
+        if (rd) rolesByService = JSON.parse(rd.textContent);
 
         var sel = document.getElementById('group-select');
         if (sel && typeof TomSelect !== 'undefined' && sel.tagName === 'SELECT') {
@@ -354,7 +370,7 @@ export const GroupAdminPage = (props: Props) => {
         if (!el) return;
         var list = assignsByGroup && currentGroupId ? (assignsByGroup[currentGroupId] || []) : [];
         if (list.length === 0) {
-          el.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noAssignments || '割当がありません') + '</td></tr>';
+          el.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noAssignments || '割当がありません') + '</td></tr>';
           return;
         }
         el.innerHTML = list.map(function(a) {
@@ -367,6 +383,7 @@ export const GroupAdminPage = (props: Props) => {
             + '<td style="font-size:0.85rem; color:#64748b;">' + facility + '</td>'
             + '<td style="font-size:0.85rem;">' + a.role_name + '</td>'
             + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(a.valid_from) + ' ～ ' + fmt(a.valid_to) + '</td>'
+            + '<td style="text-align:right;"><button type="button" onclick="removeAssignment(' + a.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
             + '</tr>';
         }).join('');
       }
@@ -444,6 +461,97 @@ export const GroupAdminPage = (props: Props) => {
         if (window.tsCtrl) window.tsCtrl.clear();
         var vf = document.getElementById('m-valid-from'); if(vf) vf.value = new Date().toISOString().split('T')[0];
         var vt = document.getElementById('m-valid-to'); if(vt) vt.value = '';
+      };
+
+      // ===== ゲート③ 割当の作成/解除(委任) =====
+      function fillSelect(el, items, valueKey, textKey, placeholder) {
+        if (!el) return;
+        var html = '<option value="">' + placeholder + '</option>';
+        items.forEach(function(it) { html += '<option value="' + it[valueKey] + '">' + it[textKey] + '</option>'; });
+        el.innerHTML = html;
+      }
+
+      window.refreshAssignRoles = function() {
+        var svcEl = document.getElementById('a-service');
+        var facEl = document.getElementById('a-facility');
+        var roleEl = document.getElementById('a-role');
+        if (!svcEl || !facEl || !roleEl) return;
+        var serviceId = svcEl.value;
+        var facId = facEl.value;
+        var buildingUse = null;
+        if (facId && facilities) {
+          for (var i = 0; i < facilities.length; i++) { if (facilities[i].id === facId) { buildingUse = facilities[i].building_use; break; } }
+        }
+        var roles = (serviceId && rolesByService) ? (rolesByService[serviceId] || []) : [];
+        // 役割マスタは facility_type=NULL(全種別) か、選択建物の用途に一致するものだけ出す。
+        var filtered = roles.filter(function(r) { return r.facility_type == null || r.facility_type === buildingUse; });
+        fillSelect(roleEl, filtered.map(function(r){ return { id: r.id, role_name: r.role_name }; }), 'id', 'role_name', window.i18n.selectRole || '役割を選択');
+      };
+
+      window.openAssignModal = function() {
+        if (!currentGroupId) return;
+        var m = document.getElementById('add-assign-modal');
+        // ユーザー= 現グループのメンバー、サービス= 現グループの利用枠、施設= 管理サブツリー配下。
+        var members = (membersByGroup && membersByGroup[currentGroupId]) ? membersByGroup[currentGroupId] : [];
+        var grants = (grantsByGroup && grantsByGroup[currentGroupId]) ? grantsByGroup[currentGroupId] : [];
+        fillSelect(document.getElementById('a-user'), members.map(function(x){ return { user_id: x.user_id, label: (x.name ? x.name + ' <' + x.email + '>' : x.email) }; }), 'user_id', 'label', window.i18n.selectUser || '利用者を選択');
+        fillSelect(document.getElementById('a-service'), grants, 'service_id', 'service_name', window.i18n.selectService || 'サービスを選択');
+        var facList = (facilities || []).map(function(f){ var lbl = (f.structure_no || f.id) + (f.building_use ? ' (' + f.building_use + ')' : ''); return { id: f.id, label: lbl }; });
+        fillSelect(document.getElementById('a-facility'), facList, 'id', 'label', window.i18n.selectFacility || '施設を選択');
+        var roleEl = document.getElementById('a-role');
+        if (roleEl) roleEl.innerHTML = '<option value="">' + (window.i18n.selectRole || '役割を選択') + '</option>';
+        var vf = document.getElementById('a-valid-from'); if (vf) vf.value = new Date().toISOString().split('T')[0];
+        var vt = document.getElementById('a-valid-to'); if (vt) vt.value = '';
+        var warn = document.getElementById('a-no-grant'); if (warn) warn.style.display = grants.length === 0 ? '' : 'none';
+        if (m) m.showModal();
+      };
+
+      window.addAssignment = function() {
+        var userId = (document.getElementById('a-user') || {}).value;
+        var serviceId = (document.getElementById('a-service') || {}).value;
+        var facilityId = (document.getElementById('a-facility') || {}).value;
+        var roleId = (document.getElementById('a-role') || {}).value;
+        var sv = document.getElementById('a-valid-from').value;
+        var ev = document.getElementById('a-valid-to').value;
+        if (!userId || !serviceId || !facilityId || !roleId) { alert(window.i18n.selectAll || '全項目を選択してください'); return; }
+        var validFrom = sv ? Math.floor(new Date(sv).getTime()/1000) : Math.floor(Date.now()/1000);
+        var validTo = ev ? Math.floor(new Date(ev).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
+        fetch('/group-admin/api/assignment/add', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, user_id: userId, service_id: serviceId, facility_id: facilityId, service_role_id: Number(roleId), valid_from: validFrom, valid_to: validTo })
+        })
+        .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){
+          if (e.message === 'no_grant') alert(window.i18n.errNoGrant || '利用枠がありません');
+          else if (e.message === 'seat') alert(window.i18n.errSeat || '席数上限に達しています');
+          else alert('Error: ' + e.message);
+        });
+      };
+
+      var removeAssignTargetId = null;
+      window.removeAssignment = function(aid) {
+        removeAssignTargetId = aid;
+        var m = document.getElementById('remove-assign-modal');
+        if (m) m.showModal();
+      };
+      window.closeRemoveAssignModal = function() {
+        var m = document.getElementById('remove-assign-modal');
+        if (m) m.close();
+        removeAssignTargetId = null;
+      };
+      window.executeRemoveAssignment = function() {
+        if (!removeAssignTargetId) return;
+        fetch('/group-admin/api/assignment/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: removeAssignTargetId }) })
+          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){
+            if (assignsByGroup && currentGroupId) {
+              assignsByGroup[currentGroupId] = (assignsByGroup[currentGroupId] || []).filter(function(a){ return a.id !== removeAssignTargetId; });
+            }
+            window.closeRemoveAssignModal();
+            renderAssignments();
+          })
+          .catch(function(e){ alert('Error: ' + e.message); });
       };
 
     })();
@@ -540,6 +648,9 @@ export const GroupAdminPage = (props: Props) => {
 
       <!-- 割当タブ -->
       <div id="tab-assignments" style="display:none;">
+        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+          ${Button({ onclick: "openAssignModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">assignment_add</span> ${t.ga_add_assignment}` })}
+        </div>
         <div class="${card}">
           <div class="${tableWrap}">
             <table>
@@ -550,10 +661,11 @@ export const GroupAdminPage = (props: Props) => {
                   <th>${t.ga_assign_facility}</th>
                   <th>${t.ga_assign_role}</th>
                   <th>${t.ga_assign_valid}</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="assigns-table-body">
-                <tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
+                <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
               </tbody>
             </table>
           </div>
@@ -634,10 +746,70 @@ export const GroupAdminPage = (props: Props) => {
         `
       })}
 
+      <!-- 割当追加モーダル(ゲート③) -->
+      ${Modal({
+        id: 'add-assign-modal',
+        title: t.ga_add_assignment,
+        closeAction: "this.closest('dialog').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.1rem;">
+            <div id="a-no-grant" style="display:none;" class="${infoBox}">
+              <span class="material-symbols-outlined">info</span>${t.ga_no_services_granted}
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_assign_user}</label>
+              <select id="a-user"></select>
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_assign_service}</label>
+              <select id="a-service" onchange="refreshAssignRoles()"></select>
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_assign_facility}</label>
+              <select id="a-facility" onchange="refreshAssignRoles()"></select>
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_assign_role}</label>
+              <select id="a-role"></select>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+              <div>
+                <label class="${formLabel}">${t.label_valid_from}</label>
+                <input type="date" id="a-valid-from" class="${dateInput}" />
+              </div>
+              <div>
+                <label class="${formLabel}">${t.label_valid_to}</label>
+                <input type="date" id="a-valid-to" class="${dateInput}" />
+              </div>
+            </div>
+            <div style="margin-top:0.5rem;">
+              ${Button({ onclick: "addAssignment()", children: html`<span class="material-symbols-outlined">assignment_add</span> ${t.ga_add_assignment}` })}
+            </div>
+          </div>
+        `
+      })}
+
+      <!-- 割当解除確認モーダル -->
+      ${Modal({
+        id: 'remove-assign-modal',
+        title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.am_btn_remove}</span>`,
+        closeAction: 'closeRemoveAssignModal()',
+        children: html`
+          <p style="color:#475569; font-size:1rem; line-height:1.5; margin-bottom:2rem;">${t.ga_confirm_remove_assignment}</p>
+          <div style="display:flex; justify-content:flex-end; gap:1rem;">
+            <button type="button" onclick="closeRemoveAssignModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+            <button type="button" onclick="executeRemoveAssignment()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span>${t.am_btn_remove}</button>
+          </div>
+        `
+      })}
+
       <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
       <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>
       <script type="application/json" id="ga-perms-data">${raw(permsByGroupJson)}</script>
       <script type="application/json" id="ga-users-data">${raw(allUsersJson)}</script>
+      <script type="application/json" id="ga-grants-data">${raw(grantsByGroupJson)}</script>
+      <script type="application/json" id="ga-facilities-data">${raw(facilitiesJson)}</script>
+      <script type="application/json" id="ga-roles-data">${raw(rolesByServiceJson)}</script>
       <script>
         window.i18n = {
           noMembers: '${t.am_no_members}',
@@ -647,6 +819,13 @@ export const GroupAdminPage = (props: Props) => {
           noAccess: '${t.ga_no_access}',
           srcUser: '${t.ga_source_user}',
           srcGroup: '${t.ga_source_group}',
+          selectUser: '${t.placeholder_select}',
+          selectService: '${t.ga_select_service}',
+          selectFacility: '${t.ga_select_facility}',
+          selectRole: '${t.ga_select_role}',
+          selectAll: '${t.ga_select_role}',
+          errNoGrant: '${t.ga_err_no_grant}',
+          errSeat: '${t.ga_err_seat}',
         };
       </script>
       <script>

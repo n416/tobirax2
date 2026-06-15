@@ -210,6 +210,44 @@ async function getManagedGroupIds(c: any, userId: string): Promise<Set<string>> 
     return managed
 }
 
+// 利用者割当(ゲート③)の中核ロジック: ゲート②(利用枠)確認 + 席数上限チェック + upsert。
+//   戻り値 'no_grant'(利用枠なし) / 'seat'(席数超過) / 'ok'。呼び出し側(運営者/委任)で
+//   結果を表示に変換する。運営者ルートと委任ルートで共通利用し、判定の二重管理を防ぐ。
+async function createAssignment(c: any, p: { userId: string; groupId: string; serviceId: string; facilityId: string; roleId: number; validFrom: number; validTo: number }): Promise<'no_grant' | 'seat' | 'ok'> {
+    // ゲート②: このグループ×サービスの利用枠が無ければ割当不可。
+    const grant = await c.env.DB.prepare('SELECT * FROM group_service_grants WHERE group_id = ? AND service_id = ?')
+        .bind(p.groupId, p.serviceId).first() as any
+    if (!grant) return 'no_grant'
+    // 席数チェック(ライセンス=利用者数)。既にこのグループ×サービスに居る人は新規席を消費しない。
+    const existing = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM service_user_assignments WHERE user_id = ? AND group_id = ? AND service_id = ?')
+        .bind(p.userId, p.groupId, p.serviceId).first() as { c: number } | null
+    const isNewSeat = (existing?.c || 0) === 0
+    if (isNewSeat) {
+        // 支店別サブ枠(grant.seat_limit)。
+        if (grant.seat_limit != null) {
+            const usedG = await c.env.DB.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM service_user_assignments WHERE group_id = ? AND service_id = ?')
+                .bind(p.groupId, p.serviceId).first() as { c: number } | null
+            if ((usedG?.c || 0) >= grant.seat_limit) return 'seat'
+        }
+        // 契約の総枠(contract.seat_limit)。同一契約に紐づく全利用枠の利用者数で判定。
+        const contract = await c.env.DB.prepare('SELECT seat_limit FROM service_contracts WHERE id = ?').bind(grant.contract_id).first() as { seat_limit: number | null } | null
+        if (contract && contract.seat_limit != null) {
+            const usedC = await c.env.DB.prepare(`
+                SELECT COUNT(DISTINCT a.user_id) AS c FROM service_user_assignments a
+                JOIN group_service_grants g ON a.group_id = g.group_id AND a.service_id = g.service_id
+                WHERE g.contract_id = ?`).bind(grant.contract_id).first() as { c: number } | null
+            if ((usedC?.c || 0) >= contract.seat_limit) return 'seat'
+        }
+    }
+    // UNIQUE(user_id, group_id, service_id, facility_id) で upsert(役割・期間を更新)。
+    await c.env.DB.prepare(`
+        INSERT INTO service_user_assignments (user_id, group_id, service_id, facility_id, service_role_id, valid_from, valid_to)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, group_id, service_id, facility_id) DO UPDATE SET service_role_id=excluded.service_role_id, valid_from=excluded.valid_from, valid_to=excluded.valid_to
+    `).bind(p.userId, p.groupId, p.serviceId, p.facilityId, p.roleId, p.validFrom, p.validTo).run()
+    return 'ok'
+}
+
 // 監査ログを1行記録する。details は i18n キー方式({ key, params }) で保存する。
 async function logAudit(c: any, eventType: string, details: object) {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
@@ -365,7 +403,8 @@ app.get('/group-admin', async (c) => {
         const allUsers: any[] = []
         return c.html(<GroupAdminPage t={t} userEmail={user.email} siteName={siteName}
             profileName={user.name} profilePicture={user.picture}
-            managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}} apps={[]} />)
+            managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
+            grantsByGroup={{}} facilities={[]} rolesByService={{}} apps={[]} />)
     }
 
     const groupIds = managedGroups.map((g: any) => g.id as string)
@@ -431,6 +470,29 @@ app.get('/group-admin', async (c) => {
         permissionsByGroup[gid] = perms
     }
 
+    // 割当作成(ゲート③)用データ:
+    //   - grantsByGroup: 各グループに開放済(有効)のサービス = サービス選択肢(ゲート②)
+    //   - facilities: 管理サブツリー配下の施設(建物用途で役割を絞る)
+    //   - rolesByService: サービス→役割マスタ(クライアントで建物用途フィルタ)
+    const grantsByGroup: Record<string, any[]> = {}
+    for (const gid of groupIds) {
+        const { results } = await c.env.DB.prepare(`
+            SELECT gs.service_id, s.name AS service_name
+            FROM group_service_grants gs JOIN services s ON gs.service_id = s.id
+            WHERE gs.group_id = ? AND gs.valid_from <= ? AND gs.valid_to >= ?
+            ORDER BY s.name
+        `).bind(gid, now, now).all()
+        grantsByGroup[gid] = results || []
+    }
+    const { results: allFacilities } = await c.env.DB.prepare('SELECT id, structure_no, building_use, managing_group_id FROM facilities').all()
+    const facilities = (allFacilities as any[]).filter(f => managedIds.has(f.managing_group_id))
+    const { results: allRoles } = await c.env.DB.prepare('SELECT id, service_id, facility_type, role_name FROM service_role_master ORDER BY role_name').all()
+    const rolesByService: Record<string, any[]> = {}
+    for (const r of allRoles as any[]) {
+        if (!rolesByService[r.service_id]) rolesByService[r.service_id] = []
+        rolesByService[r.service_id].push(r)
+    }
+
     return c.html(<GroupAdminPage
         t={t} userEmail={user.email} siteName={siteName}
         profileName={user.name} profilePicture={user.picture}
@@ -439,6 +501,9 @@ app.get('/group-admin', async (c) => {
         membersByGroup={membersByGroup}
         assignmentsByGroup={assignmentsByGroup}
         permissionsByGroup={permissionsByGroup}
+        grantsByGroup={grantsByGroup}
+        facilities={facilities as any}
+        rolesByService={rolesByService}
         apps={[]}
     />)
   } catch (e: any) {
@@ -487,6 +552,41 @@ app.post('/group-admin/api/membership/remove', async (c) => {
     if (!managed.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
     await c.env.DB.prepare('DELETE FROM group_memberships WHERE id = ?').bind(id).run()
     await logAudit(c, 'DELEGATED_MEMBERSHIP_REMOVE', { key: 'log_membership_remove', params: { id: id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// 委任: ゲート③ 利用者割当の作成。対象グループが自分の管理サブツリー内かを検証し、
+//   ゲート②(利用枠)・席数上限は共通の createAssignment で判定する。
+app.post('/group-admin/api/assignment/add', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const userId = body['user_id'] as string
+    const serviceId = body['service_id'] as string
+    const facilityId = body['facility_id'] as string
+    const roleId = Number(body['service_role_id'])
+    const validFrom = Number(body['valid_from'])
+    const validTo = Number(body['valid_to'])
+    if (!userId || !groupId || !serviceId || !facilityId || !roleId) return c.json({ error: 'missing fields' }, 400)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    const res = await createAssignment(c, { userId, groupId, serviceId, facilityId, roleId, validFrom, validTo })
+    if (res !== 'ok') return c.json({ error: res }, 400)
+    await logAudit(c, 'DELEGATED_ASSIGNMENT_ADD', { key: 'log_assignment_add', params: { user: userId, service: serviceId, admin: user.email } })
+    return c.json({ success: true })
+})
+app.post('/group-admin/api/assignment/remove', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const id = (await c.req.json())['id']
+    // 割当が属するグループを引き、自分の管理サブツリー内か検証する。
+    const row = await c.env.DB.prepare('SELECT group_id FROM service_user_assignments WHERE id = ?').bind(id).first() as { group_id: string } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
+    await c.env.DB.prepare('DELETE FROM service_user_assignments WHERE id = ?').bind(id).run()
+    await logAudit(c, 'DELEGATED_ASSIGNMENT_REMOVE', { key: 'log_assignment_delete', params: { id, admin: user.email } })
     return c.json({ success: true })
 })
 
@@ -2247,39 +2347,8 @@ app.post('/admin/am/assignments', async (c) => {
     const validTo = Math.floor(new Date(body['valid_to'] as string).getTime() / 1000)
     if (!userId || !groupId || !serviceId || !facilityId || !roleId) return c.redirect('/admin/am/assignments')
 
-    // ゲート②: このグループ×サービスの利用枠が無ければ割当不可。
-    const grant = await c.env.DB.prepare('SELECT * FROM group_service_grants WHERE group_id = ? AND service_id = ?')
-        .bind(groupId, serviceId).first<any>()
-    if (!grant) return c.redirect('/admin/am/assignments?error=no_grant')
-
-    // 席数チェック(ライセンス=利用者数)。既にこのグループ×サービスに居る人は新規席を消費しない。
-    const existing = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM service_user_assignments WHERE user_id = ? AND group_id = ? AND service_id = ?')
-        .bind(userId, groupId, serviceId).first<{ c: number }>()
-    const isNewSeat = (existing?.c || 0) === 0
-    if (isNewSeat) {
-        // 支店別サブ枠(grant.seat_limit)。
-        if (grant.seat_limit != null) {
-            const usedG = await c.env.DB.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM service_user_assignments WHERE group_id = ? AND service_id = ?')
-                .bind(groupId, serviceId).first<{ c: number }>()
-            if ((usedG?.c || 0) >= grant.seat_limit) return c.redirect('/admin/am/assignments?error=seat')
-        }
-        // 契約の総枠(contract.seat_limit)。同一契約に紐づく全利用枠の利用者数で判定。
-        const contract = await c.env.DB.prepare('SELECT seat_limit FROM service_contracts WHERE id = ?').bind(grant.contract_id).first<{ seat_limit: number | null }>()
-        if (contract && contract.seat_limit != null) {
-            const usedC = await c.env.DB.prepare(`
-                SELECT COUNT(DISTINCT a.user_id) AS c FROM service_user_assignments a
-                JOIN group_service_grants g ON a.group_id = g.group_id AND a.service_id = g.service_id
-                WHERE g.contract_id = ?`).bind(grant.contract_id).first<{ c: number }>()
-            if ((usedC?.c || 0) >= contract.seat_limit) return c.redirect('/admin/am/assignments?error=seat')
-        }
-    }
-
-    // UNIQUE(user_id, group_id, service_id, facility_id) で upsert(役割・期間を更新)。
-    await c.env.DB.prepare(`
-        INSERT INTO service_user_assignments (user_id, group_id, service_id, facility_id, service_role_id, valid_from, valid_to)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, group_id, service_id, facility_id) DO UPDATE SET service_role_id=excluded.service_role_id, valid_from=excluded.valid_from, valid_to=excluded.valid_to
-    `).bind(userId, groupId, serviceId, facilityId, roleId, validFrom, validTo).run()
+    const res = await createAssignment(c, { userId, groupId, serviceId, facilityId, roleId, validFrom, validTo })
+    if (res !== 'ok') return c.redirect('/admin/am/assignments?error=' + res)
     await logAudit(c, 'ASSIGNMENT_ADD', { key: 'log_assignment_add', params: { user: userId, service: serviceId, admin: user.email } })
     return c.redirect('/admin/am/assignments')
 })
