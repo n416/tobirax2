@@ -55,7 +55,20 @@ export interface Permission {
 export interface Group {
   id: string
   name: string
+  // アカウントマネージャ: 親グループ(階層)。最上位は null。(migration 0004)
+  parent_id?: string | null
   created_at: number
+}
+
+// アカウントマネージャ【グループ所属】誰が・どのグループに・どの役割で・いつからいつまで。
+// role: 'group_admin'(グループ管理者) / 'member'(メンバー)。(migration 0004: group_memberships)
+export interface GroupMembership {
+  id: number
+  user_id: string
+  group_id: string
+  role: 'group_admin' | 'member'
+  valid_from: number
+  valid_to: number
 }
 
 export interface AuthCode {

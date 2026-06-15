@@ -16,12 +16,23 @@ interface LayoutProps {
 
 export const Layout = (props: LayoutProps) => {
     const t = props.t
-    const navItems = [
-        { id: 'home', label: t.nav_home, href: '/admin' },
-        { id: 'apps', label: t.nav_apps, href: '/admin/apps' },
-        { id: 'groups', label: t.nav_groups, href: '/admin/groups' },
-        { id: 'users', label: t.nav_users, href: '/admin/users' },
-        { id: 'logs', label: t.nav_logs, href: '/admin/logs' },
+    // ナビをセクションで階層化（label=null は見出しなし）。
+    // 「アカウントマネージャ(新)」と「OIDC/IdP(旧)」を分けて権限階層を読み取りやすくする。
+    const navSections = [
+        { label: null, items: [
+            { id: 'home', label: t.nav_home, href: '/admin' },
+        ] },
+        { label: t.nav_section_account, items: [
+            { id: 'am-groups', label: t.am_section_groups, href: '/admin/am/groups' },
+        ] },
+        { label: t.nav_section_idp, items: [
+            { id: 'apps', label: t.nav_apps, href: '/admin/apps' },
+            { id: 'groups', label: t.nav_groups, href: '/admin/groups' },
+            { id: 'users', label: t.nav_users, href: '/admin/users' },
+        ] },
+        { label: t.nav_section_system, items: [
+            { id: 'logs', label: t.nav_logs, href: '/admin/logs' },
+        ] },
     ]
 
     const wrapperClass = css`
@@ -93,8 +104,18 @@ export const Layout = (props: LayoutProps) => {
         }
     `
 
+    const sectionLabelClass = css`
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #94a3b8;
+        padding: 0 1rem;
+        margin: 1.25rem 0 0.4rem;
+    `
+
     const navItemClass = css`
-        display: block; 
+        display: block;
         padding: 0.85rem 1rem; 
         color: var(--text-sub); 
         text-decoration: none; 
@@ -212,10 +233,13 @@ export const Layout = (props: LayoutProps) => {
                 <a href="#" onclick="document.getElementById('config-modal').showModal()">${t.config_change_name || 'Change Name'}</a>
             </div>
             <nav>
-                ${navItems.map(item => html`
-                    <a href="${item.href}" class="${navItemClass} ${props.activeTab === item.id ? 'active' : ''}">
-                        ${item.label}
-                    </a>
+                ${navSections.map(section => html`
+                    ${section.label ? html`<div class="${sectionLabelClass}">${section.label}</div>` : ''}
+                    ${section.items.map(item => html`
+                        <a href="${item.href}" class="${navItemClass} ${props.activeTab === item.id ? 'active' : ''}">
+                            ${item.label}
+                        </a>
+                    `)}
                 `)}
             </nav>
             <div style="margin-top: auto; padding: 1rem 0; border-top: 1px solid rgba(255,255,255,0.5);">

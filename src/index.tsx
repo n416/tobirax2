@@ -23,6 +23,7 @@ import { Login2FA } from './views/Login2FA'
 import { AdminHome } from './views/admin/AdminHome'
 import { AppsPage } from './views/admin/AppsPage'
 import { GroupsPage } from './views/admin/GroupsPage'
+import { AccountGroupsPage } from './views/admin/AccountGroupsPage'
 import { UsersPage } from './views/admin/UsersPage'
 import { LogsPage } from './views/admin/LogsPage'
 
@@ -1592,6 +1593,101 @@ app.post('/admin/api/group/permission/revoke', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_PERMISSION_REVOKE', details).run()
     return c.json({ success: true })
 })
+
+// ============================================================
+// アカウントマネージャ: グループ管理(新データ層・additive)
+//   既存の /admin/groups(OIDCの所属→アプリ権限)とは別物。
+//   ここでは groups(階層対応) と group_memberships(所属＋役割＋期間) を扱う。
+// ============================================================
+app.get('/admin/am/groups', async (c) => {
+    try {
+        const user = await getAdmin(c)
+        if (!user) return c.redirect('/login')
+        const config = await getSystemConfig(c.env.DB)
+        const siteName = getLocalizedValue(c, config.appName)
+        // グループ一覧＋メンバー数(group_memberships の件数)。
+        const groups = await c.env.DB.prepare(`
+            SELECT g.*, (SELECT COUNT(*) FROM group_memberships m WHERE m.group_id = g.id) AS member_count
+            FROM groups g ORDER BY g.created_at DESC
+        `).all()
+        const users = await c.env.DB.prepare('SELECT * FROM users ORDER BY email').all()
+        if (!groups.success) throw new Error('Groups DB Error: ' + groups.error)
+        if (!users.success) throw new Error('Users DB Error: ' + users.error)
+        return c.html(<AccountGroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results as any} users={users.results as any} siteName={siteName} appConfig={config} />)
+    } catch (e: any) {
+        return c.text('Error: ' + e.message + '\n' + e.stack, 500)
+    }
+})
+app.post('/admin/am/groups', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const name = (body['name'] as string || '').trim()
+    if (!name) return c.redirect('/admin/am/groups')
+    const id = crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+    await c.env.DB.prepare('INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)').bind(id, name, now).run()
+    return c.redirect('/admin/am/groups')
+})
+app.post('/admin/am/groups/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const id = body['id'] as string
+    // グループ削除に伴い、新旧両モデルの関連レコードを掃除する。
+    await c.env.DB.batch([
+        c.env.DB.prepare('DELETE FROM group_memberships WHERE group_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM group_permissions WHERE group_id = ?').bind(id),
+        c.env.DB.prepare('UPDATE users SET group_id = NULL WHERE group_id = ?').bind(id),
+        c.env.DB.prepare('UPDATE groups SET parent_id = NULL WHERE parent_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(id)
+    ])
+    const details = JSON.stringify({ key: 'log_group_deleted', params: { id: id, admin: user.email } });
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_DELETED', details).run()
+    return c.redirect('/admin/am/groups')
+})
+app.get('/admin/api/am/group-members/:id', async (c) => {
+    if (!await getAdmin(c)) return c.json({ error: 'Unauthorized' }, 401)
+    const groupId = c.req.param('id')
+    const { results } = await c.env.DB.prepare(`
+        SELECT m.id, m.user_id, m.role, m.valid_from, m.valid_to, u.email, u.name
+        FROM group_memberships m JOIN users u ON m.user_id = u.id
+        WHERE m.group_id = ? ORDER BY (m.role = 'group_admin') DESC, u.email
+    `).bind(groupId).all()
+    return c.json({ members: results })
+})
+app.post('/admin/api/am/membership/add', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const userIds = (body['user_ids'] as string[]) || []
+    const role = body['role'] === 'group_admin' ? 'group_admin' : 'member'
+    const validFrom = Number(body['valid_from'])
+    const validTo = Number(body['valid_to'])
+    if (!groupId || userIds.length === 0) return c.json({ error: 'group_id and user_ids required' }, 400)
+    // UNIQUE(user_id, group_id) を活かして upsert(役割・期間を更新)。
+    for (const uid of userIds) {
+        await c.env.DB.prepare(`
+            INSERT INTO group_memberships (user_id, group_id, role, valid_from, valid_to) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, group_id) DO UPDATE SET role=excluded.role, valid_from=excluded.valid_from, valid_to=excluded.valid_to
+        `).bind(uid, groupId, role, validFrom, validTo).run()
+    }
+    const details = JSON.stringify({ key: 'log_membership_add', params: { count: userIds.length, group: groupId, role: role, admin: user.email } });
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_ADD', details).run()
+    return c.json({ success: true })
+})
+app.post('/admin/api/am/membership/remove', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const id = body['id']
+    await c.env.DB.prepare('DELETE FROM group_memberships WHERE id = ?').bind(id).run()
+    const details = JSON.stringify({ key: 'log_membership_remove', params: { id: id, admin: user.email } });
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_REMOVE', details).run()
+    return c.json({ success: true })
+})
+
 app.get('/admin/logs', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
