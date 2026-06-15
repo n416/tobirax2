@@ -3,217 +3,169 @@ import { css } from 'hono/css'
 import { dict } from '../i18n'
 import { App } from '../types'
 import { Layout } from './components/Layout'
-import { Card } from './components/Card'
-import { Button } from './components/Button'
-import { Modal } from './components/Modal'
+import { UserTopbar } from './components/UserTopbar'
 
 interface Props {
   t: typeof dict.en
   userEmail: string
   apps: App[]
   siteName: string
-  has2FA: boolean
   profileName?: string | null
-  profileUsername?: string | null
   profilePicture?: string | null
 }
 
 export const UserDashboard = (props: Props) => {
   const t = props.t
 
-  const headerClass = css`
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    margin-bottom: 2rem; 
-    padding-bottom: 1rem; 
-    border-bottom: 1px solid rgba(255,255,255,0.3);
+  const welcome = css`
+    margin-bottom: 1.75rem;
+    & h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+      margin-bottom: 0.25rem;
+    }
+    & p { font-size: 0.95rem; color: var(--text-sub); }
   `
 
-  const brandClass = css`
-    font-size: 1.5rem; 
-    font-weight: 800; 
-    color: var(--primary); 
+  const sectionTitle = css`
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-main);
+    & .material-symbols-outlined { color: var(--primary); }
+  `
+
+  const appGrid = css`
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 1.25rem;
+  `
+
+  const appCardLink = css`
     text-decoration: none;
-  `
-
-  const userNavClass = css`
-    display: flex; 
-    align-items: center; 
-    gap: 1rem;
-  `
-
-  const userEmailClass = css`
-    font-size: 0.9rem; 
-    color: var(--text-sub); 
-    display: none;
-    @media(min-width: 600px) { display: inline; }
-  `
-
-  const appGridClass = css`
-    display: grid; 
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
-    gap: 1.5rem;
-  `
-
-  const appCardLinkClass = css`
-    text-decoration: none; 
-    color: inherit; 
-    display: block; 
-    height: 100%; 
-    transition: transform 0.2s;
+    color: inherit;
+    display: block;
+    height: 100%;
+    transition: transform 0.2s, box-shadow 0.2s;
+    border-radius: 16px;
     &:hover { transform: translateY(-4px); }
   `
 
-  const appCardContentClass = css`
-    background: rgba(255,255,255,0.6); 
-    backdrop-filter: blur(10px); 
-    padding: 1.5rem; 
-    border-radius: 16px; 
-    border: 1px solid rgba(255,255,255,0.5); 
-    height: 100%; 
-    display: flex; 
-    flex-direction: column; 
-    justify-content: space-between; 
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+  const appCard = css`
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(10px);
+    padding: 1.4rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: 0 4px 16px -6px rgba(31, 38, 135, 0.18);
+    transition: border-color 0.2s;
+    ${appCardLink}:hover & { border-color: var(--primary); }
   `
 
-  const appNameClass = css`
-    font-size: 1.2rem; 
-    font-weight: 700; 
-    margin-bottom: 0.5rem; 
-    color: var(--text-main);
+  const appIcon = css`
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    object-fit: contain;
+    background: #fff;
+    padding: 3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    flex-shrink: 0;
   `
 
-  const appUrlClass = css`
-    font-size: 0.85rem; 
-    color: var(--text-sub); 
-    word-break: break-all; 
-    margin-bottom: 1.5rem;
+  const appIconFallback = css`
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+    color: var(--primary);
+    & .material-symbols-outlined { font-size: 24px; }
   `
 
-  const noAppsClass = css`
-    text-align: center; 
-    padding: 3rem; 
-    background: rgba(255,255,255,0.4); 
-    border-radius: 16px; 
+  const appName = css`font-size: 1.15rem; font-weight: 700; color: var(--text-main); line-height: 1.2;`
+  const appDesc = css`font-size: 0.88rem; color: var(--text-sub); margin: 0.85rem 0; line-height: 1.45;`
+  const appUrl = css`font-size: 0.8rem; color: var(--text-sub); opacity: 0.7; word-break: break-all;`
+
+  const launch = css`
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.9rem; font-weight: 700; color: var(--primary);
+    & .material-symbols-outlined { font-size: 18px; transition: transform 0.2s; }
+    ${appCardLink}:hover & .material-symbols-outlined { transform: translateX(3px); }
+  `
+
+  const emptyState = css`
+    text-align: center;
+    padding: 3.5rem 2rem;
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px dashed rgba(79, 70, 229, 0.25);
+    border-radius: 16px;
     color: var(--text-sub);
+    & .material-symbols-outlined { font-size: 44px; color: #c7d2fe; margin-bottom: 0.5rem; }
   `
 
-  const logoutBtnClass = css`
-    padding: 0.5rem 1rem; 
-    background: rgba(255,255,255,0.5); 
-    border: 1px solid rgba(0,0,0,0.1); 
-    border-radius: 8px; 
-    font-size: 0.85rem; 
-    cursor: pointer; 
-    color: var(--text-main); 
-    text-decoration: none; 
-    transition: background 0.2s;
-    &:hover { background: rgba(255,255,255,0.8); }
-  `
+  const displayName = props.profileName || props.userEmail
 
   return Layout({
     title: t.title_user_dashboard,
     siteName: props.siteName,
     lang: t.lang,
-    width: 800, 
+    width: 960,
+    align: 'top',
     children: html`
-        <header class="${headerClass}">
-            <div class="${brandClass}">${props.siteName}</div>
-            <div class="${userNavClass}">
-                <span class="${userEmailClass}">${props.userEmail}</span>
-                <a href="/logout" class="${logoutBtnClass}">${t.logout}</a>
-            </div>
-        </header>
+        ${UserTopbar({
+          t, siteName: props.siteName, userEmail: props.userEmail, active: 'dashboard',
+          profileName: props.profileName, profilePicture: props.profilePicture,
+        })}
+
+        <div class="${welcome}">
+          <h1>${t.dashboard_welcome.replace('{email}', displayName)}</h1>
+          <p>${props.siteName}</p>
+        </div>
 
         <section>
-            <h4 style="margin-bottom: 1.5rem; font-size: 1.1rem; color: var(--text-main); font-weight: 600;">${t.dashboard_apps_header}</h4>
-            ${props.apps.length === 0 ? html`
-                <div class="${noAppsClass}"><p>${t.no_apps_assigned}</p></div>
-            ` : html`
-                <div class="${appGridClass}">
-                    ${props.apps.map(app => html`
-                        <a href="/login?redirect_to=${app.base_url}" class="${appCardLinkClass}">
-                            <div class="${appCardContentClass}">
-                                <div>
-                                    <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
-                                        ${app.icon_url ? html`<img src="${app.icon_url}" style="width:40px; height:40px; border-radius:8px; object-fit:contain; background:white; padding:2px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">` : ''}
-                                        <div class="${appNameClass}" style="margin-bottom:0;">${app.name}</div>
-                                    </div>
-                                    ${app.description ? html`<div style="font-size:0.9rem; color:var(--text-sub); margin-bottom:1rem; line-height:1.4;">${app.description}</div>` : ''}
-                                    <div class="${appUrlClass}" style="margin-bottom:0; opacity:0.7;">${app.base_url}</div>
-                                </div>
-                                <div style="text-align: right;">
-                                    <span style="font-size: 0.9rem; font-weight: 600; color: var(--primary);">Login &rarr;</span>
-                                </div>
-                            </div>
-                        </a>
-                    `)}
-                </div>
-            `}
-        </section>
-        
-        
-        <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255,255,255,0.3);">
-            <h4 style="margin-bottom: 0.5rem; font-size: 1.1rem; color: var(--text-main); font-weight: 600;">${t.profile_header}</h4>
-            <p style="font-size: 0.85rem; color: var(--text-sub); margin-bottom: 1rem;">${t.profile_hint}</p>
-            <form method="POST" action="/user/profile" style="display:flex; flex-direction:column; gap:0.75rem; max-width:440px;">
-                <label style="font-size:0.9rem; color:var(--text-main);">${t.label_name}
-                    <input type="text" name="name" value="${props.profileName || ''}" placeholder="${props.userEmail}" style="width:100%; margin-top:0.25rem;" />
-                </label>
-                <label style="font-size:0.9rem; color:var(--text-main);">${t.label_preferred_username}
-                    <input type="text" name="preferred_username" value="${props.profileUsername || ''}" placeholder="${props.userEmail}" style="width:100%; margin-top:0.25rem;" />
-                </label>
-                <label style="font-size:0.9rem; color:var(--text-main);">${t.label_picture}
-                    <input type="url" name="picture" value="${props.profilePicture || ''}" placeholder="https://..." style="width:100%; margin-top:0.25rem;" />
-                </label>
-                <div style="text-align:right;">
-                    <button type="submit" style="background: var(--primary); color: white; padding: 0.45rem 1.1rem; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer;">${t.save}</button>
-                </div>
-            </form>
-        </div>
+          <div class="${sectionTitle}">
+            <span class="material-symbols-outlined">apps</span>
+            ${t.dashboard_apps_header}
+          </div>
 
-        <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span class="material-symbols-outlined" style="color: var(--text-sub);">security</span>
-                <span style="font-weight: 600; color: var(--text-main);">${t.label_2fa_status}:</span>
-                ${props.has2FA 
-                    ? html`<span style="color: #16a34a; background: #dcfce7; padding: 2px 8px; border-radius: 99px; font-size: 0.85rem; font-weight: 600;">${t.status_enabled}</span>` 
-                    : html`<span style="color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 99px; font-size: 0.85rem; font-weight: 600;">${t.status_disabled}</span>`
-                }
+          ${props.apps.length === 0 ? html`
+            <div class="${emptyState}">
+              <div><span class="material-symbols-outlined">apps</span></div>
+              <p>${t.no_apps_assigned}</p>
             </div>
-            <div>
-                ${props.has2FA
-                    ? html`
-                        <form id="disable-2fa-form" method="POST" action="/user/2fa/disable" style="margin:0; display:inline;">
-                            <button type="button" onclick="document.getElementById('disable-2fa-modal').showModal()" style="background: none; border: 1px solid #cbd5e1; color: #64748b; padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.85rem; cursor: pointer;">${t.btn_disable_2fa}</button>
-                        </form>`
-                    : html`<a href="/user/2fa/setup" style="background: var(--primary); color: white; padding: 0.4rem 0.8rem; border-radius: 8px; text-decoration: none; font-size: 0.85rem; font-weight: 600;">${t.btn_setup_2fa}</a>`
-                }
+          ` : html`
+            <div class="${appGrid}">
+              ${props.apps.map(app => html`
+                <a href="/login?redirect_to=${app.base_url}" class="${appCardLink}">
+                  <div class="${appCard}">
+                    <div>
+                      <div style="display:flex; align-items:center; gap:0.85rem; margin-bottom:0.5rem;">
+                        ${app.icon_url
+                          ? html`<img src="${app.icon_url}" class="${appIcon}" alt="" />`
+                          : html`<div class="${appIconFallback}"><span class="material-symbols-outlined">widgets</span></div>`}
+                        <div class="${appName}">${app.name}</div>
+                      </div>
+                      ${app.description ? html`<div class="${appDesc}">${app.description}</div>` : ''}
+                      <div class="${appUrl}">${app.base_url}</div>
+                    </div>
+                    <div style="text-align:right; margin-top:1.1rem;">
+                      <span class="${launch}">${t.btn_open_app} <span class="material-symbols-outlined">arrow_forward</span></span>
+                    </div>
+                  </div>
+                </a>
+              `)}
             </div>
-        </div>
-        
-        <div style="margin-top: 3rem; text-align: right;">
-            <a href="/change-password" style="font-size: 0.9rem;">🔑 ${t.btn_change_password}</a>
-        </div>
-        
-        ${Modal({
-            id: "disable-2fa-modal",
-            title: html`<span style="color:#d97706; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.btn_disable_2fa || 'Disable 2FA'}</span>`,
-            closeAction: "this.closest('dialog').close()",
-            children: html`
-                  <div style="margin-bottom: 2rem;">
-                    <p style="color:#475569; font-size:1rem; line-height:1.5;">${t.confirm_disable_2fa}</p>
-                  </div>
-                  <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                      <button type="button" onclick="this.closest('dialog').close()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
-                      <button type="button" onclick="document.getElementById('disable-2fa-form').submit()" style="background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
-                         <span class="material-symbols-outlined" style="font-size:18px;">check</span> Execute
-                      </button>
-                  </div>
-            `
-        })}
+          `}
+        </section>
     `
   })
 }

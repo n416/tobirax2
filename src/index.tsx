@@ -13,6 +13,7 @@ import { getJwksKeys } from './oidc/keys'
 import { Login } from './views/Login'
 import { Signup } from './views/Signup'
 import { UserDashboard } from './views/UserDashboard'
+import { AccountPage } from './views/AccountPage'
 import { Invite } from './views/Invite'
 import { ForgotPassword } from './views/ForgotPassword'
 import { ResetPassword } from './views/ResetPassword'
@@ -239,10 +240,22 @@ app.get('/', async (c) => {
           ((up.valid_from <= ? AND up.valid_to >= ?) OR (up.id IS NULL AND gp.valid_from <= ? AND gp.valid_to >= ?))
       `).bind(user.id, user.group_id || null, now, now, now, now).all()
 
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} />)
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} />)
     } catch (e: any) {
         return c.json({ error: e.message, stack: e.stack }, 500)
     }
+})
+
+// アカウント設定(プロフィール編集 + セキュリティ)の専用画面。
+app.get('/account', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.redirect('/login')
+    const t = getLang(c)
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const msgKey = c.req.query('msg')
+    const message = msgKey && (t as any)[msgKey] ? (t as any)[msgKey] : undefined
+    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} />)
 })
 
 app.get('/login', async (c) => {
@@ -455,7 +468,7 @@ app.post('/user/2fa/setup', async (c) => {
         await c.env.DB.prepare('UPDATE users SET two_factor_secret = ? WHERE id = ?').bind(secret, user.id).run()
         const details = JSON.stringify({ key: 'log_2fa_enable', params: { email: user.email } });
         await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('2FA_ENABLE', details).run()
-        return c.redirect('/?msg=msg_2fa_enabled')
+        return c.redirect('/account?msg=msg_2fa_enabled')
     } else {
         const qrCode = await generateQRCode(secret, user.email, 'Tobira')
         return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} error={t.err_invalid_code} />)
@@ -467,7 +480,7 @@ app.post('/user/2fa/disable', async (c) => {
     await c.env.DB.prepare('UPDATE users SET two_factor_secret = NULL WHERE id = ?').bind(user.id).run()
     const details = JSON.stringify({ key: 'log_2fa_disable', params: { email: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('2FA_DISABLE', details).run()
-    return c.redirect('/?msg=msg_2fa_disabled')
+    return c.redirect('/account?msg=msg_2fa_disabled')
 })
 app.get('/change-password', async (c) => {
     const user = await getUser(c)
@@ -497,7 +510,7 @@ app.post('/user/profile', async (c) => {
     const now = Math.floor(Date.now() / 1000)
     await c.env.DB.prepare('UPDATE users SET name = ?, preferred_username = ?, picture = ?, updated_at = ? WHERE id = ?')
         .bind(name, preferredUsername, picture, now, user.id).run()
-    return c.redirect('/')
+    return c.redirect('/account?msg=msg_profile_saved')
 })
 
 // --- API トークン ---

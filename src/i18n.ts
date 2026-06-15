@@ -75,6 +75,13 @@ export const dict = {
     header_change_password: 'Change Password',
     msg_password_changed: 'Password changed successfully.',
     no_apps_assigned: 'No applications assigned. Please contact your administrator.',
+    // User-facing navigation / account settings
+    nav_dashboard: 'Dashboard',
+    account_settings: 'Account Settings',
+    account_subtitle: 'Manage your profile and security',
+    security_header: 'Security',
+    desc_2fa_account: 'Require a one-time code at login for extra security.',
+    msg_profile_saved: 'Profile updated.',
 
     section_apps: 'Applications',
     header_new_app: 'Register New App',
@@ -344,6 +351,13 @@ export const dict = {
     header_change_password: 'パスワード変更',
     msg_password_changed: 'パスワードを変更しました',
     no_apps_assigned: '利用可能なアプリがありません。管理者に問い合わせてください。',
+    // ユーザー向けナビゲーション / アカウント設定
+    nav_dashboard: 'ダッシュボード',
+    account_settings: 'アカウント設定',
+    account_subtitle: 'プロフィールとセキュリティを管理します',
+    security_header: 'セキュリティ',
+    desc_2fa_account: 'ログイン時にワンタイムコードを要求し、セキュリティを高めます。',
+    msg_profile_saved: 'プロフィールを更新しました。',
 
     section_apps: '連携アプリ一覧',
     header_new_app: '新規アプリ登録',
