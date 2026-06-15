@@ -39,6 +39,9 @@ export const dict = {
     am_confirm_remove_member: 'Remove this member from the group?',
     am_btn_remove: 'Remove',
     am_alert_select_user: 'Please select at least one user.',
+    am_label_parent: 'Parent Group',
+    am_parent_none: '(Top level)',
+    am_alert_cycle: 'Cannot set this parent (would create a cycle).',
 
     login_header: 'Login to',
     email: 'Email',
@@ -305,6 +308,9 @@ export const dict = {
     am_confirm_remove_member: 'このメンバーをグループから外しますか？',
     am_btn_remove: '解除',
     am_alert_select_user: 'ユーザーを少なくとも1人選択してください',
+    am_label_parent: '親グループ',
+    am_parent_none: '(最上位)',
+    am_alert_cycle: '循環参照になるため、その親は設定できません。',
 
     login_header: 'ログイン:',
     email: 'メールアドレス',

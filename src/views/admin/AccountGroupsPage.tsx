@@ -27,6 +27,27 @@ export const AccountGroupsPage = (props: Props) => {
   }))
   const allUsersJson = JSON.stringify(userOptions)
 
+  // 親子(parent_id)からツリーを構築し、深さつきのフラット配列にする。
+  // 親が存在しない/未設定のものは最上位として扱う。兄弟は名前順。
+  const byId = new Map(props.groups.map(g => [g.id, g]))
+  const childrenMap = new Map<string, (Group & { member_count?: number })[]>()
+  for (const g of props.groups) {
+    const key = g.parent_id && byId.has(g.parent_id) ? g.parent_id : '__root__'
+    if (!childrenMap.has(key)) childrenMap.set(key, [])
+    childrenMap.get(key)!.push(g)
+  }
+  for (const arr of childrenMap.values()) arr.sort((a, b) => a.name.localeCompare(b.name))
+  const flatTree: { g: Group & { member_count?: number }; depth: number }[] = []
+  const walk = (key: string, depth: number) => {
+    for (const g of childrenMap.get(key) || []) {
+      flatTree.push({ g, depth })
+      walk(g.id, depth + 1)
+    }
+  }
+  walk('__root__', 0)
+  // 親選択プルダウン用（全グループ、名前順）。
+  const parentOptions = props.groups.slice().sort((a, b) => a.name.localeCompare(b.name))
+
   const scriptContent = raw(`
     (function() {
         var i18nEl = document.getElementById('i18n-data');
@@ -54,10 +75,19 @@ export const AccountGroupsPage = (props: Props) => {
         });
 
         var gModal = document.getElementById('group-modal');
-        window.openGroupModal = function(id, name) {
+        window.openGroupModal = function(id, name, parentId) {
             currentGroupId = id;
             var titleEl = document.getElementById('modal-group-name');
             if(titleEl) titleEl.innerText = name;
+            // 親グループ選択: 現在値をセットし、自分自身は親候補から無効化。
+            var parentSel = document.getElementById('m-parent');
+            if(parentSel) {
+                for (var i = 0; i < parentSel.options.length; i++) {
+                    var opt = parentSel.options[i];
+                    opt.disabled = (opt.value === id);
+                }
+                parentSel.value = parentId || '';
+            }
             if(gModal) {
                 gModal.showModal();
                 setTimeout(function() { var b = document.getElementById('modal-close-btn'); if(b) b.focus(); }, 50);
@@ -70,6 +100,18 @@ export const AccountGroupsPage = (props: Props) => {
             window.loadMembers(id);
         };
         window.closeGroupModal = function() { if(gModal) gModal.close(); window.resetAddButton(); };
+
+        window.saveParent = function() {
+            var sel = document.getElementById('m-parent');
+            var pid = sel ? sel.value : '';
+            fetch('/admin/am/groups/parent', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: currentGroupId, parent_id: pid }) })
+            .then(function(r) { if(!r.ok) { return r.json().catch(function(){return {};}).then(function(e){ throw new Error(e.error || 'err'); }); } return r.json(); })
+            .then(function() { window.location.reload(); })
+            .catch(function(e) {
+                if (e.message === 'cycle' || e.message === 'self') { alert(i18n.alertCycle || 'Cannot set this parent.'); }
+                else { alert('Error: ' + e.message); }
+            });
+        };
 
         window.resetAddButton = function() {
             var btn = document.getElementById('btn-add-member');
@@ -333,6 +375,13 @@ export const AccountGroupsPage = (props: Props) => {
                           <span class="${formLabel}">${t.label_group_name}</span>
                           <input type="text" name="name" placeholder="${t.placeholder_group_name}" required style="margin-top:0.2rem;" />
                         </label>
+                        <label style="width:100%;">
+                          <span class="${formLabel}">${t.am_label_parent}</span>
+                          <select name="parent_id">
+                            <option value="">${t.am_parent_none}</option>
+                            ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+                          </select>
+                        </label>
                         <div style="margin-top:1rem;">
                             ${Button({ type: "submit", children: t.am_btn_add_group })}
                         </div>
@@ -348,14 +397,17 @@ export const AccountGroupsPage = (props: Props) => {
           </form>
 
           <div class="${listGrid}">
-            ${props.groups.length === 0 ? html`<div style="text-align:center; padding:2rem; color:#94a3b8;">${t.no_groups}</div>` : ''}
-            ${props.groups.map((g) => html`
-              <div class="${listCard}" onclick="openGroupModal('${g.id}', '${g.name}')">
-                <div style="flex-grow:1;">
-                    <div class="${itemTitle}">${g.name}</div>
-                    <div class="${itemSub}">
-                        <span class="material-symbols-outlined" style="font-size:16px;">group</span>
-                        ${t.am_member_count.replace('{count}', String(g.member_count ?? 0))}
+            ${flatTree.length === 0 ? html`<div style="text-align:center; padding:2rem; color:#94a3b8;">${t.no_groups}</div>` : ''}
+            ${flatTree.map(({ g, depth }) => html`
+              <div class="${listCard}" style="margin-left:${depth * 1.75}rem;" onclick="openGroupModal('${g.id}', '${g.name}', '${g.parent_id || ''}')">
+                <div style="flex-grow:1; display:flex; align-items:center; gap:0.6rem;">
+                    ${depth > 0 ? html`<span class="material-symbols-outlined" style="font-size:18px; color:#cbd5e1; flex-shrink:0;">subdirectory_arrow_right</span>` : ''}
+                    <div>
+                        <div class="${itemTitle}">${g.name}</div>
+                        <div class="${itemSub}">
+                            <span class="material-symbols-outlined" style="font-size:16px;">group</span>
+                            ${t.am_member_count.replace('{count}', String(g.member_count ?? 0))}
+                        </div>
                     </div>
                 </div>
                 <div>
@@ -373,6 +425,17 @@ export const AccountGroupsPage = (props: Props) => {
             closeAction: "closeGroupModal()",
             closeBtnId: "modal-close-btn",
             children: html`
+                 <div style="margin-bottom: 2rem;">
+                    <label class="${formLabel}">${t.am_label_parent}</label>
+                    <div style="display:flex; gap:0.5rem; align-items:stretch;">
+                        <select id="m-parent" style="flex-grow:1; margin-bottom:0;">
+                            <option value="">${t.am_parent_none}</option>
+                            ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+                        </select>
+                        ${Button({ onclick: "saveParent()", style: "width:auto; white-space:nowrap; flex-shrink:0;", children: t.save })}
+                    </div>
+                 </div>
+
                  <div id="add-form-card" class="${addFormCard}">
                     <div style="margin-bottom: 1.5rem;">
                        <label class="${formLabel}">${t.am_label_member}</label>
@@ -467,6 +530,7 @@ export const AccountGroupsPage = (props: Props) => {
             data-alert-select-user="${t.am_alert_select_user}"
             data-btn-add="${t.am_add_member}"
             data-btn-change="${t.btn_change}"
+            data-alert-cycle="${t.am_alert_cycle}"
           ></div>
 
           <script type="application/json" id="user-data">${raw(allUsersJson)}</script>

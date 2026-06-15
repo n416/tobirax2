@@ -1624,10 +1624,34 @@ app.post('/admin/am/groups', async (c) => {
     const body = await c.req.parseBody()
     const name = (body['name'] as string || '').trim()
     if (!name) return c.redirect('/admin/am/groups')
+    const parentId = (body['parent_id'] as string) || null
     const id = crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
-    await c.env.DB.prepare('INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)').bind(id, name, now).run()
+    await c.env.DB.prepare('INSERT INTO groups (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)').bind(id, name, parentId, now).run()
     return c.redirect('/admin/am/groups')
+})
+// グループの親(parent_id)を変更=ツリー上の移動。自己親・循環参照を弾く。
+app.post('/admin/am/groups/parent', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const id = body['id'] as string
+    let parentId = (body['parent_id'] as string) || null
+    if (parentId === '') parentId = null
+    if (parentId && parentId === id) return c.json({ error: 'self' }, 400)
+    if (parentId) {
+        // 親候補から祖先を辿り、自分(id)に到達したら循環なので拒否。
+        const { results } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all() as any
+        const parentOf = new Map<string, string | null>((results as any[]).map(r => [r.id, r.parent_id]))
+        let cur: string | null = parentId
+        let guard = 0
+        while (cur && guard++ < 10000) {
+            if (cur === id) return c.json({ error: 'cycle' }, 400)
+            cur = parentOf.get(cur) ?? null
+        }
+    }
+    await c.env.DB.prepare('UPDATE groups SET parent_id = ? WHERE id = ?').bind(parentId, id).run()
+    return c.json({ success: true })
 })
 app.post('/admin/am/groups/delete', async (c) => {
     const user = await getAdmin(c)
