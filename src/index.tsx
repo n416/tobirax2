@@ -25,6 +25,10 @@ import { AdminHome } from './views/admin/AdminHome'
 import { AppsPage } from './views/admin/AppsPage'
 import { GroupsPage } from './views/admin/GroupsPage'
 import { AccountGroupsPage } from './views/admin/AccountGroupsPage'
+import { AccountServicesPage } from './views/admin/AccountServicesPage'
+import { AccountGrantsPage } from './views/admin/AccountGrantsPage'
+import { AccountFacilitiesPage } from './views/admin/AccountFacilitiesPage'
+import { AccountAssignmentsPage } from './views/admin/AccountAssignmentsPage'
 import { UsersPage } from './views/admin/UsersPage'
 import { LogsPage } from './views/admin/LogsPage'
 
@@ -161,6 +165,24 @@ async function getUser(c: any) {
     const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?').bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
     if (!session) return null
     return await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
+}
+
+// 監査ログを1行記録する。details は i18n キー方式({ key, params }) で保存する。
+async function logAudit(c: any, eventType: string, details: object) {
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
+        .bind(eventType, JSON.stringify(details)).run()
+}
+
+// サービス削除の連鎖。サービスに紐づく契約・利用枠・役割マスタ・割当をまとめて掃除する。
+// (提供企業削除→各サービス削除でも使う)
+async function deleteServiceCascade(c: any, serviceId: string) {
+    await c.env.DB.batch([
+        c.env.DB.prepare('DELETE FROM service_user_assignments WHERE service_id = ?').bind(serviceId),
+        c.env.DB.prepare('DELETE FROM service_role_master WHERE service_id = ?').bind(serviceId),
+        c.env.DB.prepare('DELETE FROM group_service_grants WHERE service_id = ?').bind(serviceId),
+        c.env.DB.prepare('DELETE FROM service_contracts WHERE service_id = ?').bind(serviceId),
+        c.env.DB.prepare('DELETE FROM services WHERE id = ?').bind(serviceId),
+    ])
 }
 
 // 現在の(未失効の)セッション行を auth_time 込みで取得する。ユーザーだけでなく
@@ -1731,6 +1753,320 @@ app.post('/admin/api/am/membership/remove', async (c) => {
     const details = JSON.stringify({ key: 'log_membership_remove', params: { id: id, admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_REMOVE', details).run()
     return c.json({ success: true })
+})
+
+// ============================================================
+// アカウントマネージャ: サービスマスタ(ゲート①)
+//   提供企業 → サービス → 契約(席数上限つき)。全ゲートの前提データ。
+// ============================================================
+app.get('/admin/am/services', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const providers = await c.env.DB.prepare('SELECT * FROM service_providers ORDER BY created_at DESC').all()
+    const services = await c.env.DB.prepare(`
+        SELECT s.*, p.name AS provider_name FROM services s
+        LEFT JOIN service_providers p ON s.provider_id = p.id ORDER BY s.created_at DESC`).all()
+    const contracts = await c.env.DB.prepare(`
+        SELECT ct.*, s.name AS service_name, p.name AS provider_name, g.name AS group_name
+        FROM service_contracts ct
+        LEFT JOIN services s ON ct.service_id = s.id
+        LEFT JOIN service_providers p ON s.provider_id = p.id
+        LEFT JOIN groups g ON ct.customer_group_id = g.id
+        ORDER BY ct.valid_from DESC`).all()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+    return c.html(<AccountServicesPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
+        providers={providers.results as any} services={services.results as any} contracts={contracts.results as any} groups={groups.results as any} />)
+})
+app.post('/admin/am/providers', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const name = ((body['name'] as string) || '').trim()
+    if (name) {
+        await c.env.DB.prepare('INSERT INTO service_providers (id, name, created_at) VALUES (?, ?, ?)')
+            .bind(crypto.randomUUID(), name, Math.floor(Date.now() / 1000)).run()
+        await logAudit(c, 'PROVIDER_ADD', { key: 'log_provider_add', params: { name, admin: user.email } })
+    }
+    return c.redirect('/admin/am/services')
+})
+app.post('/admin/am/providers/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    // 提供企業の配下サービス、さらにその下の契約/利用枠/役割/割当を連鎖削除する。
+    const svc = await c.env.DB.prepare('SELECT id FROM services WHERE provider_id = ?').bind(id).all()
+    for (const s of (svc.results as any[])) await deleteServiceCascade(c, s.id)
+    await c.env.DB.prepare('DELETE FROM service_providers WHERE id = ?').bind(id).run()
+    await logAudit(c, 'PROVIDER_DELETE', { key: 'log_provider_delete', params: { id, admin: user.email } })
+    return c.redirect('/admin/am/services')
+})
+app.post('/admin/am/services', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const name = ((body['name'] as string) || '').trim()
+    const providerId = (body['provider_id'] as string) || ''
+    if (name && providerId) {
+        await c.env.DB.prepare('INSERT INTO services (id, provider_id, name, created_at) VALUES (?, ?, ?, ?)')
+            .bind(crypto.randomUUID(), providerId, name, Math.floor(Date.now() / 1000)).run()
+        await logAudit(c, 'SERVICE_ADD', { key: 'log_service_add', params: { name, admin: user.email } })
+    }
+    return c.redirect('/admin/am/services')
+})
+app.post('/admin/am/services/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await deleteServiceCascade(c, id)
+    await logAudit(c, 'SERVICE_DELETE', { key: 'log_service_delete', params: { id, admin: user.email } })
+    return c.redirect('/admin/am/services')
+})
+app.post('/admin/am/contracts', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const serviceId = (body['service_id'] as string) || ''
+    const groupId = (body['customer_group_id'] as string) || ''
+    const seatRaw = (body['seat_limit'] as string || '').trim()
+    const seatLimit = seatRaw === '' ? null : Number(seatRaw)
+    const validFrom = Math.floor(new Date(body['valid_from'] as string).getTime() / 1000)
+    const validTo = Math.floor(new Date(body['valid_to'] as string).getTime() / 1000)
+    if (serviceId && groupId) {
+        await c.env.DB.prepare('INSERT INTO service_contracts (id, service_id, customer_group_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?)')
+            .bind(crypto.randomUUID(), serviceId, groupId, seatLimit, validFrom, validTo).run()
+        await logAudit(c, 'CONTRACT_ADD', { key: 'log_contract_add', params: { service: serviceId, admin: user.email } })
+    }
+    return c.redirect('/admin/am/services')
+})
+app.post('/admin/am/contracts/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.batch([
+        c.env.DB.prepare('DELETE FROM group_service_grants WHERE contract_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM service_contracts WHERE id = ?').bind(id),
+    ])
+    await logAudit(c, 'CONTRACT_DELETE', { key: 'log_contract_delete', params: { id, admin: user.email } })
+    return c.redirect('/admin/am/services')
+})
+
+// ============================================================
+// アカウントマネージャ: 利用枠(ゲート②)。契約をグループノードへ明示開放。
+// ============================================================
+app.get('/admin/am/grants', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const grants = await c.env.DB.prepare(`
+        SELECT gr.*, g.name AS group_name, s.name AS service_name, p.name AS provider_name
+        FROM group_service_grants gr
+        LEFT JOIN groups g ON gr.group_id = g.id
+        LEFT JOIN services s ON gr.service_id = s.id
+        LEFT JOIN service_providers p ON s.provider_id = p.id
+        ORDER BY gr.valid_from DESC`).all()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+    const contracts = await c.env.DB.prepare(`
+        SELECT ct.*, s.name AS service_name, p.name AS provider_name, g.name AS group_name
+        FROM service_contracts ct
+        LEFT JOIN services s ON ct.service_id = s.id
+        LEFT JOIN service_providers p ON s.provider_id = p.id
+        LEFT JOIN groups g ON ct.customer_group_id = g.id
+        ORDER BY ct.valid_from DESC`).all()
+    return c.html(<AccountGrantsPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
+        grants={grants.results as any} groups={groups.results as any} contracts={contracts.results as any} />)
+})
+app.post('/admin/am/grants', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const groupId = (body['group_id'] as string) || ''
+    const contractId = (body['contract_id'] as string) || ''
+    if (!groupId || !contractId) return c.redirect('/admin/am/grants')
+    // 契約から service_id を引く(利用枠は契約に紐づく)。
+    const ct = await c.env.DB.prepare('SELECT service_id FROM service_contracts WHERE id = ?').bind(contractId).first<{ service_id: string }>()
+    if (!ct) return c.redirect('/admin/am/grants')
+    const seatRaw = (body['seat_limit'] as string || '').trim()
+    const seatLimit = seatRaw === '' ? null : Number(seatRaw)
+    const validFrom = Math.floor(new Date(body['valid_from'] as string).getTime() / 1000)
+    const validTo = Math.floor(new Date(body['valid_to'] as string).getTime() / 1000)
+    // UNIQUE(group_id, service_id) で upsert(契約・席数・期間を更新)。
+    await c.env.DB.prepare(`
+        INSERT INTO group_service_grants (group_id, service_id, contract_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(group_id, service_id) DO UPDATE SET contract_id=excluded.contract_id, seat_limit=excluded.seat_limit, valid_from=excluded.valid_from, valid_to=excluded.valid_to
+    `).bind(groupId, ct.service_id, contractId, seatLimit, validFrom, validTo).run()
+    await logAudit(c, 'GRANT_ADD', { key: 'log_grant_add', params: { group: groupId, service: ct.service_id, admin: user.email } })
+    return c.redirect('/admin/am/grants')
+})
+app.post('/admin/am/grants/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.prepare('DELETE FROM group_service_grants WHERE id = ?').bind(id).run()
+    await logAudit(c, 'GRANT_DELETE', { key: 'log_grant_delete', params: { id, admin: user.email } })
+    return c.redirect('/admin/am/grants')
+})
+
+// ============================================================
+// アカウントマネージャ: 施設(建物)。管理グループ(支店)に紐づく。
+// ============================================================
+app.get('/admin/am/facilities', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const facilities = await c.env.DB.prepare(`
+        SELECT f.*, g.name AS group_name FROM facilities f
+        LEFT JOIN groups g ON f.managing_group_id = g.id ORDER BY f.created_at DESC`).all()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+    return c.html(<AccountFacilitiesPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
+        facilities={facilities.results as any} groups={groups.results as any} />)
+})
+app.post('/admin/am/facilities', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const groupId = (body['managing_group_id'] as string) || ''
+    const structureNo = ((body['structure_no'] as string) || '').trim() || null
+    const buildingUse = ((body['building_use'] as string) || '').trim() || null
+    if (groupId) {
+        await c.env.DB.prepare('INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
+            .bind(crypto.randomUUID(), structureNo, buildingUse, groupId, Math.floor(Date.now() / 1000)).run()
+        await logAudit(c, 'FACILITY_ADD', { key: 'log_facility_add', params: { structure_no: structureNo, admin: user.email } })
+    }
+    return c.redirect('/admin/am/facilities')
+})
+app.post('/admin/am/facilities/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.batch([
+        c.env.DB.prepare('DELETE FROM service_user_assignments WHERE facility_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM facilities WHERE id = ?').bind(id),
+    ])
+    await logAudit(c, 'FACILITY_DELETE', { key: 'log_facility_delete', params: { id, admin: user.email } })
+    return c.redirect('/admin/am/facilities')
+})
+
+// ============================================================
+// アカウントマネージャ: 役割マスタ + 利用者割当(ゲート③)。
+//   割当はゲート②(利用枠)が前提。席数上限を超える場合は拒否する。
+// ============================================================
+app.get('/admin/am/assignments', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const roles = await c.env.DB.prepare(`
+        SELECT r.*, s.name AS service_name, p.name AS provider_name FROM service_role_master r
+        LEFT JOIN services s ON r.service_id = s.id
+        LEFT JOIN service_providers p ON s.provider_id = p.id
+        ORDER BY r.id DESC`).all()
+    const assignments = await c.env.DB.prepare(`
+        SELECT a.*, u.email AS user_email, u.name AS user_name, g.name AS group_name,
+               s.name AS service_name, f.structure_no AS structure_no, rm.role_name AS role_name
+        FROM service_user_assignments a
+        LEFT JOIN users u ON a.user_id = u.id
+        LEFT JOIN groups g ON a.group_id = g.id
+        LEFT JOIN services s ON a.service_id = s.id
+        LEFT JOIN facilities f ON a.facility_id = f.id
+        LEFT JOIN service_role_master rm ON a.service_role_id = rm.id
+        ORDER BY a.valid_from DESC`).all()
+    const services = await c.env.DB.prepare(`
+        SELECT s.*, p.name AS provider_name FROM services s
+        LEFT JOIN service_providers p ON s.provider_id = p.id ORDER BY s.name`).all()
+    const facilities = await c.env.DB.prepare(`
+        SELECT f.*, g.name AS group_name FROM facilities f
+        LEFT JOIN groups g ON f.managing_group_id = g.id ORDER BY f.structure_no`).all()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+    const users = await c.env.DB.prepare('SELECT * FROM users ORDER BY email').all()
+    return c.html(<AccountAssignmentsPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
+        roles={roles.results as any} assignments={assignments.results as any} services={services.results as any}
+        facilities={facilities.results as any} groups={groups.results as any} users={users.results as any} error={c.req.query('error')} />)
+})
+app.post('/admin/am/roles', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const serviceId = (body['service_id'] as string) || ''
+    const facilityType = ((body['facility_type'] as string) || '').trim() || null
+    const roleName = ((body['role_name'] as string) || '').trim()
+    if (serviceId && roleName) {
+        await c.env.DB.prepare('INSERT INTO service_role_master (service_id, facility_type, role_name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
+            .bind(serviceId, facilityType, roleName).run()
+        await logAudit(c, 'ROLE_ADD', { key: 'log_role_add', params: { role: roleName, admin: user.email } })
+    }
+    return c.redirect('/admin/am/assignments')
+})
+app.post('/admin/am/roles/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.batch([
+        c.env.DB.prepare('DELETE FROM service_user_assignments WHERE service_role_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM service_role_master WHERE id = ?').bind(id),
+    ])
+    await logAudit(c, 'ROLE_DELETE', { key: 'log_role_delete', params: { id, admin: user.email } })
+    return c.redirect('/admin/am/assignments')
+})
+app.post('/admin/am/assignments', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const userId = (body['user_id'] as string) || ''
+    const groupId = (body['group_id'] as string) || ''
+    const serviceId = (body['service_id'] as string) || ''
+    const facilityId = (body['facility_id'] as string) || ''
+    const roleId = Number(body['service_role_id'])
+    const validFrom = Math.floor(new Date(body['valid_from'] as string).getTime() / 1000)
+    const validTo = Math.floor(new Date(body['valid_to'] as string).getTime() / 1000)
+    if (!userId || !groupId || !serviceId || !facilityId || !roleId) return c.redirect('/admin/am/assignments')
+
+    // ゲート②: このグループ×サービスの利用枠が無ければ割当不可。
+    const grant = await c.env.DB.prepare('SELECT * FROM group_service_grants WHERE group_id = ? AND service_id = ?')
+        .bind(groupId, serviceId).first<any>()
+    if (!grant) return c.redirect('/admin/am/assignments?error=no_grant')
+
+    // 席数チェック(ライセンス=利用者数)。既にこのグループ×サービスに居る人は新規席を消費しない。
+    const existing = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM service_user_assignments WHERE user_id = ? AND group_id = ? AND service_id = ?')
+        .bind(userId, groupId, serviceId).first<{ c: number }>()
+    const isNewSeat = (existing?.c || 0) === 0
+    if (isNewSeat) {
+        // 支店別サブ枠(grant.seat_limit)。
+        if (grant.seat_limit != null) {
+            const usedG = await c.env.DB.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM service_user_assignments WHERE group_id = ? AND service_id = ?')
+                .bind(groupId, serviceId).first<{ c: number }>()
+            if ((usedG?.c || 0) >= grant.seat_limit) return c.redirect('/admin/am/assignments?error=seat')
+        }
+        // 契約の総枠(contract.seat_limit)。同一契約に紐づく全利用枠の利用者数で判定。
+        const contract = await c.env.DB.prepare('SELECT seat_limit FROM service_contracts WHERE id = ?').bind(grant.contract_id).first<{ seat_limit: number | null }>()
+        if (contract && contract.seat_limit != null) {
+            const usedC = await c.env.DB.prepare(`
+                SELECT COUNT(DISTINCT a.user_id) AS c FROM service_user_assignments a
+                JOIN group_service_grants g ON a.group_id = g.group_id AND a.service_id = g.service_id
+                WHERE g.contract_id = ?`).bind(grant.contract_id).first<{ c: number }>()
+            if ((usedC?.c || 0) >= contract.seat_limit) return c.redirect('/admin/am/assignments?error=seat')
+        }
+    }
+
+    // UNIQUE(user_id, group_id, service_id, facility_id) で upsert(役割・期間を更新)。
+    await c.env.DB.prepare(`
+        INSERT INTO service_user_assignments (user_id, group_id, service_id, facility_id, service_role_id, valid_from, valid_to)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, group_id, service_id, facility_id) DO UPDATE SET service_role_id=excluded.service_role_id, valid_from=excluded.valid_from, valid_to=excluded.valid_to
+    `).bind(userId, groupId, serviceId, facilityId, roleId, validFrom, validTo).run()
+    await logAudit(c, 'ASSIGNMENT_ADD', { key: 'log_assignment_add', params: { user: userId, service: serviceId, admin: user.email } })
+    return c.redirect('/admin/am/assignments')
+})
+app.post('/admin/am/assignments/delete', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.prepare('DELETE FROM service_user_assignments WHERE id = ?').bind(id).run()
+    await logAudit(c, 'ASSIGNMENT_DELETE', { key: 'log_assignment_delete', params: { id, admin: user.email } })
+    return c.redirect('/admin/am/assignments')
 })
 
 app.get('/admin/logs', async (c) => {

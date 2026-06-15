@@ -71,6 +71,71 @@ export interface GroupMembership {
   valid_to: number
 }
 
+// アカウントマネージャ【サービス提供企業】点検会社・清掃会社など。(migration 0004)
+export interface ServiceProvider {
+  id: string
+  name: string
+  created_at: number
+}
+
+// アカウントマネージャ【サービス】提供企業配下のサービス。(migration 0004)
+export interface Service {
+  id: string
+  provider_id: string
+  name: string
+  created_at: number
+}
+
+// アカウントマネージャ【サービス契約】利用枠(ゲート②)の出所。席数上限を持つ。(migration 0004)
+export interface ServiceContract {
+  id: string
+  service_id: string
+  customer_group_id: string
+  seat_limit?: number | null   // null=無制限
+  valid_from: number
+  valid_to: number
+}
+
+// アカウントマネージャ【グループ利用枠 / ゲート②】契約を各グループノードへ明示開放。(migration 0004)
+export interface GroupServiceGrant {
+  id: number
+  group_id: string
+  service_id: string
+  contract_id: string
+  seat_limit?: number | null   // 支店別サブ枠(任意)。null=契約の総枠に従う
+  valid_from: number
+  valid_to: number
+}
+
+// アカウントマネージャ【施設(建物)】施設ID=1:1で施設構造物番号に対応。(migration 0004)
+export interface Facility {
+  id: string
+  structure_no?: string | null
+  building_use?: string | null   // 建物用途/種別(役割メニュー絞り込みに使う)
+  managing_group_id: string
+  created_at: number
+}
+
+// アカウントマネージャ【サービス役割マスタ】サービス×施設種別で選べる役割のメニュー。(migration 0004)
+export interface ServiceRole {
+  id: number
+  service_id: string
+  facility_type?: string | null  // null=全種別 / '病院'等で限定
+  role_name: string
+}
+
+// アカウントマネージャ【サービス利用者割当 / ゲート③】個人を建物ごとにサービスへ割当+役割。(migration 0004)
+export interface ServiceUserAssignment {
+  id: number
+  user_id: string
+  group_id: string
+  service_id: string
+  facility_id: string
+  service_role_id: number
+  valid_from: number
+  valid_to: number
+}
+
 export interface AuthCode {
   code: string
   user_id: string
