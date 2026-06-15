@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS apps (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     base_url TEXT NOT NULL,
+    -- 'active'(稼働) / 'inactive'(停止) / 'pending'(グループ管理者の登録申請待ち) /
+    -- 'rejected'(却下)。'active' 以外は checkPermission で利用不可・ダッシュボード非表示。
     status TEXT DEFAULT 'active',
     icon_url TEXT,
     description TEXT,
@@ -47,7 +49,11 @@ CREATE TABLE IF NOT EXISTS apps (
     -- 署名付き logout_token をここへ POST し、RP 側も自身のセッションを破棄できる。
     backchannel_logout_uri TEXT,
     -- アカウントマネージャ: エンタイトルメント取得先となる対象サービス
-    service_id TEXT REFERENCES services(id)
+    service_id TEXT REFERENCES services(id),
+    -- セルフサービス: このアプリ(クライアント)を申請/所有するグループ。NULL = 運営者が
+    -- 直接作った従来のグローバルアプリ。group_admin は自分の管理サブツリーが owner の
+    -- アプリだけを操作でき、status='pending' のアプリは運営者の承諾(=status='active')を待つ。
+    owner_group_id TEXT REFERENCES groups(id)
 );
 
 CREATE TABLE IF NOT EXISTS groups (
@@ -190,7 +196,11 @@ CREATE TABLE IF NOT EXISTS services (
     id          TEXT PRIMARY KEY,
     provider_id TEXT NOT NULL REFERENCES service_providers(id),
     name        TEXT NOT NULL,
-    created_at  INTEGER NOT NULL
+    created_at  INTEGER NOT NULL,
+    -- セルフサービス: この「サービス」を所有するグループ。NULL = 運営者が提供企業つきで
+    -- 作ったグローバルサービス。group_admin が自グループ用に作ったサービスはここに owner を
+    -- 刻み、提供企業は ensureGroupProvider でグループ名のダミー企業を自動採番する。
+    owner_group_id TEXT REFERENCES groups(id)
 );
 
 -- 【サービス契約】利用枠(ゲート②)の出所。席数上限を持つ。

@@ -178,6 +178,19 @@ export const AppsPage = (props: Props) => {
                 }
             };
 
+            // Approve / Reject app registration request (pending -> active / rejected)
+            var i18nEl = document.getElementById('i18n-data');
+            window.approveApp = function(id) {
+                if (!confirm((i18nEl && i18nEl.dataset.confirmApprove) || 'Approve?')) return;
+                var f = document.getElementById('approve-app-form');
+                if (f) { f.querySelector('input[name="id"]').value = id; f.submit(); }
+            };
+            window.rejectApp = function(id) {
+                if (!confirm((i18nEl && i18nEl.dataset.confirmReject) || 'Reject?')) return;
+                var f = document.getElementById('reject-app-form');
+                if (f) { f.querySelector('input[name="id"]').value = id; f.submit(); }
+            };
+
             // Client secret: regenerate / clear (make public)
             window.appSecretAction = function(action) {
                 if(!editModal) return;
@@ -355,6 +368,12 @@ export const AppsPage = (props: Props) => {
         <input type="hidden" name="id" value="" />
         <input type="hidden" name="action" value="" />
       </form>
+      <form id="approve-app-form" method="POST" action="/admin/apps/approve">
+        <input type="hidden" name="id" value="" />
+      </form>
+      <form id="reject-app-form" method="POST" action="/admin/apps/reject">
+        <input type="hidden" name="id" value="" />
+      </form>
 
       <div class="${listGrid}">
         ${props.apps.map(app => html`
@@ -374,9 +393,16 @@ export const AppsPage = (props: Props) => {
                 <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.25rem;">
                     ${app.icon_url ? html`<img src="${app.icon_url}" style="width:32px; height:32px; border-radius:6px; object-fit:contain; background:#f8fafc; border:1px solid #e2e8f0;">` : ''}
                     <div class="${itemTitle}" style="margin-bottom:0;">${app.name}</div>
-                    ${app.status === 'inactive'
+                    ${app.status === 'pending'
+                        ? html`<span style="color:#c2410c; background:#fff7ed; border:1px solid #fdba74; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${t.status_pending}</span>`
+                        : app.status === 'rejected'
+                        ? html`<span style="color:#b91c1c; background:#fef2f2; border:1px solid #fecaca; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${t.status_rejected}</span>`
+                        : app.status === 'inactive'
                         ? html`<span style="color:#d97706; background:#fffbeb; border:1px solid #fcd34d; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${t.status_inactive}</span>`
                         : html`<span style="color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">${t.status_active}</span>`}
+                    ${app.owner_group_name
+                        ? html`<span style="color:#7c3aed; background:#f5f3ff; border:1px solid #ddd6fe; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold; display:inline-flex; align-items:center; gap:0.2rem;"><span class="material-symbols-outlined" style="font-size:12px;">groups</span> ${t.app_owner_group}: ${app.owner_group_name}</span>`
+                        : ''}
                     ${app.service_name 
                         ? html`<span style="color:#2563eb; background:#eff6ff; border:1px solid #bfdbfe; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold; display:inline-flex; align-items:center; gap:0.2rem;"><span class="material-symbols-outlined" style="font-size:12px;">link</span> ${app.service_name}</span>` 
                         : html`<span style="color:#64748b; background:#f1f5f9; border:1px solid #e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:bold;">紐付けなし</span>`}
@@ -391,10 +417,19 @@ export const AppsPage = (props: Props) => {
             </div>
             
             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <button type="button" class="${actionBtn}" title="${app.status === 'inactive' ? t.btn_resume : t.btn_pause}" onclick="event.stopPropagation(); toggleAppStatus('${app.id}', '${app.status === 'inactive' ? 'active' : 'inactive'}', '${app.name}')">
-                    <span class="material-symbols-outlined">${app.status === 'inactive' ? 'play_arrow' : 'pause'}</span>
-                </button>
-                
+                ${app.status === 'pending'
+                    ? html`
+                        <button type="button" title="${t.btn_approve}" onclick="event.stopPropagation(); approveApp('${app.id}')" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;">
+                            <span class="material-symbols-outlined" style="font-size:18px;">check</span> ${t.btn_approve}
+                        </button>
+                        <button type="button" title="${t.btn_reject}" onclick="event.stopPropagation(); rejectApp('${app.id}')" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                            ${t.btn_reject}
+                        </button>`
+                    : html`
+                        <button type="button" class="${actionBtn}" title="${app.status === 'inactive' ? t.btn_resume : t.btn_pause}" onclick="event.stopPropagation(); toggleAppStatus('${app.id}', '${app.status === 'inactive' ? 'active' : 'inactive'}', '${app.name}')">
+                            <span class="material-symbols-outlined">${app.status === 'inactive' ? 'play_arrow' : 'pause'}</span>
+                        </button>`}
+
                 <button type="button" class="${deleteBtn}" title="${t.delete}" onclick="event.stopPropagation(); deleteApp('${app.id}')">
                     <span class="material-symbols-outlined">delete</span>
                 </button>
@@ -513,6 +548,8 @@ export const AppsPage = (props: Props) => {
 
       <div id="i18n-data" style="display:none;"
         data-confirm-change-status="${t.confirm_change_status || 'Change status?'}"
+        data-confirm-approve="${t.confirm_approve_app}"
+        data-confirm-reject="${t.confirm_reject_app}"
       ></div>
 
       <script>

@@ -63,6 +63,9 @@ interface Props {
   // 利用枠(ゲート②)用
   grantsDetailByGroup: Record<string, { id: number; service_id: string; service_name: string; contract_id: string; seat_limit: number | null; valid_from: number; valid_to: number }[]>
   availableContracts: { id: string; service_id: string; customer_group_id: string; seat_limit: number | null; service_name: string; group_name: string | null }[]
+  // セルフサービス(アプリ申請 / 自グループのサービス作成)用
+  servicesByGroup: Record<string, { id: string; name: string }[]>
+  appsByGroup: Record<string, { id: string; name: string; base_url: string; status: string; service_id: string | null; service_name: string | null }[]>
   apps: App[]
 }
 
@@ -86,6 +89,8 @@ export const GroupAdminPage = (props: Props) => {
   const rolesByServiceJson = JSON.stringify(props.rolesByService)
   const grantsDetailByGroupJson = JSON.stringify(props.grantsDetailByGroup)
   const availableContractsJson = JSON.stringify(props.availableContracts)
+  const servicesByGroupJson = JSON.stringify(props.servicesByGroup)
+  const appsByGroupJson = JSON.stringify(props.appsByGroup)
 
   const sectionTitle = css`
     font-size: 1.05rem;
@@ -261,6 +266,8 @@ export const GroupAdminPage = (props: Props) => {
       var rolesByService = null;
       var grantsDetailByGroup = null;
       var availableContracts = null;
+      var servicesByGroup = null;
+      var appsByGroup = null;
       var currentTab = 'members';
       var currentGroupId = '';
 
@@ -281,6 +288,10 @@ export const GroupAdminPage = (props: Props) => {
         var ctd = document.getElementById('ga-contracts-data');
         if (grd) grantsDetailByGroup = JSON.parse(grd.textContent);
         if (ctd) availableContracts = JSON.parse(ctd.textContent);
+        var svd = document.getElementById('ga-services-data');
+        var apd = document.getElementById('ga-apps-data');
+        if (svd) servicesByGroup = JSON.parse(svd.textContent);
+        if (apd) appsByGroup = JSON.parse(apd.textContent);
 
         var sel = document.getElementById('group-select');
         if (sel && typeof TomSelect !== 'undefined' && sel.tagName === 'SELECT') {
@@ -339,7 +350,7 @@ export const GroupAdminPage = (props: Props) => {
 
       window.switchTab = function(tab) {
         currentTab = tab;
-        ['members', 'assignments', 'grants', 'access'].forEach(function(t) {
+        ['members', 'assignments', 'grants', 'access', 'apps'].forEach(function(t) {
           var btn = document.getElementById('tab-btn-' + t);
           var pane = document.getElementById('tab-' + t);
           if (btn) {
@@ -358,6 +369,8 @@ export const GroupAdminPage = (props: Props) => {
         renderAssignments();
         renderGrants();
         renderPerms();
+        renderServices();
+        renderApps();
       }
 
       function fmt(ts) {
@@ -651,6 +664,152 @@ export const GroupAdminPage = (props: Props) => {
           .catch(function(e){ alert('Error: ' + e.message); });
       };
 
+      // ===== セルフサービス: 自グループのサービス =====
+      function renderServices() {
+        var el = document.getElementById('services-table-body');
+        if (!el) return;
+        var list = servicesByGroup && currentGroupId ? (servicesByGroup[currentGroupId] || []) : [];
+        if (list.length === 0) {
+          el.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#94a3b8; padding:1.5rem;">' + (window.i18n.svcNone || '(なし)') + '</td></tr>';
+          return;
+        }
+        el.innerHTML = list.map(function(s) {
+          return '<tr>'
+            + '<td><strong>' + s.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + s.id + '</div></td>'
+            + '<td style="text-align:right;"><button type="button" onclick="removeService(\\'' + s.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
+            + '</tr>';
+        }).join('');
+      }
+
+      window.openServiceModal = function() {
+        if (!currentGroupId) return;
+        var nameEl = document.getElementById('s-name'); if (nameEl) nameEl.value = '';
+        var m = document.getElementById('add-service-modal');
+        if (m) m.showModal();
+      };
+      window.addService = function() {
+        var name = (document.getElementById('s-name') || {}).value;
+        if (!name || !name.trim()) { alert(window.i18n.svcName || 'name'); return; }
+        fetch('/group-admin/api/service/create', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, name: name.trim() })
+        })
+        .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){ alert('Error: ' + e.message); });
+      };
+      window.removeService = function(id) {
+        if (!confirm(window.i18n.svcConfirmRemove || 'Delete?')) return;
+        fetch('/group-admin/api/service/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
+          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){ window.location.reload(); })
+          .catch(function(e){ alert('Error: ' + e.message); });
+      };
+
+      // ===== セルフサービス: アプリ登録の申請 =====
+      function statusBadge(st) {
+        var map = {
+          pending:  ['#c2410c', '#fff7ed', window.i18n.statusPending || 'Pending'],
+          rejected: ['#b91c1c', '#fef2f2', window.i18n.statusRejected || 'Rejected'],
+          inactive: ['#d97706', '#fffbeb', window.i18n.statusInactive || 'Paused'],
+          active:   ['#16a34a', '#f0fdf4', window.i18n.statusActive || 'Active']
+        };
+        var s = map[st] || map.active;
+        return '<span style="font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:999px;color:' + s[0] + ';background:' + s[1] + ';">' + s[2] + '</span>';
+      }
+      function renderApps() {
+        var el = document.getElementById('apps-table-body');
+        if (!el) return;
+        var list = appsByGroup && currentGroupId ? (appsByGroup[currentGroupId] || []) : [];
+        if (list.length === 0) {
+          el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:1.5rem;">' + (window.i18n.appNone || '(なし)') + '</td></tr>';
+          return;
+        }
+        el.innerHTML = list.map(function(a) {
+          var svc = a.service_name ? a.service_name : '—';
+          var dataAttr = encodeURIComponent(JSON.stringify(a));
+          return '<tr>'
+            + '<td><strong>' + a.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + a.id + '</div></td>'
+            + '<td>' + statusBadge(a.status) + '</td>'
+            + '<td style="font-size:0.85rem;color:#64748b;">' + svc + '</td>'
+            + '<td style="text-align:right; white-space:nowrap;">'
+            +   '<button type="button" title="編集" onclick="openAppEditModal(\\'' + dataAttr + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#f1f5f9\\';this.style.color=\\'#4f46e5\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">edit</span></button>'
+            +   '<button type="button" title="削除" onclick="removeApp(\\'' + a.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>'
+            + '</td>'
+            + '</tr>';
+        }).join('');
+      }
+
+      function fillServiceOptions(el, selected) {
+        if (!el) return;
+        var svcs = (servicesByGroup && servicesByGroup[currentGroupId]) ? servicesByGroup[currentGroupId] : [];
+        var html = '<option value="">' + (window.i18n.appBindNone || '-- none --') + '</option>';
+        svcs.forEach(function(s){ html += '<option value="' + s.id + '"' + (s.id === selected ? ' selected' : '') + '>' + s.name + '</option>'; });
+        el.innerHTML = html;
+      }
+
+      window.openAppModal = function() {
+        if (!currentGroupId) return;
+        ['ap-id','ap-name','ap-base-url','ap-redirect','ap-desc'].forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
+        fillServiceOptions(document.getElementById('ap-service'), '');
+        var warn = document.getElementById('ap-no-service');
+        var svcs = (servicesByGroup && servicesByGroup[currentGroupId]) ? servicesByGroup[currentGroupId] : [];
+        if (warn) warn.style.display = svcs.length === 0 ? '' : 'none';
+        var m = document.getElementById('add-app-modal');
+        if (m) m.showModal();
+      };
+      window.addApp = function() {
+        var id = (document.getElementById('ap-id')||{}).value;
+        var name = (document.getElementById('ap-name')||{}).value;
+        var baseUrl = (document.getElementById('ap-base-url')||{}).value;
+        var redirect = (document.getElementById('ap-redirect')||{}).value;
+        var desc = (document.getElementById('ap-desc')||{}).value;
+        var serviceId = (document.getElementById('ap-service')||{}).value;
+        if (!id || !id.trim() || !name || !name.trim() || !baseUrl || !baseUrl.trim()) { alert(window.i18n.appFillRequired || 'ID/名前/URLは必須です'); return; }
+        fetch('/group-admin/api/app/request', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, id: id.trim(), name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect, description: desc, service_id: serviceId })
+        })
+        .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){
+          if (e.message === 'id_taken') alert(window.i18n.appIdTaken || 'そのアプリIDは既に使われています');
+          else alert('Error: ' + e.message);
+        });
+      };
+      window.openAppEditModal = function(enc) {
+        var a = JSON.parse(decodeURIComponent(enc));
+        document.getElementById('ape-id').value = a.id;
+        document.getElementById('ape-name').value = a.name;
+        document.getElementById('ape-base-url').value = a.base_url;
+        document.getElementById('ape-redirect').value = '';
+        fillServiceOptions(document.getElementById('ape-service'), a.service_id || '');
+        var m = document.getElementById('edit-app-modal-ga');
+        if (m) m.showModal();
+      };
+      window.updateApp = function() {
+        var id = (document.getElementById('ape-id')||{}).value;
+        var name = (document.getElementById('ape-name')||{}).value;
+        var baseUrl = (document.getElementById('ape-base-url')||{}).value;
+        var redirect = (document.getElementById('ape-redirect')||{}).value;
+        var serviceId = (document.getElementById('ape-service')||{}).value;
+        if (!name || !name.trim() || !baseUrl || !baseUrl.trim()) { alert(window.i18n.appFillRequired || '名前/URLは必須です'); return; }
+        fetch('/group-admin/api/app/update', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ id: id, name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect, service_id: serviceId })
+        })
+        .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){ alert('Error: ' + e.message); });
+      };
+      window.removeApp = function(id) {
+        if (!confirm(window.i18n.appConfirmRemove || 'Delete?')) return;
+        fetch('/group-admin/api/app/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
+          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){ window.location.reload(); })
+          .catch(function(e){ alert('Error: ' + e.message); });
+      };
+
     })();
   `)
 
@@ -719,6 +878,9 @@ export const GroupAdminPage = (props: Props) => {
         </button>
         <button id="tab-btn-access" onclick="switchTab('access')">
           <span class="material-symbols-outlined">lock_open</span>${t.ga_tab_access}
+        </button>
+        <button id="tab-btn-apps" onclick="switchTab('apps')">
+          <span class="material-symbols-outlined">apps</span>${t.ga_tab_apps}
         </button>
       </div>
 
@@ -820,6 +982,128 @@ export const GroupAdminPage = (props: Props) => {
           </div>
         </div>
       </div>
+
+      <!-- アプリ／サービス タブ(セルフサービス) -->
+      <div id="tab-apps" style="display:none;">
+        <!-- 自グループのサービス -->
+        <div class="${sectionTitle}"><span class="material-symbols-outlined">category</span>${t.ga_svc_section}</div>
+        <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_svc_desc}</div>
+        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+          ${Button({ onclick: "openServiceModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.ga_svc_create}` })}
+        </div>
+        <div class="${card}">
+          <div class="${tableWrap}">
+            <table>
+              <thead><tr><th>${t.ga_svc_name}</th><th></th></tr></thead>
+              <tbody id="services-table-body">
+                <tr><td colspan="2" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- アプリ登録の申請 -->
+        <div class="${sectionTitle}" style="margin-top:1rem;"><span class="material-symbols-outlined">apps</span>${t.ga_app_section}</div>
+        <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_app_desc}</div>
+        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+          ${Button({ onclick: "openAppModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">note_add</span> ${t.ga_app_request}` })}
+        </div>
+        <div class="${card}">
+          <div class="${tableWrap}">
+            <table>
+              <thead><tr><th>${t.ga_app_name}</th><th>${t.status}</th><th>${t.ga_app_bind}</th><th></th></tr></thead>
+              <tbody id="apps-table-body">
+                <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- サービス作成モーダル -->
+      ${Modal({
+        id: 'add-service-modal',
+        title: t.ga_svc_create,
+        closeAction: "this.closest('dialog').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <div>
+              <label class="${formLabel}">${t.ga_svc_name}</label>
+              <input type="text" id="s-name" class="${dateInput}" />
+            </div>
+            <div style="margin-top:0.5rem;">
+              ${Button({ onclick: "addService()", children: html`<span class="material-symbols-outlined">add</span> ${t.ga_svc_create}` })}
+            </div>
+          </div>
+        `
+      })}
+
+      <!-- アプリ申請モーダル -->
+      ${Modal({
+        id: 'add-app-modal',
+        title: t.ga_app_request,
+        closeAction: "this.closest('dialog').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.1rem;">
+            <div>
+              <label class="${formLabel}">${t.ga_app_id}</label>
+              <input type="text" id="ap-id" class="${dateInput}" placeholder="my-app" />
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_app_name}</label>
+              <input type="text" id="ap-name" class="${dateInput}" />
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_app_base_url}</label>
+              <input type="url" id="ap-base-url" class="${dateInput}" placeholder="https://..." />
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_app_redirect}</label>
+              <textarea id="ap-redirect" class="${dateInput}" style="min-height:64px; font-family:monospace; font-size:0.85rem;" placeholder="https://.../callback"></textarea>
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_app_bind}</label>
+              <select id="ap-service" class="${selectInput}"></select>
+              <div id="ap-no-service" style="display:none; margin-top:0.5rem;" class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_no_own_services}</div>
+            </div>
+            <div class="${infoBox}"><span class="material-symbols-outlined">key</span>${t.ga_app_secret_note}</div>
+            <div style="margin-top:0.25rem;">
+              ${Button({ onclick: "addApp()", children: html`<span class="material-symbols-outlined">send</span> ${t.ga_app_request}` })}
+            </div>
+          </div>
+        `
+      })}
+
+      <!-- アプリ編集モーダル(自グループ・申請含む) -->
+      ${Modal({
+        id: 'edit-app-modal-ga',
+        title: t.edit,
+        closeAction: "this.closest('dialog').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.1rem;">
+            <input type="hidden" id="ape-id" />
+            <div>
+              <label class="${formLabel}">${t.ga_app_name}</label>
+              <input type="text" id="ape-name" class="${dateInput}" />
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_app_base_url}</label>
+              <input type="url" id="ape-base-url" class="${dateInput}" />
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_app_redirect}</label>
+              <textarea id="ape-redirect" class="${dateInput}" style="min-height:64px; font-family:monospace; font-size:0.85rem;" placeholder="(空欄なら変更なし)"></textarea>
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_app_bind}</label>
+              <select id="ape-service" class="${selectInput}"></select>
+            </div>
+            <div style="margin-top:0.25rem;">
+              ${Button({ onclick: "updateApp()", children: html`<span class="material-symbols-outlined">save</span> ${t.save}` })}
+            </div>
+          </div>
+        `
+      })}
 
       <!-- メンバー追加モーダル -->
       ${Modal({
@@ -985,6 +1269,8 @@ export const GroupAdminPage = (props: Props) => {
       <script type="application/json" id="ga-roles-data">${raw(rolesByServiceJson)}</script>
       <script type="application/json" id="ga-grants-detail-data">${raw(grantsDetailByGroupJson)}</script>
       <script type="application/json" id="ga-contracts-data">${raw(availableContractsJson)}</script>
+      <script type="application/json" id="ga-services-data">${raw(servicesByGroupJson)}</script>
+      <script type="application/json" id="ga-apps-data">${raw(appsByGroupJson)}</script>
       <script>
         window.i18n = {
           noMembers: '${t.am_no_members}',
@@ -1004,6 +1290,19 @@ export const GroupAdminPage = (props: Props) => {
           noGrants: '${t.ga_no_grants}',
           selectContract: '${t.ga_select_contract}',
           seatUnlimited: '${t.am_seat_unlimited}',
+          svcNone: '${t.ga_svc_none}',
+          svcName: '${t.ga_svc_name}',
+          svcConfirmRemove: '${t.ga_svc_confirm_remove}',
+          appNone: '${t.ga_app_none}',
+          appConfirmRemove: '${t.ga_app_confirm_remove}',
+          appBindNone: '${t.ga_app_bind_none}',
+          noOwnServices: '${t.ga_no_own_services}',
+          statusPending: '${t.ga_status_pending}',
+          statusRejected: '${t.ga_status_rejected}',
+          statusActive: '${t.ga_status_active}',
+          statusInactive: '${t.ga_status_inactive}',
+          appFillRequired: 'ID / 名前 / URL は必須です',
+          appIdTaken: 'そのアプリIDは既に使われています',
         };
       </script>
       <script>

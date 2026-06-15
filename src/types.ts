@@ -25,7 +25,7 @@ export interface App {
   id: string
   name: string
   base_url: string
-  status: string // 'active' | 'inactive'
+  status: string // 'active' | 'inactive' | 'pending'(申請待ち) | 'rejected'(却下)
   icon_url?: string
   description?: string
   created_at: number
@@ -34,6 +34,9 @@ export interface App {
   backchannel_logout_uri?: string | null // OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント
   service_id?: string | null
   service_name?: string | null
+  // セルフサービス: 申請/所有グループ。NULL = 運営者が直接作ったグローバルアプリ。
+  owner_group_id?: string | null
+  owner_group_name?: string | null
 }
 
 export interface Session {
@@ -86,6 +89,8 @@ export interface Service {
   provider_id: string
   name: string
   created_at: number
+  // セルフサービス: 所有グループ。NULL = 運営者が提供企業つきで作ったグローバルサービス。
+  owner_group_id?: string | null
 }
 
 // アカウントマネージャ【サービス契約】利用枠(ゲート②)の出所。席数上限を持つ。(migration 0004)

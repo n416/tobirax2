@@ -112,8 +112,11 @@ async function checkPermission(c: any, userId: string, appId: string): Promise<{
     const now = Math.floor(Date.now() / 1000)
 
     const app = await c.env.DB.prepare('SELECT status FROM apps WHERE id = ?').bind(appId).first() as App | null
-    if (app && app.status === 'inactive') {
-        return { allowed: false, reason: 'App is paused' }
+    // status が設定されていて 'active' 以外(inactive/pending/rejected)のアプリは利用不可。
+    // pending(申請待ち)/rejected(却下)のアプリで OIDC フローやダッシュボードが進まないようにする。
+    // status が NULL の旧アプリは active 扱いにフォールバック。
+    if (app && app.status && app.status !== 'active') {
+        return { allowed: false, reason: `App is ${app.status}` }
     }
 
     const userPerm = await c.env.DB.prepare('SELECT * FROM permissions WHERE user_id = ? AND app_id = ?')
@@ -312,6 +315,20 @@ async function deleteServiceCascade(c: any, serviceId: string) {
     ])
 }
 
+// グループ管理者が自グループのサービスを作るとき、services.provider_id(NOT NULL)を満たす
+// ための「提供企業」をグループごとに用意する。提供企業=そのグループ自身という意味づけで、
+// id は決め打ち(grp-prov:<group_id>)・名称はグループ名にする。既にあれば再利用する。
+async function ensureGroupProvider(c: any, groupId: string): Promise<string> {
+    const providerId = `grp-prov:${groupId}`
+    const existing = await c.env.DB.prepare('SELECT id FROM service_providers WHERE id = ?').bind(providerId).first()
+    if (!existing) {
+        const grp = await c.env.DB.prepare('SELECT name FROM groups WHERE id = ?').bind(groupId).first() as { name: string } | null
+        await c.env.DB.prepare('INSERT INTO service_providers (id, name, created_at) VALUES (?, ?, ?)')
+            .bind(providerId, grp?.name || groupId, Math.floor(Date.now() / 1000)).run()
+    }
+    return providerId
+}
+
 // 現在の(未失効の)セッション行を auth_time 込みで取得する。ユーザーだけでなく
 // 認証時刻が必要な箇所(OIDC /authorize)で使う。
 async function getSessionRow(c: any): Promise<Session | null> {
@@ -450,7 +467,8 @@ app.get('/group-admin', async (c) => {
         return c.html(<GroupAdminPage t={t} userEmail={user.email} siteName={siteName}
             profileName={user.name} profilePicture={user.picture}
             managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
-            grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}} apps={[]} />)
+            grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}}
+            servicesByGroup={{}} appsByGroup={{}} apps={[]} />)
     }
 
     const groupIds = managedGroups.map((g: any) => g.id as string)
@@ -559,6 +577,24 @@ app.get('/group-admin', async (c) => {
     `).all()
     const availableContracts = (allContracts as any[]).filter(ct => managedIds.has(ct.customer_group_id))
 
+    // セルフサービス用データ:
+    //   - servicesByGroup: 各グループが所有する(owner_group_id)サービス。アプリ申請の紐付け先。
+    //   - appsByGroup: 各グループが申請/所有するアプリ(status 込み)。
+    const servicesByGroup: Record<string, any[]> = {}
+    const appsByGroup: Record<string, any[]> = {}
+    for (const gid of groupIds) {
+        const { results: svcRows } = await c.env.DB.prepare(
+            'SELECT id, name FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
+        ).bind(gid).all()
+        servicesByGroup[gid] = svcRows || []
+        const { results: appRows } = await c.env.DB.prepare(`
+            SELECT a.id, a.name, a.base_url, a.status, a.service_id, s.name AS service_name
+            FROM apps a LEFT JOIN services s ON a.service_id = s.id
+            WHERE a.owner_group_id = ? ORDER BY a.created_at DESC
+        `).bind(gid).all()
+        appsByGroup[gid] = appRows || []
+    }
+
     return c.html(<GroupAdminPage
         t={t} userEmail={user.email} siteName={siteName}
         profileName={user.name} profilePicture={user.picture}
@@ -572,6 +608,8 @@ app.get('/group-admin', async (c) => {
         availableContracts={availableContracts as any}
         facilities={facilities as any}
         rolesByService={rolesByService}
+        servicesByGroup={servicesByGroup}
+        appsByGroup={appsByGroup}
         apps={[]}
     />)
   } catch (e: any) {
@@ -696,6 +734,127 @@ app.post('/group-admin/api/grant/remove', async (c) => {
     if (!managed.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
     await c.env.DB.prepare('DELETE FROM group_service_grants WHERE id = ?').bind(id).run()
     await logAudit(c, 'DELEGATED_GRANT_REMOVE', { key: 'log_grant_delete', params: { id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// ============================================================
+// 委任セルフサービス: グループ管理者による「自グループのサービス作成」と
+//   「アプリ登録の申請」。いずれも対象グループ/所有が自分の管理サブツリー内かを
+//   getManagedGroupIds で必ず検証する。アプリは status='pending' で作られ、運営者の
+//   承諾(/admin/apps/approve)で 'active' になるまで利用できない(=checkPermission で遮断)。
+//   「サービス」は本システム固有概念(Auth0には無い)。memory: service-layer-is-ours-not-auth0。
+// ============================================================
+
+// 自グループのサービスを作成(即時・承諾不要)。所有グループを刻み、提供企業は自動採番。
+app.post('/group-admin/api/service/create', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const name = ((body['name'] as string) || '').trim()
+    if (!groupId || !name) return c.json({ error: 'group_id and name required' }, 400)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    const providerId = await ensureGroupProvider(c, groupId)
+    const id = 'svc-' + crypto.randomUUID()
+    await c.env.DB.prepare('INSERT INTO services (id, provider_id, name, created_at, owner_group_id) VALUES (?, ?, ?, ?, ?)')
+        .bind(id, providerId, name, Math.floor(Date.now() / 1000), groupId).run()
+    await logAudit(c, 'DELEGATED_SERVICE_CREATE', { key: 'log_service_add', params: { name, admin: user.email } })
+    return c.json({ success: true, id })
+})
+
+// 自グループのサービスを削除。紐づくアプリは紐付け解除し、契約/利用枠/役割/割当を連鎖削除。
+app.post('/group-admin/api/service/delete', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const id = (await c.req.json())['id'] as string
+    const row = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(id).first() as { owner_group_id: string | null } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    // owner が無い(運営者作成のグローバルサービス)は委任では消せない。
+    if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    await c.env.DB.prepare('UPDATE apps SET service_id = NULL WHERE service_id = ?').bind(id).run()
+    await deleteServiceCascade(c, id)
+    await logAudit(c, 'DELEGATED_SERVICE_DELETE', { key: 'log_service_delete', params: { id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// アプリ登録の申請。status='pending' で作成。owner_group_id を刻み、紐付けサービスは
+//   自分の所有サービスのみ許可(越境束縛を拒否)。client_secret は機密既定で生成。
+app.post('/group-admin/api/app/request', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const id = ((body['id'] as string) || '').trim()
+    const name = ((body['name'] as string) || '').trim()
+    const baseUrl = ((body['base_url'] as string) || '').trim()
+    const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
+    const description = ((body['description'] as string) || '').trim() || null
+    const serviceId = ((body['service_id'] as string) || '').trim() || null
+    if (!groupId || !id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    // ID 衝突チェック(PK)。
+    const dup = await c.env.DB.prepare('SELECT id FROM apps WHERE id = ?').bind(id).first()
+    if (dup) return c.json({ error: 'id_taken' }, 409)
+    // 紐付けサービスは自分の所有サービスのみ(越境束縛の防止)。
+    if (serviceId) {
+        const svc = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(serviceId).first() as { owner_group_id: string | null } | null
+        if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'bad_service' }, 403)
+    }
+    const clientSecret = generateToken() + generateToken().replace(/-/g, '')
+    await c.env.DB.prepare(`
+        INSERT INTO apps (id, name, base_url, status, created_at, description, client_secret, redirect_uris, service_id, owner_group_id)
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+    `).bind(id, name, baseUrl, Math.floor(Date.now() / 1000), description, clientSecret, redirectUris, serviceId, groupId).run()
+    await logAudit(c, 'DELEGATED_APP_REQUEST', { key: 'log_app_created', params: { appName: name, id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// 自グループのアプリ(申請含む)を更新。status は変更不可(自己承諾の防止)。
+app.post('/group-admin/api/app/update', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const id = (body['id'] as string) || ''
+    const name = ((body['name'] as string) || '').trim()
+    const baseUrl = ((body['base_url'] as string) || '').trim()
+    const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
+    const description = ((body['description'] as string) || '').trim() || null
+    const serviceId = ((body['service_id'] as string) || '').trim() || null
+    if (!id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
+    const row = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    if (serviceId) {
+        const svc = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(serviceId).first() as { owner_group_id: string | null } | null
+        if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'bad_service' }, 403)
+    }
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, redirect_uris = ?, description = ?, service_id = ? WHERE id = ?')
+        .bind(name, baseUrl, redirectUris, description, serviceId, id).run()
+    await logAudit(c, 'DELEGATED_APP_UPDATE', { key: 'log_app_updated', params: { appName: name, status: 'Updated', admin: user.email } })
+    return c.json({ success: true })
+})
+
+// 自グループのアプリ(申請含む)を削除。
+app.post('/group-admin/api/app/delete', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const id = (await c.req.json())['id'] as string
+    const row = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    await c.env.DB.batch([
+        c.env.DB.prepare('DELETE FROM permissions WHERE app_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM group_permissions WHERE app_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM auth_codes WHERE app_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM app_sessions WHERE app_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM apps WHERE id = ?').bind(id),
+    ])
+    await logAudit(c, 'DELEGATED_APP_DELETE', { key: 'log_app_deleted', params: { id, admin: user.email } })
     return c.json({ success: true })
 })
 
@@ -1740,10 +1899,11 @@ app.get('/admin/apps', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const { results } = await c.env.DB.prepare(`
-        SELECT a.*, s.name as service_name 
-        FROM apps a 
-        LEFT JOIN services s ON a.service_id = s.id 
-        ORDER BY a.created_at DESC
+        SELECT a.*, s.name as service_name, g.name as owner_group_name
+        FROM apps a
+        LEFT JOIN services s ON a.service_id = s.id
+        LEFT JOIN groups g ON a.owner_group_id = g.id
+        ORDER BY (a.status = 'pending') DESC, a.created_at DESC
     `).all()
     const services = await c.env.DB.prepare('SELECT id, name FROM services ORDER BY created_at DESC').all()
     const regTokens = await c.env.DB.prepare('SELECT token, created_at, expires_at FROM registration_tokens ORDER BY created_at DESC').all()
@@ -1854,6 +2014,27 @@ app.post('/admin/apps/toggle', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
     return c.redirect('/admin/apps')
 })
+
+// グループ管理者からのアプリ登録申請(status='pending')を承諾して有効化する。運営者専用。
+app.post('/admin/apps/approve', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.prepare("UPDATE apps SET status = 'active' WHERE id = ? AND status = 'pending'").bind(id).run()
+    await logAudit(c, 'APP_APPROVED', { key: 'log_app_updated', params: { appName: id, status: 'approved', admin: user.email } })
+    return c.redirect('/admin/apps')
+})
+
+// アプリ登録申請を却下する(status='rejected')。運営者専用。
+app.post('/admin/apps/reject', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.prepare("UPDATE apps SET status = 'rejected' WHERE id = ? AND status = 'pending'").bind(id).run()
+    await logAudit(c, 'APP_REJECTED', { key: 'log_app_updated', params: { appName: id, status: 'rejected', admin: user.email } })
+    return c.redirect('/admin/apps')
+})
+
 app.post('/admin/apps/delete', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
