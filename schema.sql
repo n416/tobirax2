@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS apps (
 CREATE TABLE IF NOT EXISTS groups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- アカウントマネージャ: 親子階層(最上位は NULL)。groups(id) を参照。
+    parent_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS permissions (
@@ -155,3 +157,107 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_permissions_user ON permissions(user_id);
 CREATE INDEX IF NOT EXISTS idx_group_perms_group ON group_permissions(group_id);
 CREATE INDEX IF NOT EXISTS idx_logs_created ON audit_logs(created_at);
+
+-- ============================================================
+-- アカウントマネージャ（権限/グループ/サービス管理） ※先行実装・現行IdPとは別レイヤ
+-- 認証は当面現行のまま。将来 Auth0 移行時に auth0_user_id / system_role 等を追加予定。
+-- 設計詳細: schema-v2-daas.sql / memory:taisei-daas-domain-model.md。
+-- 既存DBへの追加は migrations/0004_account_manager.sql。
+-- ============================================================
+
+-- 【グループ所属】誰が・どのグループに・どの役割で・いつからいつまで(多対多)。
+CREATE TABLE IF NOT EXISTS group_memberships (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    group_id   TEXT NOT NULL REFERENCES groups(id),
+    role       TEXT NOT NULL DEFAULT 'member',   -- 'group_admin' / 'member'(グループ内権限)
+    valid_from INTEGER NOT NULL,
+    valid_to   INTEGER NOT NULL,
+    UNIQUE(user_id, group_id)
+);
+
+-- 【サービス提供企業】
+CREATE TABLE IF NOT EXISTS service_providers (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+-- 【サービス】
+CREATE TABLE IF NOT EXISTS services (
+    id          TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL REFERENCES service_providers(id),
+    name        TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+);
+
+-- 【サービス契約】利用枠(ゲート②)の出所。席数上限を持つ。
+CREATE TABLE IF NOT EXISTS service_contracts (
+    id                TEXT PRIMARY KEY,
+    service_id        TEXT NOT NULL REFERENCES services(id),
+    customer_group_id TEXT NOT NULL REFERENCES groups(id),
+    seat_limit        INTEGER,
+    valid_from        INTEGER NOT NULL,
+    valid_to          INTEGER NOT NULL
+);
+
+-- 【グループ利用枠 / ゲート②】契約を各グループノードへ明示開放(自動継承なし)。
+CREATE TABLE IF NOT EXISTS group_service_grants (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id    TEXT NOT NULL REFERENCES groups(id),
+    service_id  TEXT NOT NULL REFERENCES services(id),
+    contract_id TEXT NOT NULL REFERENCES service_contracts(id),
+    seat_limit  INTEGER,
+    valid_from  INTEGER NOT NULL,
+    valid_to    INTEGER NOT NULL,
+    UNIQUE(group_id, service_id)
+);
+
+-- 【施設(建物)】施設ID=1:1で施設構造物番号に対応。管理グループを持つ。
+CREATE TABLE IF NOT EXISTS facilities (
+    id                TEXT PRIMARY KEY,
+    structure_no      TEXT UNIQUE,
+    building_use      TEXT,
+    managing_group_id TEXT NOT NULL REFERENCES groups(id),
+    created_at        INTEGER NOT NULL
+);
+
+-- 【サービス役割マスタ】サービス×施設種別で選べる役割メニュー。
+CREATE TABLE IF NOT EXISTS service_role_master (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id    TEXT NOT NULL REFERENCES services(id),
+    facility_type TEXT,                  -- NULL=全種別 / '病院' 等で限定
+    role_name     TEXT NOT NULL,
+    UNIQUE(service_id, facility_type, role_name)
+);
+
+-- 【サービス利用者割当 / ゲート③】個人を建物ごとにサービスへ割当+役割(マスタ参照)。
+CREATE TABLE IF NOT EXISTS service_user_assignments (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL REFERENCES users(id),
+    group_id        TEXT NOT NULL REFERENCES groups(id),
+    service_id      TEXT NOT NULL REFERENCES services(id),
+    facility_id     TEXT NOT NULL REFERENCES facilities(id),
+    service_role_id INTEGER NOT NULL REFERENCES service_role_master(id),
+    valid_from      INTEGER NOT NULL,
+    valid_to        INTEGER NOT NULL,
+    UNIQUE(user_id, group_id, service_id, facility_id)
+);
+
+-- 【施設外部コード対応】★将来・外部連携時★ 設備コード↔施設ID翻訳。
+CREATE TABLE IF NOT EXISTS facility_external_codes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    facility_id   TEXT NOT NULL REFERENCES facilities(id),
+    service_id    TEXT NOT NULL REFERENCES services(id),
+    external_code TEXT NOT NULL,
+    UNIQUE(service_id, external_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_membership_user    ON group_memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_membership_group   ON group_memberships(group_id);
+CREATE INDEX IF NOT EXISTS idx_grant_group        ON group_service_grants(group_id);
+CREATE INDEX IF NOT EXISTS idx_assign_user        ON service_user_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_assign_facility    ON service_user_assignments(facility_id);
+CREATE INDEX IF NOT EXISTS idx_facility_group     ON facilities(managing_group_id);
+CREATE INDEX IF NOT EXISTS idx_rolemaster_service ON service_role_master(service_id);
+CREATE INDEX IF NOT EXISTS idx_groups_parent      ON groups(parent_id);
