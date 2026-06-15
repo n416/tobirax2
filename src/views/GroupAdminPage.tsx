@@ -405,7 +405,7 @@ export const GroupAdminPage = (props: Props) => {
       };
       window.executeRemove = function() {
         if (!removeTargetId) return;
-        fetch('/admin/api/am/membership/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: removeTargetId }) })
+        fetch('/group-admin/api/membership/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: removeTargetId }) })
           .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
           .then(function() {
             window.closeRemoveModal();
@@ -429,7 +429,7 @@ export const GroupAdminPage = (props: Props) => {
         var endVal = document.getElementById('m-valid-to').value;
         var validFrom = startVal ? Math.floor(new Date(startVal).getTime()/1000) : Math.floor(Date.now()/1000);
         var validTo = endVal ? Math.floor(new Date(endVal).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
-        fetch('/admin/api/am/membership/add', {
+        fetch('/group-admin/api/membership/add', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ group_id: currentGroupId, user_ids: userIds, role: role, valid_from: validFrom, valid_to: validTo })
         })

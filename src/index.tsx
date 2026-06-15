@@ -179,6 +179,37 @@ async function getUserCtx(c: any): Promise<{ user: User; isGroupAdmin: boolean }
     return { user, isGroupAdmin: !!ga }
 }
 
+// 【委任管理の認可プリミティブ】ユーザーが管理できるグループID集合を返す。
+//   = 自分が有効な group_admin として所属するグループ + その子孫(サブツリー)すべて。
+//   「グループのツリーは管理の委任構造」という思想に従い、親グループの管理者は配下支店も管理できる。
+//   (サービス利用権の自動継承なし=ゲート②③とは別レイヤ。これは"管理権限"の話で、委任構造はツリーで降りる。)
+//   委任系の全エンドポイントはこの集合で「操作対象グループが配下か」を必ず検証する。
+async function getManagedGroupIds(c: any, userId: string): Promise<Set<string>> {
+    const now = Math.floor(Date.now() / 1000)
+    const { results: adminRows } = await c.env.DB.prepare(
+        `SELECT group_id FROM group_memberships WHERE user_id = ? AND role = 'group_admin' AND valid_from <= ? AND valid_to >= ?`
+    ).bind(userId, now, now).all()
+    const roots = (adminRows as any[]).map(r => r.group_id as string)
+    const managed = new Set<string>()
+    if (roots.length === 0) return managed
+    // 親→子の隣接リストを作り、各 root から子孫を BFS/DFS で収集する。
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+    const childrenMap = new Map<string, string[]>()
+    for (const g of allGroups as any[]) {
+        if (!g.parent_id) continue
+        if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
+        childrenMap.get(g.parent_id)!.push(g.id)
+    }
+    const stack = [...roots]
+    while (stack.length) {
+        const id = stack.pop()!
+        if (managed.has(id)) continue   // 循環/重複ガード
+        managed.add(id)
+        for (const child of childrenMap.get(id) || []) stack.push(child)
+    }
+    return managed
+}
+
 // 監査ログを1行記録する。details は i18n キー方式({ key, params }) で保存する。
 async function logAudit(c: any, eventType: string, details: object) {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
@@ -292,16 +323,22 @@ app.get('/group-admin', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const now = Math.floor(Date.now() / 1000)
 
-    // 自分が group_admin として所属している有効なグループ一覧
-    const { results: managedGroupsRaw } = await c.env.DB.prepare(`
-        SELECT g.*, (SELECT COUNT(*) FROM group_memberships m2 WHERE m2.group_id = g.id AND m2.valid_from <= ? AND m2.valid_to >= ?) AS member_count
-        FROM groups g
-        JOIN group_memberships m ON m.group_id = g.id
-        WHERE m.user_id = ? AND m.role = 'group_admin' AND m.valid_from <= ? AND m.valid_to >= ?
-    `).bind(now, now, user.id, now, now).all()
+    // 管理できるグループ = 自分が group_admin のグループ + その子孫(サブツリー)。
+    // 親グループの管理者は配下支店も管理対象に含む(委任構造はツリーで降りる)。
+    const managedIds = await getManagedGroupIds(c, user.id)
 
     const { results: allGroups } = await c.env.DB.prepare('SELECT id, name, parent_id FROM groups').all()
     const groupMap = new Map((allGroups as any[]).map(g => [g.id, g]))
+
+    // 配下グループそれぞれの(有効)メンバー数を引いて一覧を組み立てる。
+    const managedGroupsRaw: any[] = []
+    for (const g of allGroups as any[]) {
+        if (!managedIds.has(g.id)) continue
+        const cnt = await c.env.DB.prepare(
+            `SELECT COUNT(*) AS c FROM group_memberships WHERE group_id = ? AND valid_from <= ? AND valid_to >= ?`
+        ).bind(g.id, now, now).first<{ c: number }>()
+        managedGroupsRaw.push({ ...g, member_count: cnt?.c || 0 })
+    }
 
     const managedGroups = (managedGroupsRaw as any[]).map((g: any) => {
         const parts = [g.name]
@@ -407,6 +444,50 @@ app.get('/group-admin', async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message, stack: e.stack }, 500)
   }
+})
+
+// ============================================================
+// 委任管理: グループ管理者向けの書込みAPI(/group-admin/api/*)。
+//   運営者専用の /admin/api/am/* とは別物。呼び出し元が「対象グループの管理権限を
+//   持つか」を getManagedGroupIds(自分が group_admin のグループ+子孫) で必ず検証する。
+//   これにより group_admin は自分の配下サブツリーのメンバーだけを操作できる。
+// ============================================================
+app.post('/group-admin/api/membership/add', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const userIds = (body['user_ids'] as string[]) || []
+    const role = body['role'] === 'group_admin' ? 'group_admin' : 'member'
+    const validFrom = Number(body['valid_from'])
+    const validTo = Number(body['valid_to'])
+    if (!groupId || userIds.length === 0) return c.json({ error: 'group_id and user_ids required' }, 400)
+    // 委任ゲート: 対象グループが自分の管理サブツリー内か。
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    // UNIQUE(user_id, group_id) を活かして upsert(役割・期間を更新)。
+    for (const uid of userIds) {
+        await c.env.DB.prepare(`
+            INSERT INTO group_memberships (user_id, group_id, role, valid_from, valid_to) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, group_id) DO UPDATE SET role=excluded.role, valid_from=excluded.valid_from, valid_to=excluded.valid_to
+        `).bind(uid, groupId, role, validFrom, validTo).run()
+    }
+    await logAudit(c, 'DELEGATED_MEMBERSHIP_ADD', { key: 'log_membership_add', params: { count: userIds.length, group: groupId, role: role, admin: user.email } })
+    return c.json({ success: true })
+})
+app.post('/group-admin/api/membership/remove', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const id = body['id']
+    // 削除対象の所属が属するグループを引き、自分の管理サブツリー内か検証する。
+    const row = await c.env.DB.prepare('SELECT group_id FROM group_memberships WHERE id = ?').bind(id).first() as { group_id: string } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
+    await c.env.DB.prepare('DELETE FROM group_memberships WHERE id = ?').bind(id).run()
+    await logAudit(c, 'DELEGATED_MEMBERSHIP_REMOVE', { key: 'log_membership_remove', params: { id: id, admin: user.email } })
+    return c.json({ success: true })
 })
 
 // アカウント設定(プロフィール編集 + セキュリティ)の専用画面。
