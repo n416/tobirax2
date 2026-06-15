@@ -125,17 +125,60 @@ export const GroupAdminPage = (props: Props) => {
     & button.active { background: #fff !important; color: var(--primary); box-shadow: 0 2px 6px -2px rgba(0,0,0,0.1) !important; }
   `
 
-  const groupSelect = css`
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-main);
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 12px !important;
-    background: rgba(255,255,255,0.9) !important;
-    padding: 0.7rem 1rem !important;
-    margin-bottom: 1.5rem;
-    width: auto !important;
-    cursor: pointer;
+  const groupSelectWrapper = css`
+    min-width: 280px;
+    & .ts-control {
+      font-size: 1rem !important;
+      font-weight: 600 !important;
+      color: var(--text-main) !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 12px !important;
+      background: rgba(255,255,255,0.9) !important;
+      padding: 0.7rem 1rem !important;
+      cursor: text !important;
+      box-shadow: none !important;
+      min-height: auto !important;
+      display: flex !important;
+      align-items: center !important;
+    }
+    & .ts-control > input {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: auto !important;
+      flex: 1 1 auto !important;
+      min-width: 2rem !important;
+      display: inline-block !important;
+      height: auto !important;
+      line-height: inherit !important;
+    }
+    & .ts-control::before {
+      content: '\\e8b6'; /* Material Symbol search */
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-size: 20px;
+      color: #94a3b8;
+      margin-right: 4px;
+    }
+    & .ts-wrapper.focus .ts-control {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1) !important;
+    }
+    & .ts-dropdown {
+      border-radius: 12px !important;
+      border: 1px solid #e2e8f0 !important;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important;
+      font-size: 0.95rem !important;
+    }
+    & .ts-dropdown .option {
+      padding: 0.5rem 0.8rem !important;
+    }
+    & .ts-dropdown .option.active {
+      background-color: #f1f5f9 !important;
+      color: var(--primary) !important;
+    }
   `
 
   const badge = css`
@@ -202,8 +245,41 @@ export const GroupAdminPage = (props: Props) => {
         if (pd) permsByGroup = JSON.parse(pd.textContent);
 
         var sel = document.getElementById('group-select');
-        if (sel && sel.value) {
-          currentGroupId = sel.value;
+        if (sel && typeof TomSelect !== 'undefined' && sel.tagName === 'SELECT') {
+          new TomSelect('#group-select', {
+            create: false,
+            sortField: { field: '$order' },
+            searchField: ['text'],
+            placeholder: '検索...',
+            onChange: function(val) {
+               currentGroupId = val;
+               renderAll();
+            },
+            render: {
+              option: function(data, escape) {
+                var depth = parseInt(data.$option.getAttribute('data-depth') || '0', 10);
+                var origName = data.$option.getAttribute('data-origname') || data.text;
+                var pad = depth * 1.5;
+                var icon = depth > 0 ? '<span class="material-symbols-outlined" style="font-size:16px; color:#94a3b8; flex-shrink:0;">subdirectory_arrow_right</span>' : '';
+                return '<div style="padding-left:' + pad + 'rem; display:flex; align-items:center; gap:0.4rem;">' + icon + '<span style="font-weight:' + (depth===0?'700':'500') + '; color:var(--text-main);">' + escape(origName) + '</span></div>';
+              },
+              item: function(data, escape) {
+                return '<div style="display:flex; align-items:center; gap:0.4rem; padding: 0 0.4rem;">' + escape(data.text) + '</div>';
+              }
+            }
+          });
+        } else if (sel && sel.value) {
+          // TomSelectが使えない環境用フォールバック
+          sel.addEventListener('change', function(e) {
+            currentGroupId = e.target.value;
+            renderAll();
+          });
+        }
+        
+        // 初期描画用
+        var initialVal = sel ? sel.value : null;
+        if (initialVal) {
+          currentGroupId = initialVal;
           renderAll();
         }
         if (typeof TomSelect !== 'undefined') {
@@ -215,9 +291,12 @@ export const GroupAdminPage = (props: Props) => {
       });
 
       window.switchGroup = function() {
+        // (TomSelectのonChangeに委譲したため、HTMLのonchange属性から呼ばれる場合のフォールバック)
         var sel = document.getElementById('group-select');
-        currentGroupId = sel ? sel.value : '';
-        renderAll();
+        if(sel) {
+           currentGroupId = sel.value;
+           renderAll();
+        }
       };
 
       window.switchTab = function(tab) {
@@ -225,7 +304,13 @@ export const GroupAdminPage = (props: Props) => {
         ['members', 'assignments', 'access'].forEach(function(t) {
           var btn = document.getElementById('tab-btn-' + t);
           var pane = document.getElementById('tab-' + t);
-          if (btn) btn.className = btn.className.replace(' active', '') + (t === tab ? ' active' : '');
+          if (btn) {
+            if (t === tab) {
+              btn.classList.add('active');
+            } else {
+              btn.classList.remove('active');
+            }
+          }
           if (pane) pane.style.display = t === tab ? '' : 'none';
         });
       };
@@ -403,9 +488,11 @@ export const GroupAdminPage = (props: Props) => {
       ${groups.length > 1 ? html`
         <div style="margin-bottom:1.5rem; display:flex; align-items:center; gap:0.75rem;">
           <span class="material-symbols-outlined" style="color:var(--primary);">group</span>
-          <select id="group-select" class="${groupSelect}" onchange="switchGroup()" style="margin-bottom:0;">
-            ${groups.map(g => html`<option value="${g.id}">${g.name}</option>`)}
-          </select>
+          <div class="${groupSelectWrapper}">
+            <select id="group-select" style="display:none;">
+              ${groups.map(g => html`<option value="${g.id}" data-depth="${(g as any).depth || 0}" data-origname="${(g as any).original_name || g.name}">${g.name}</option>`)}
+            </select>
+          </div>
         </div>
       ` : html`
         <div style="margin-bottom:1.5rem; display:flex; align-items:center; gap:0.75rem;">

@@ -190,8 +190,8 @@ export const Layout = (props: LayoutProps) => {
         button:active { transform: translateY(0); }
         button.contrast, button.secondary, button.outline { background: transparent !important; border: 1px solid #cbd5e1; color: var(--text-sub); box-shadow: none; }
         button.contrast:hover, button.secondary:hover, button.outline:hover { background: rgba(255, 255, 255, 0.5) !important; color: var(--primary); border-color: var(--primary); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-        input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; padding: 0.8rem 1rem; margin-bottom: 0; border: 1px solid #cbd5e1 !important; background: rgba(255, 255, 255, 0.9) !important; border-radius: 12px !important; font-size: 1rem; color: var(--text-main); transition: all 0.3s ease; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
-        input:not([type="checkbox"]):not([type="radio"]):focus, select:focus { background: #fff !important; border-color: var(--primary) !important; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1) !important; outline: none; }
+        input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; padding: 0.8rem 1rem; margin-bottom: 0; border: 1px solid #cbd5e1 !important; background-color: rgba(255, 255, 255, 0.9) !important; border-radius: 12px !important; font-size: 1rem; color: var(--text-main); transition: all 0.3s ease; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+        input:not([type="checkbox"]):not([type="radio"]):focus, select:focus { background-color: #fff !important; border-color: var(--primary) !important; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1) !important; outline: none; }
         table { border-collapse: separate; border-spacing: 0 0.5rem; }
         th { border-bottom: none; color: var(--text-sub); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.5rem 1rem; }
         td { background: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.5); border-bottom: 1px solid rgba(255,255,255,0.5); padding: 1rem; vertical-align: middle; }

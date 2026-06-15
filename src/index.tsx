@@ -293,13 +293,36 @@ app.get('/group-admin', async (c) => {
     const now = Math.floor(Date.now() / 1000)
 
     // 自分が group_admin として所属している有効なグループ一覧
-    const { results: managedGroups } = await c.env.DB.prepare(`
+    const { results: managedGroupsRaw } = await c.env.DB.prepare(`
         SELECT g.*, (SELECT COUNT(*) FROM group_memberships m2 WHERE m2.group_id = g.id AND m2.valid_from <= ? AND m2.valid_to >= ?) AS member_count
         FROM groups g
         JOIN group_memberships m ON m.group_id = g.id
         WHERE m.user_id = ? AND m.role = 'group_admin' AND m.valid_from <= ? AND m.valid_to >= ?
-        ORDER BY g.name
     `).bind(now, now, user.id, now, now).all()
+
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, name, parent_id FROM groups').all()
+    const groupMap = new Map((allGroups as any[]).map(g => [g.id, g]))
+
+    const managedGroups = (managedGroupsRaw as any[]).map((g: any) => {
+        const parts = [g.name]
+        let current = g
+        const visited = new Set([current.id])
+        let depth = 0
+        while (current.parent_id && groupMap.has(current.parent_id)) {
+            current = groupMap.get(current.parent_id)
+            if (visited.has(current.id)) break
+            visited.add(current.id)
+            parts.unshift(current.name)
+            depth++
+        }
+        return {
+            ...g,
+            original_name: g.name,
+            full_name: parts.join(' > '),
+            depth: depth,
+            name: parts.join(' > ')
+        }
+    }).sort((a, b) => a.full_name.localeCompare(b.full_name, 'ja'))
 
     if (!managedGroups || managedGroups.length === 0) {
         const allUsers: any[] = []

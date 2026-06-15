@@ -53,6 +53,8 @@ export const AccountGroupsPage = (props: Props) => {
         var i18nEl = document.getElementById('i18n-data');
         var i18n = i18nEl ? i18nEl.dataset : {};
         var tsControl = null;
+        var tsControlParentNew = null;
+        var tsControlParentEdit = null;
         var currentGroupId = '';
         var currentMembers = [];
 
@@ -71,6 +73,32 @@ export const AccountGroupsPage = (props: Props) => {
                         }
                     }
                 });
+                
+                var newParentEl = document.getElementById('new-group-parent');
+                if (newParentEl) {
+                    tsControlParentNew = new TomSelect('#new-group-parent', {
+                        create: false,
+                        sortField: { field: '$order' },
+                        placeholder: i18n.placeholderSearch || '検索...',
+                        allowEmptyOption: true
+                    });
+                }
+                var editParentEl = document.getElementById('m-parent');
+                if (editParentEl) {
+                    tsControlParentEdit = new TomSelect('#m-parent', {
+                        create: false,
+                        sortField: { field: '$order' },
+                        placeholder: i18n.placeholderSearch || '検索...',
+                        allowEmptyOption: true
+                    });
+                }
+                var editRoleEl = document.getElementById('m-role');
+                if (editRoleEl) {
+                    new TomSelect('#m-role', {
+                        create: false,
+                        controlInput: null, // 検索入力なし
+                    });
+                }
             }
         });
 
@@ -86,7 +114,12 @@ export const AccountGroupsPage = (props: Props) => {
                     var opt = parentSel.options[i];
                     opt.disabled = (opt.value === id);
                 }
-                parentSel.value = parentId || '';
+                if (tsControlParentEdit) {
+                    tsControlParentEdit.sync();
+                    tsControlParentEdit.setValue(parentId || '');
+                } else {
+                    parentSel.value = parentId || '';
+                }
             }
             if(gModal) {
                 gModal.showModal();
@@ -102,8 +135,7 @@ export const AccountGroupsPage = (props: Props) => {
         window.closeGroupModal = function() { if(gModal) gModal.close(); window.resetAddButton(); };
 
         window.saveParent = function() {
-            var sel = document.getElementById('m-parent');
-            var pid = sel ? sel.value : '';
+            var pid = tsControlParentEdit ? tsControlParentEdit.getValue() : (document.getElementById('m-parent') ? document.getElementById('m-parent').value : '');
             fetch('/admin/am/groups/parent', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: currentGroupId, parent_id: pid }) })
             .then(function(r) { if(!r.ok) { return r.json().catch(function(){return {};}).then(function(e){ throw new Error(e.error || 'err'); }); } return r.json(); })
             .then(function() { window.location.reload(); })
@@ -342,6 +374,73 @@ export const AccountGroupsPage = (props: Props) => {
     width: 100%; padding: 0.8rem 1rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; color: #334155; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     &:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
   `
+  const tomSelectWrapper = css`
+    & .ts-wrapper {
+        width: 100%;
+    }
+    & .ts-control {
+      font-size: 1rem !important;
+      color: var(--text-main) !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 8px !important;
+      background: #ffffff !important;
+      padding: 0.6rem 0.8rem !important;
+      cursor: text !important;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+      min-height: 42px !important;
+      display: flex !important;
+      align-items: center !important;
+      flex-wrap: wrap !important;
+      gap: 4px !important;
+      line-height: 1.5 !important;
+    }
+    &.searchable .ts-control::before {
+      content: '\\e8b6'; /* Material Symbol search */
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-size: 20px;
+      color: #94a3b8;
+      margin-right: 4px;
+    }
+    & .ts-control > input {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: auto !important;
+      flex: 1 1 auto !important;
+      min-width: 2rem !important;
+      display: inline-block !important;
+      height: auto !important;
+      line-height: inherit !important;
+    }
+    & .ts-wrapper.single .ts-control > .item {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      display: inline-block !important;
+    }
+    & .ts-wrapper.focus .ts-control {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1) !important;
+    }
+    & .ts-dropdown {
+      border-radius: 8px !important;
+      border: 1px solid #e2e8f0 !important;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important;
+      font-size: 0.95rem !important;
+    }
+    & .ts-dropdown .option {
+      padding: 0.5rem 0.8rem !important;
+    }
+    & .ts-dropdown .option.active {
+      background-color: #f1f5f9 !important;
+      color: var(--primary) !important;
+    }
+  `
   const quickBtnGroup = css`display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-top: 0.75rem;`
 
   return Layout({
@@ -377,10 +476,12 @@ export const AccountGroupsPage = (props: Props) => {
                         </label>
                         <label style="width:100%;">
                           <span class="${formLabel}">${t.am_label_parent}</span>
-                          <select name="parent_id">
-                            <option value="">${t.am_parent_none}</option>
-                            ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
-                          </select>
+                          <div class="${tomSelectWrapper} searchable">
+                            <select id="new-group-parent" name="parent_id">
+                              <option value="">${t.am_parent_none}</option>
+                              ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+                            </select>
+                          </div>
                         </label>
                         <div style="margin-top:1rem;">
                             ${Button({ type: "submit", children: t.am_btn_add_group })}
@@ -427,11 +528,13 @@ export const AccountGroupsPage = (props: Props) => {
             children: html`
                  <div style="margin-bottom: 2rem;">
                     <label class="${formLabel}">${t.am_label_parent}</label>
-                    <div style="display:flex; gap:0.5rem; align-items:stretch;">
-                        <select id="m-parent" style="flex-grow:1; margin-bottom:0;">
-                            <option value="">${t.am_parent_none}</option>
-                            ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
-                        </select>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <div class="${tomSelectWrapper} searchable" style="flex-grow:1;">
+                            <select id="m-parent" style="margin-bottom:0; display:none;">
+                                <option value="">${t.am_parent_none}</option>
+                                ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+                            </select>
+                        </div>
                         ${Button({ onclick: "saveParent()", style: "width:auto; white-space:nowrap; flex-shrink:0;", children: t.save })}
                     </div>
                  </div>
@@ -448,10 +551,12 @@ export const AccountGroupsPage = (props: Props) => {
 
                     <div style="margin-bottom: 1.5rem;">
                        <label class="${formLabel}">${t.am_label_role}</label>
-                       <select id="m-role">
-                          <option value="member">${t.am_role_member}</option>
-                          <option value="group_admin">${t.am_role_group_admin}</option>
-                       </select>
+                       <div class="${tomSelectWrapper}">
+                         <select id="m-role">
+                            <option value="member">${t.am_role_member}</option>
+                            <option value="group_admin">${t.am_role_group_admin}</option>
+                         </select>
+                       </div>
                     </div>
 
                     <div style="display:grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
