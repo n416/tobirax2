@@ -558,9 +558,46 @@ export const GroupAdminPage = (props: Props) => {
       }
 
       function renderAssignments() {
+        var summaryEl = document.getElementById('assigns-summary');
+        var list = assignsByGroup && currentGroupId ? (assignsByGroup[currentGroupId] || []) : [];
+        var grants = grantsDetailByGroup && currentGroupId ? (grantsDetailByGroup[currentGroupId] || []) : [];
+
+        if (summaryEl) {
+          if (grants.length === 0) {
+            summaryEl.innerHTML = '';
+            summaryEl.style.display = 'none';
+          } else {
+            summaryEl.style.display = 'grid';
+            var htmlStr = '';
+            grants.forEach(function(g) {
+              var usedUsers = {};
+              list.forEach(function(a) {
+                if (a.service_id === g.service_id) {
+                  usedUsers[a.user_id] = true;
+                }
+              });
+              var usedCount = Object.keys(usedUsers).length;
+              var limitStr = (g.seat_limit == null) ? '無制限' : g.seat_limit;
+              var isFull = (g.seat_limit != null && usedCount >= g.seat_limit);
+              var remainingStr = (g.seat_limit == null) ? '上限なし' : ('残り ' + (g.seat_limit - usedCount) + ' 枠');
+              var barPercent = (g.seat_limit == null || g.seat_limit === 0) ? 0 : Math.min(100, Math.round((usedCount / g.seat_limit) * 100));
+              var barColor = isFull ? '#ef4444' : '#10b981';
+              htmlStr += '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
+                + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.5rem; display:flex; justify-content:space-between;">'
+                + '<span>' + g.service_name + '</span><span style="color:' + (isFull ? '#ef4444' : '#64748b') + ';">' + remainingStr + '</span>'
+                + '</div>'
+                + '<div style="font-size:1.25rem; font-weight:800; color:#0f172a; margin-bottom:0.5rem;">' + usedCount + ' <span style="font-size:0.85rem; font-weight:500; color:#64748b;">/ ' + limitStr + ' 消費</span></div>'
+                + '<div style="width:100%; background:#f1f5f9; border-radius:999px; height:6px; overflow:hidden;">'
+                + '<div style="height:100%; background:' + barColor + '; width:' + barPercent + '%;"></div>'
+                + '</div>'
+                + '</div>';
+            });
+            summaryEl.innerHTML = htmlStr;
+          }
+        }
+
         var el = document.getElementById('assigns-table-body');
         if (!el) return;
-        var list = assignsByGroup && currentGroupId ? (assignsByGroup[currentGroupId] || []) : [];
         if (list.length === 0) {
           el.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noAssignments || '割当がありません') + '</td></tr>';
           return;
@@ -751,9 +788,32 @@ export const GroupAdminPage = (props: Props) => {
 
       // ===== ゲート② 利用枠の開放/取消(委任) =====
       function renderGrants() {
+        var summaryEl = document.getElementById('grants-summary');
+        var list = grantsDetailByGroup && currentGroupId ? (grantsDetailByGroup[currentGroupId] || []) : [];
+        if (summaryEl) {
+          var avail = availableContracts || [];
+          var openedContractIds = {};
+          list.forEach(function(g) { if(g.contract_id) openedContractIds[g.contract_id] = true; });
+          var totalCount = avail.length;
+          var openedCount = 0;
+          avail.forEach(function(c) { if (openedContractIds[c.id]) openedCount++; });
+          var unopenedCount = totalCount - openedCount;
+          summaryEl.innerHTML = '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:200px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
+            + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.25rem;">配備済みの契約数</div>'
+            + '<div style="font-size:1.5rem; font-weight:800; color:#0f172a;">' + totalCount + ' <span style="font-size:0.9rem; font-weight:500; color:#64748b;">件</span></div>'
+            + '</div>'
+            + '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:200px; box-shadow:0 1px 2px rgba(0,0,0,0.05); border-left:4px solid #10b981;">'
+            + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.25rem;">開放済み（利用可能）</div>'
+            + '<div style="font-size:1.5rem; font-weight:800; color:#10b981;">' + openedCount + ' <span style="font-size:0.9rem; font-weight:500; color:#64748b;">件</span></div>'
+            + '</div>'
+            + '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:200px; box-shadow:0 1px 2px rgba(0,0,0,0.05); ' + (unopenedCount > 0 ? 'border-left:4px solid #f59e0b;' : '') + '">'
+            + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.25rem;">未開放（アクション待ち）</div>'
+            + '<div style="font-size:1.5rem; font-weight:800; color:' + (unopenedCount > 0 ? '#f59e0b' : '#0f172a') + ';">' + unopenedCount + ' <span style="font-size:0.9rem; font-weight:500; color:#64748b;">件</span></div>'
+            + '</div>';
+        }
+
         var el = document.getElementById('grants-table-body');
         if (!el) return;
-        var list = grantsDetailByGroup && currentGroupId ? (grantsDetailByGroup[currentGroupId] || []) : [];
         if (list.length === 0) {
           el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noGrants || '利用枠がありません') + '</td></tr>';
           return;
@@ -1105,6 +1165,7 @@ export const GroupAdminPage = (props: Props) => {
         <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
           ${Button({ onclick: "openAssignModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">assignment_add</span> ${t.ga_add_assignment}` })}
         </div>
+        <div id="assigns-summary" style="margin-bottom:1rem; display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:1rem;"></div>
         <div class="${card}">
           <div class="${tableWrap}">
             <table>
@@ -1134,6 +1195,7 @@ export const GroupAdminPage = (props: Props) => {
         <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
           ${Button({ onclick: "openGrantModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
         </div>
+        <div id="grants-summary" style="margin-bottom:1rem; display:flex; gap:1rem; flex-wrap:wrap;"></div>
         <div class="${card}">
           <div class="${tableWrap}">
             <table>
@@ -1462,10 +1524,8 @@ export const GroupAdminPage = (props: Props) => {
               <label class="${formLabel}">${t.ga_grant_contract}</label>
               <select id="g-contract" class="${selectInput}"></select>
             </div>
-            <div>
-              <label class="${formLabel}">${t.ga_grant_seat}</label>
-              <input type="number" id="g-seat" min="0" class="${dateInput}" placeholder="${t.am_placeholder_seat}" />
-            </div>
+            <!-- 席数上限は裏側で常に空欄(無制限)として送信する -->
+            <input type="hidden" id="g-seat" value="" />
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
               <div>
                 <label class="${formLabel}">${t.label_valid_from}</label>
