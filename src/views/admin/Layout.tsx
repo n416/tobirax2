@@ -28,6 +28,7 @@ export const Layout = (props: LayoutProps) => {
             { id: 'am-grants', label: t.am_section_grants, href: '/admin/am/grants' },
             { id: 'am-facilities', label: t.am_section_facilities, href: '/admin/am/facilities' },
             { id: 'am-assignments', label: t.am_section_assignments, href: '/admin/am/assignments' },
+            { id: 'developers', label: t.am_dev_header || '開発者申請', href: '/admin/am/developers' },
         ] },
         { label: t.nav_section_idp, items: [
             { id: 'apps', label: t.nav_apps, href: '/admin/apps' },

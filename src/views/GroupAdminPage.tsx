@@ -68,6 +68,7 @@ interface Props {
   appsByGroup: Record<string, { id: string; name: string; base_url: string; status: string }[]>
   // サービスに組み込める = 自グループの承認済み(active)アプリ
   approvedAppsByGroup: Record<string, { id: string; name: string }[]>
+  devStatuses?: Record<string, { status: string; reason: string | null }>
   apps: App[]
 }
 
@@ -94,6 +95,7 @@ export const GroupAdminPage = (props: Props) => {
   const servicesByGroupJson = JSON.stringify(props.servicesByGroup)
   const appsByGroupJson = JSON.stringify(props.appsByGroup)
   const approvedAppsByGroupJson = JSON.stringify(props.approvedAppsByGroup)
+  const devStatusesJson = JSON.stringify(props.devStatuses || {})
 
   const sectionTitle = css`
     font-size: 1.05rem;
@@ -377,7 +379,119 @@ export const GroupAdminPage = (props: Props) => {
         renderPerms();
         renderServices();
         renderApps();
+        if (typeof renderDeveloperUI === 'function') renderDeveloperUI();
       }
+
+      var pendingConfirmCallback = null;
+      window.showConfirm = function(message, callback) {
+        var modal = document.getElementById('custom-confirm-modal');
+        var msgEl = document.getElementById('custom-confirm-message');
+        var execBtn = document.getElementById('custom-confirm-execute-btn');
+        if (modal && msgEl && execBtn) {
+          msgEl.innerText = message;
+          pendingConfirmCallback = callback;
+          execBtn.onclick = function() {
+            closeConfirmModal();
+            if (pendingConfirmCallback) pendingConfirmCallback();
+          };
+          modal.showModal();
+        }
+      };
+      window.closeConfirmModal = function() {
+        var modal = document.getElementById('custom-confirm-modal');
+        if (modal) modal.close();
+        pendingConfirmCallback = null;
+      };
+
+      var devStatuses = null;
+      window.renderDeveloperUI = function() {
+        var dsd = document.getElementById('ga-dev-status-data');
+        if (!devStatuses && dsd) devStatuses = JSON.parse(dsd.textContent);
+        
+        var ds = devStatuses && currentGroupId ? devStatuses[currentGroupId] : null;
+        var status = ds ? ds.status : 'none';
+        var noDev = document.getElementById('dev-not-approved');
+        var devUi = document.getElementById('dev-approved');
+        var pendingUi = document.getElementById('dev-pending');
+
+        if (status === 'approved') {
+          if(noDev) noDev.style.display = 'none';
+          if(pendingUi) pendingUi.style.display = 'none';
+          if(devUi) devUi.style.display = 'block';
+        } else if (status === 'pending') {
+          if(noDev) noDev.style.display = 'none';
+          if(pendingUi) pendingUi.style.display = 'block';
+          if(devUi) devUi.style.display = 'none';
+        } else {
+          if(noDev) noDev.style.display = 'block';
+          if(pendingUi) pendingUi.style.display = 'none';
+          if(devUi) devUi.style.display = 'none';
+          var rejectMsg = document.getElementById('dev-rejected-msg');
+          if (rejectMsg) rejectMsg.style.display = status === 'rejected' ? 'flex' : 'none';
+        }
+      };
+
+      window.applyDeveloper = function() {
+        var reason = (document.getElementById('dev-apply-reason') || {}).value;
+        if (!reason || !reason.trim()) { console.error('申請理由を入力してください'); return; }
+        fetch('/group-admin/api/developer/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ group_id: currentGroupId, reason: reason.trim() })
+        }).then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){ window.location.reload(); })
+          .catch(function(e){ console.error('Error: ' + e.message); });
+      };
+
+      var currentManageRolesServiceId = null;
+      window.manageRoles = function(serviceId, serviceNameEnc) {
+        currentManageRolesServiceId = serviceId;
+        var m = document.getElementById('manage-roles-modal');
+        var titleEl = document.getElementById('mr-service-name');
+        if (titleEl) titleEl.innerText = decodeURIComponent(serviceNameEnc);
+        
+        var roleListEl = document.getElementById('mr-role-list');
+        var roles = (rolesByService && rolesByService[serviceId]) ? rolesByService[serviceId] : [];
+        if (roles.length === 0) {
+          roleListEl.innerHTML = '<div style="color:#94a3b8; font-size:0.9rem;">登録されている役割はありません。</div>';
+        } else {
+          roleListEl.innerHTML = roles.map(function(r) {
+            return '<div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem; border-bottom:1px solid #f1f5f9;">'
+                 + '<div><strong>' + r.role_name + '</strong> <span style="color:#64748b; font-size:0.8rem;">[' + r.role_code + ']</span>'
+                 + (r.facility_type ? ' <span style="font-size:0.75rem; color:#0f172a; background:#e2e8f0; padding:2px 6px; border-radius:4px;">' + r.facility_type + '</span>' : '')
+                 + '</div>'
+                 + '<button type="button" onclick="removeRole(' + r.id + ')" class="material-symbols-outlined" style="color:#ef4444; background:none; border:none; cursor:pointer; font-size:18px;">delete</button>'
+                 + '</div>';
+          }).join('');
+        }
+        ['mr-role-name','mr-role-code'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
+        var facEl = document.getElementById('mr-facility-type');
+        if(facEl) facEl.value = '';
+        if (m) m.showModal();
+      };
+      
+      window.addRole = function() {
+        var rn = document.getElementById('mr-role-name').value;
+        var rc = document.getElementById('mr-role-code').value;
+        var ft = (document.getElementById('mr-facility-type') || {}).value;
+        if (!rn || !rc) { console.error('役割名とロールコードは必須です'); return; }
+        fetch('/group-admin/api/roles/add', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ service_id: currentManageRolesServiceId, role_name: rn.trim(), role_code: rc.trim(), facility_type: ft || null })
+        }).then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){ window.location.reload(); })
+          .catch(function(e){ console.error('Error: ' + e.message); });
+      };
+
+      window.removeRole = function(id) {
+        showConfirm('この役割を削除しますか？', function() {
+          fetch('/group-admin/api/roles/remove', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id })
+          }).then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+            .then(function(){ window.location.reload(); })
+            .catch(function(e){ console.error('Error: ' + e.message); });
+        });
+      };
 
       function fmt(ts) {
         if (!ts) return '—';
@@ -453,9 +567,12 @@ export const GroupAdminPage = (props: Props) => {
 
       var removeTargetId = null;
       window.removeMember = function(mid) {
-        removeTargetId = mid;
-        var m = document.getElementById('remove-confirm-modal');
-        if (m) m.showModal();
+        showConfirm(window.i18n.amConfirmRemove || 'このメンバーを削除しますか？', function() {
+          fetch('/group-admin/api/member/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
+            .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+            .then(function(){ window.location.reload(); })
+            .catch(function(e){ console.error('Error: ' + e.message); });
+        });
       };
       window.closeRemoveModal = function() {
         var m = document.getElementById('remove-confirm-modal');
@@ -475,14 +592,14 @@ export const GroupAdminPage = (props: Props) => {
             removeTargetId = null;
             renderMembers();
           })
-          .catch(function(e) { alert('Error: ' + e.message); });
+          .catch(function(e) { console.error('Error: ' + e.message); });
       };
 
       window.addMember = function() {
         var userIds = window.tsCtrl ? window.tsCtrl.getValue() : [];
         if (!Array.isArray(userIds)) userIds = [userIds];
         userIds = userIds.filter(function(id) { return id; });
-        if (!userIds.length) { alert('ユーザーを選択してください'); return; }
+        if (!userIds.length) { console.error('ユーザーを選択してください'); return; }
         var role = document.getElementById('m-role').value || 'member';
         var startVal = document.getElementById('m-valid-from').value;
         var endVal = document.getElementById('m-valid-to').value;
@@ -494,7 +611,7 @@ export const GroupAdminPage = (props: Props) => {
         })
         .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
         .then(function() { window.location.reload(); })
-        .catch(function(e) { alert('Error: ' + e.message); });
+        .catch(function(e) { console.error('Error: ' + e.message); });
       };
 
       window.openAddModal = function() {
@@ -555,7 +672,7 @@ export const GroupAdminPage = (props: Props) => {
         var roleId = (document.getElementById('a-role') || {}).value;
         var sv = document.getElementById('a-valid-from').value;
         var ev = document.getElementById('a-valid-to').value;
-        if (!userId || !serviceId || !facilityId || !roleId) { alert(window.i18n.selectAll || '全項目を選択してください'); return; }
+        if (!userId || !serviceId || !facilityId || !roleId) { console.error(window.i18n.selectAll || '全項目を選択してください'); return; }
         var validFrom = sv ? Math.floor(new Date(sv).getTime()/1000) : Math.floor(Date.now()/1000);
         var validTo = ev ? Math.floor(new Date(ev).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
         fetch('/group-admin/api/assignment/add', {
@@ -565,9 +682,9 @@ export const GroupAdminPage = (props: Props) => {
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })
         .catch(function(e){
-          if (e.message === 'no_grant') alert(window.i18n.errNoGrant || '利用枠がありません');
-          else if (e.message === 'seat') alert(window.i18n.errSeat || '席数上限に達しています');
-          else alert('Error: ' + e.message);
+          if (e.message === 'no_grant') console.error(window.i18n.errNoGrant || '利用枠がありません');
+          else if (e.message === 'seat') console.error(window.i18n.errSeat || '席数上限に達しています');
+          else console.error('Error: ' + e.message);
         });
       };
 
@@ -593,7 +710,7 @@ export const GroupAdminPage = (props: Props) => {
             window.closeRemoveAssignModal();
             renderAssignments();
           })
-          .catch(function(e){ alert('Error: ' + e.message); });
+          .catch(function(e){ console.error('Error: ' + e.message); });
       };
 
       // ===== ゲート② 利用枠の開放/取消(委任) =====
@@ -633,7 +750,7 @@ export const GroupAdminPage = (props: Props) => {
         var seatVal = (document.getElementById('g-seat') || {}).value;
         var sv = document.getElementById('g-valid-from').value;
         var ev = document.getElementById('g-valid-to').value;
-        if (!contractId) { alert(window.i18n.selectContract || '契約を選択してください'); return; }
+        if (!contractId) { console.error(window.i18n.selectContract || '契約を選択してください'); return; }
         var validFrom = sv ? Math.floor(new Date(sv).getTime()/1000) : Math.floor(Date.now()/1000);
         var validTo = ev ? Math.floor(new Date(ev).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
         fetch('/group-admin/api/grant/add', {
@@ -642,7 +759,7 @@ export const GroupAdminPage = (props: Props) => {
         })
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })
-        .catch(function(e){ alert('Error: ' + e.message); });
+        .catch(function(e){ console.error('Error: ' + e.message); });
       };
 
       var removeGrantTargetId = null;
@@ -667,7 +784,7 @@ export const GroupAdminPage = (props: Props) => {
             window.closeRemoveGrantModal();
             renderGrants();
           })
-          .catch(function(e){ alert('Error: ' + e.message); });
+          .catch(function(e){ console.error('Error: ' + e.message); });
       };
 
       function statusBadge(st) {
@@ -682,7 +799,7 @@ export const GroupAdminPage = (props: Props) => {
       }
 
       // ===== セルフサービス: 自グループのサービス(=承認済みアプリの束ね) =====
-      function renderServices() {
+            function renderServices() {
         var el = document.getElementById('services-table-body');
         if (!el) return;
         var list = servicesByGroup && currentGroupId ? (servicesByGroup[currentGroupId] || []) : [];
@@ -698,12 +815,14 @@ export const GroupAdminPage = (props: Props) => {
           }).join('') : '<span style="color:#cbd5e1;">—</span>';
           var encS = encodeURIComponent(JSON.stringify(s));
           return '<tr>'
-            + '<td><strong>' + s.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + s.id + '</div></td>'
-            + '<td>' + statusBadge(s.status) + '</td>'
-            + '<td style="font-size:0.85rem;">' + chips + '</td>'
-            + '<td style="text-align:right; white-space:nowrap;">'
-            +   (s.status !== 'active' ? '<button type="button" title="' + (window.i18n.svcManageApps || 'アプリを組み込む') + '" onclick="openServiceAppsModal(\\'' + encS + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#f1f5f9\\';this.style.color=\\'#4f46e5\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">link</span></button>' : '')
-            +   (s.status !== 'active' ? '<button type="button" title="削除" onclick="removeService(\\'' + s.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '')
+            + '<td><strong>' + s.name + '</strong>'
+            +   '<div style="font-size:0.75rem; color:#64748b; font-family:monospace; margin-top:2px;">' + s.id + '</div>'
+            +   '<div style="margin-top:0.4rem;">' + chips + '</div>'
+            + '</td>'
+            + '<td style="text-align:right;">'
+            +   (s.status !== 'active' ? '<button type="button" onclick="manageServiceApps(\\'' + s.id + '\\', \\'' + encodeURIComponent(s.name) + '\\')" style="background:transparent;border:1px solid #cbd5e1;color:#4f46e5;cursor:pointer;padding:0.4rem 0.75rem;border-radius:6px;font-size:0.8rem;font-weight:600;margin-right:0.5rem;transition:all 0.2s;" onmouseover="this.style.background=\\'#eef2ff\\';this.style.borderColor=\\'#a5b4fc\\';"><span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;margin-right:2px;">settings_applications</span>' + (window.i18n.svcManageApps || 'アプリを組み込む') + '</button>' : '')
+            +   '<button type="button" onclick="manageRoles(\\'' + s.id + '\\', \\'' + encodeURIComponent(s.name) + '\\')" style="background:transparent;border:1px solid #cbd5e1;color:#047857;cursor:pointer;padding:0.4rem 0.75rem;border-radius:6px;font-size:0.8rem;font-weight:600;margin-right:0.5rem;transition:all 0.2s;" onmouseover="this.style.background=\\'#d1fae5\\';this.style.borderColor=\\'#6ee7b7\\';"><span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;margin-right:2px;">manage_accounts</span>役割(ロール)を管理</button>'
+            +   (s.status !== 'active' ? '<button type="button" title="削除" onclick="removeService(\\'' + s.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;transition:all 0.2s;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '')
             + '</td>'
             + '</tr>';
         }).join('');
@@ -717,21 +836,22 @@ export const GroupAdminPage = (props: Props) => {
       };
       window.addService = function() {
         var name = (document.getElementById('s-name') || {}).value;
-        if (!name || !name.trim()) { alert(window.i18n.svcName || 'name'); return; }
+        if (!name || !name.trim()) { console.error(window.i18n.svcName || 'name'); return; }
         fetch('/group-admin/api/service/create', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ group_id: currentGroupId, name: name.trim() })
         })
         .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
         .then(function(){ window.location.reload(); })
-        .catch(function(e){ alert('Error: ' + e.message); });
+        .catch(function(e){ console.error('Error: ' + e.message); });
       };
       window.removeService = function(id) {
-        if (!confirm(window.i18n.svcConfirmRemove || 'Delete?')) return;
-        fetch('/group-admin/api/service/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
-          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
-          .then(function(){ window.location.reload(); })
-          .catch(function(e){ alert('Error: ' + e.message); });
+        showConfirm(window.i18n.svcConfirmRemove || 'このサービスを削除しますか？', function() {
+          fetch('/group-admin/api/service/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
+            .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+            .then(function(){ window.location.reload(); })
+            .catch(function(e){ console.error('Error: ' + e.message); });
+        });
       };
 
       // サービス構成: 承認済みアプリを組み込む/外す。
@@ -761,7 +881,7 @@ export const GroupAdminPage = (props: Props) => {
       window.addServiceApp = function() {
         var serviceId = (document.getElementById('sa-service-id')||{}).value;
         var appId = (document.getElementById('sa-app')||{}).value;
-        if (!appId) { alert(window.i18n.svcSelectApp || '承認済みアプリを選択'); return; }
+        if (!appId) { console.error(window.i18n.svcSelectApp || '承認済みアプリを選択'); return; }
         fetch('/group-admin/api/service/app/add', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ service_id: serviceId, app_id: appId })
@@ -769,19 +889,20 @@ export const GroupAdminPage = (props: Props) => {
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })
         .catch(function(e){
-          if (e.message === 'app_not_approved') alert(window.i18n.appNotApproved || '承認済みのアプリのみ組み込めます');
-          else alert('Error: ' + e.message);
+          if (e.message === 'app_not_approved') console.error(window.i18n.appNotApproved || '承認済みのアプリのみ組み込めます');
+          else console.error('Error: ' + e.message);
         });
       };
       window.removeServiceApp = function(serviceId, appId) {
-        if (!confirm(window.i18n.svcConfirmRemoveApp || '本当にこのアプリをサービスから外しますか？')) return;
-        fetch('/group-admin/api/service/app/remove', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ service_id: serviceId, app_id: appId })
-        })
-        .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
-        .then(function(){ window.location.reload(); })
-        .catch(function(e){ alert('Error: ' + e.message); });
+        showConfirm(window.i18n.svcConfirmRemoveApp || '本当にこのアプリをサービスから外しますか？', function() {
+          fetch('/group-admin/api/service/app/remove', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ service_id: serviceId, app_id: appId })
+          })
+          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){ window.location.reload(); })
+          .catch(function(e){ console.error('Error: ' + e.message); });
+        });
       };
 
       // ===== セルフサービス: アプリ登録の申請(サービス紐づけは扱わない) =====
@@ -818,7 +939,7 @@ export const GroupAdminPage = (props: Props) => {
         var baseUrl = (document.getElementById('ap-base-url')||{}).value;
         var redirect = (document.getElementById('ap-redirect')||{}).value;
         var desc = (document.getElementById('ap-desc')||{}).value;
-        if (!id || !id.trim() || !name || !name.trim() || !baseUrl || !baseUrl.trim()) { alert(window.i18n.appFillRequired || 'ID/名前/URLは必須です'); return; }
+        if (!id || !id.trim() || !name || !name.trim() || !baseUrl || !baseUrl.trim()) { console.error(window.i18n.appFillRequired || 'ID/名前/URLは必須です'); return; }
         fetch('/group-admin/api/app/request', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ group_id: currentGroupId, id: id.trim(), name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect, description: desc })
@@ -826,8 +947,8 @@ export const GroupAdminPage = (props: Props) => {
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })
         .catch(function(e){
-          if (e.message === 'id_taken') alert(window.i18n.appIdTaken || 'そのアプリIDは既に使われています');
-          else alert('Error: ' + e.message);
+          if (e.message === 'id_taken') console.error(window.i18n.appIdTaken || 'そのアプリIDは既に使われています');
+          else console.error('Error: ' + e.message);
         });
       };
       window.openAppEditModal = function(enc) {
@@ -855,21 +976,22 @@ export const GroupAdminPage = (props: Props) => {
         var name = (document.getElementById('ape-name')||{}).value;
         var baseUrl = (document.getElementById('ape-base-url')||{}).value;
         var redirect = (document.getElementById('ape-redirect')||{}).value;
-        if (!name || !name.trim() || !baseUrl || !baseUrl.trim()) { alert(window.i18n.appFillRequired || '名前/URLは必須です'); return; }
+        if (!name || !name.trim() || !baseUrl || !baseUrl.trim()) { console.error(window.i18n.appFillRequired || '名前/URLは必須です'); return; }
         fetch('/group-admin/api/app/update', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ id: id, name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect })
         })
         .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
         .then(function(){ window.location.reload(); })
-        .catch(function(e){ alert('Error: ' + e.message); });
+        .catch(function(e){ console.error('Error: ' + e.message); });
       };
       window.removeApp = function(id) {
-        if (!confirm(window.i18n.appConfirmRemove || 'Delete?')) return;
-        fetch('/group-admin/api/app/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
-          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
-          .then(function(){ window.location.reload(); })
-          .catch(function(e){ alert('Error: ' + e.message); });
+        showConfirm(window.i18n.appConfirmRemove || 'このアプリを削除しますか？', function() {
+          fetch('/group-admin/api/app/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
+            .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+            .then(function(){ window.location.reload(); })
+            .catch(function(e){ console.error('Error: ' + e.message); });
+        });
       };
 
     })();
@@ -1083,6 +1205,32 @@ export const GroupAdminPage = (props: Props) => {
       </div>
 
       <!-- サービス作成モーダル -->
+      ${Modal({
+        id: "custom-confirm-modal",
+        title: "確認",
+        closeAction: "closeConfirmModal()",
+        children: html`
+          <div id="custom-confirm-message" style="margin-bottom: 1.5rem; font-size: 1rem; color: #334155; line-height: 1.5;"></div>
+          <div style="display: flex; justify-content: flex-end; gap: 1rem;">
+            <button type="button" onclick="closeConfirmModal()" style="padding: 0.6rem 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: transparent; cursor: pointer; color: #475569; font-weight: 600;">キャンセル</button>
+            <button type="button" id="custom-confirm-execute-btn" style="padding: 0.6rem 1.5rem; border: none; border-radius: 8px; background: #ef4444; color: white; cursor: pointer; font-weight: 600;">実行する</button>
+          </div>
+        `
+      })}
+
+      ${Modal({
+        id: "custom-confirm-modal",
+        title: "確認",
+        closeAction: "closeConfirmModal()",
+        children: html`
+          <div id="custom-confirm-message" style="margin-bottom: 1.5rem; font-size: 1rem; color: #334155; line-height: 1.5;"></div>
+          <div style="display: flex; justify-content: flex-end; gap: 1rem;">
+            <button type="button" onclick="closeConfirmModal()" style="padding: 0.6rem 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: transparent; cursor: pointer; color: #475569; font-weight: 600;">キャンセル</button>
+            <button type="button" id="custom-confirm-execute-btn" style="padding: 0.6rem 1.5rem; border: none; border-radius: 8px; background: #ef4444; color: white; cursor: pointer; font-weight: 600;">実行する</button>
+          </div>
+        `
+      })}
+
       ${Modal({
         id: 'add-service-modal',
         title: t.ga_svc_create,
@@ -1367,6 +1515,7 @@ export const GroupAdminPage = (props: Props) => {
       <script type="application/json" id="ga-services-data">${raw(servicesByGroupJson)}</script>
       <script type="application/json" id="ga-apps-data">${raw(appsByGroupJson)}</script>
       <script type="application/json" id="ga-approved-apps-data">${raw(approvedAppsByGroupJson)}</script>
+      <script type="application/json" id="ga-dev-status-data">${raw(devStatusesJson)}</script>
       <script>
         window.i18n = {
           noMembers: '${t.am_no_members}',

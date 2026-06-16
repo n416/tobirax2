@@ -36,15 +36,25 @@ CREATE TABLE groups (
 );
 
 -- 【グループ所属】誰が・どのグループに・どの役割で・いつからいつまで（多対多）。
-CREATE TABLE group_memberships (
+CREATE TABLE IF NOT EXISTS group_memberships (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    TEXT NOT NULL REFERENCES users(id),
     group_id   TEXT NOT NULL REFERENCES groups(id),
-    -- グループ内権限: 'group_admin'(グループ管理者) / 'member'
-    role       TEXT NOT NULL DEFAULT 'member',
+    role       TEXT NOT NULL DEFAULT 'member',   -- 'group_admin' / 'member'(グループの権限)
     valid_from INTEGER NOT NULL,
     valid_to   INTEGER NOT NULL,
     UNIQUE(user_id, group_id)
+);
+
+-- 【グループ開発者申請】グループ管琁E老EE開発者権限の申請状態(独立したライフサイクルを持つ)
+CREATE TABLE IF NOT EXISTS group_developer_applications (
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    group_id   TEXT NOT NULL REFERENCES groups(id),
+    status     TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+    reason     TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(user_id, group_id)
 );
 
 -- 【サービス提供企業】点検会社・清掃会社など。
