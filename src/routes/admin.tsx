@@ -9,8 +9,8 @@ import { LogsPage } from '../views/admin/LogsPage';
 import { AccountDevelopersPage } from '../views/admin/AccountDevelopersPage';
 import { AccountGroupsPage } from '../views/admin/AccountGroupsPage';
 import { AccountServicesPage } from '../views/admin/AccountServicesPage';
+import { AccountContractsPage } from '../views/admin/AccountContractsPage';
 import { AccountGrantsPage } from '../views/admin/AccountGrantsPage';
-import { AccountFacilitiesPage } from '../views/admin/AccountFacilitiesPage';
 import { AccountAssignmentsPage } from '../views/admin/AccountAssignmentsPage';
 import { Invite } from '../views/Invite';
 import { ForgotPassword } from '../views/ForgotPassword';
@@ -591,13 +591,6 @@ adminRouter.get('/admin/am/services', async (c) => {
         LEFT JOIN service_providers p ON s.provider_id = p.id
         LEFT JOIN groups g ON s.owner_group_id = g.id
         ORDER BY (s.status = 'pending') DESC, s.created_at DESC`).all()
-    const contracts = await c.env.DB.prepare(`
-        SELECT ct.*, s.name AS service_name, p.name AS provider_name, g.name AS group_name
-        FROM service_contracts ct
-        LEFT JOIN services s ON ct.service_id = s.id
-        LEFT JOIN service_providers p ON s.provider_id = p.id
-        LEFT JOIN groups g ON ct.customer_group_id = g.id
-        ORDER BY ct.valid_from DESC`).all()
     const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
     const allApps = await c.env.DB.prepare(`
         SELECT a.*, g.name AS group_name 
@@ -606,7 +599,29 @@ adminRouter.get('/admin/am/services', async (c) => {
         WHERE a.status = 'active' ORDER BY a.name
     `).all()
     return c.html(<AccountServicesPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        providers={providers.results as any} services={services.results as any} contracts={contracts.results as any} groups={groups.results as any} apps={allApps.results as any} />)
+        providers={providers.results as any} services={services.results as any} groups={groups.results as any} apps={allApps.results as any} />)
+})
+
+adminRouter.get('/admin/am/contracts', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const contracts = await c.env.DB.prepare(`
+        SELECT ct.*, s.name AS service_name, p.name AS provider_name, g.name AS group_name
+        FROM service_contracts ct
+        LEFT JOIN services s ON ct.service_id = s.id
+        LEFT JOIN service_providers p ON s.provider_id = p.id
+        LEFT JOIN groups g ON ct.customer_group_id = g.id
+        ORDER BY ct.valid_from DESC`).all()
+    const services = await c.env.DB.prepare(`
+        SELECT s.*, p.name AS provider_name 
+        FROM services s
+        LEFT JOIN service_providers p ON s.provider_id = p.id
+        ORDER BY s.name`).all()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+    return c.html(<AccountContractsPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
+        contracts={contracts.results as any} services={services.results as any} groups={groups.results as any} />)
 })
 
 adminRouter.post('/admin/api/service/app/add', async (c) => {
@@ -742,7 +757,7 @@ adminRouter.post('/admin/am/contracts', async (c) => {
             .bind(crypto.randomUUID(), serviceId, groupId, seatLimit, validFrom, validTo).run()
         await logAudit(c, 'CONTRACT_ADD', { key: 'log_contract_add', params: { service: serviceId, admin: user.email } })
     }
-    return c.redirect('/admin/am/services')
+    return c.redirect('/admin/am/contracts')
 })
 adminRouter.post('/admin/am/contracts/delete', async (c) => {
     const user = await getAdmin(c)
@@ -753,7 +768,7 @@ adminRouter.post('/admin/am/contracts/delete', async (c) => {
         c.env.DB.prepare('DELETE FROM service_contracts WHERE id = ?').bind(id),
     ])
     await logAudit(c, 'CONTRACT_DELETE', { key: 'log_contract_delete', params: { id, admin: user.email } })
-    return c.redirect('/admin/am/services')
+    return c.redirect('/admin/am/contracts')
 })
 
 // ============================================================
@@ -816,42 +831,39 @@ adminRouter.post('/admin/am/grants/delete', async (c) => {
 // ============================================================
 // アカウントマネージャ: 施設(建物)。管理グループ(支店)に紐づく。
 // ============================================================
-adminRouter.get('/admin/am/facilities', async (c) => {
-    const user = await getAdmin(c)
-    if (!user) return c.redirect('/login')
-    const config = await getSystemConfig(c.env.DB)
-    const siteName = getLocalizedValue(c, config.appName)
-    const facilities = await c.env.DB.prepare(`
-        SELECT f.*, g.name AS group_name FROM facilities f
-        LEFT JOIN groups g ON f.managing_group_id = g.id ORDER BY f.created_at DESC`).all()
-    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
-    return c.html(<AccountFacilitiesPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        facilities={facilities.results as any} groups={groups.results as any} />)
+adminRouter.get('/admin/api/am/group-facilities/:id', async (c) => {
+    if (!await getAdmin(c)) return c.json({ error: 'Unauthorized' }, 401)
+    const groupId = c.req.param('id')
+    const { results } = await c.env.DB.prepare(`
+        SELECT * FROM facilities WHERE managing_group_id = ? ORDER BY created_at DESC
+    `).bind(groupId).all()
+    return c.json({ facilities: results })
 })
-adminRouter.post('/admin/am/facilities', async (c) => {
+adminRouter.post('/admin/api/am/facility/add', async (c) => {
     const user = await getAdmin(c)
-    if (!user) return c.redirect('/login')
-    const body = await c.req.parseBody()
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
     const groupId = (body['managing_group_id'] as string) || ''
     const structureNo = ((body['structure_no'] as string) || '').trim() || null
     const buildingUse = ((body['building_use'] as string) || '').trim() || null
-    if (groupId) {
-        await c.env.DB.prepare('INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), structureNo, buildingUse, groupId, Math.floor(Date.now() / 1000)).run()
-        await logAudit(c, 'FACILITY_ADD', { key: 'log_facility_add', params: { structure_no: structureNo, admin: user.email } })
-    }
-    return c.redirect('/admin/am/facilities')
+    if (!groupId) return c.json({ error: 'managing_group_id required' }, 400)
+    await c.env.DB.prepare('INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), structureNo, buildingUse, groupId, Math.floor(Date.now() / 1000)).run()
+    await logAudit(c, 'FACILITY_ADD', { key: 'log_facility_add', params: { structure_no: structureNo, admin: user.email } })
+    return c.json({ success: true })
 })
-adminRouter.post('/admin/am/facilities/delete', async (c) => {
+adminRouter.post('/admin/api/am/facility/remove', async (c) => {
     const user = await getAdmin(c)
-    if (!user) return c.redirect('/login')
-    const id = (await c.req.parseBody())['id'] as string
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const id = body['id'] as string
+    if (!id) return c.json({ error: 'id required' }, 400)
     await c.env.DB.batch([
         c.env.DB.prepare('DELETE FROM service_user_assignments WHERE facility_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM facilities WHERE id = ?').bind(id),
     ])
     await logAudit(c, 'FACILITY_DELETE', { key: 'log_facility_delete', params: { id, admin: user.email } })
-    return c.redirect('/admin/am/facilities')
+    return c.json({ success: true })
 })
 
 // ============================================================

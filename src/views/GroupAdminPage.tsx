@@ -1223,9 +1223,9 @@ export const GroupAdminPage = (props: Props) => {
           <div class="${card}">
             <div class="${tableWrap}">
               <table>
-                <thead><tr><th>${t.ga_app_name}</th><th>${t.status}</th><th>${t.ga_app_bind}</th><th></th></tr></thead>
+                <thead><tr><th>${t.ga_app_name}</th><th>${t.status}</th><th></th></tr></thead>
                 <tbody id="apps-table-body">
-                  <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
+                  <tr><td colspan="3" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1289,11 +1289,7 @@ export const GroupAdminPage = (props: Props) => {
               <label class="${formLabel}">${t.ga_app_redirect}</label>
               <textarea id="ap-redirect" class="${dateInput}" style="min-height:64px; font-family:monospace; font-size:0.85rem;" placeholder="https://.../callback"></textarea>
             </div>
-            <div>
-              <label class="${formLabel}">${t.ga_app_bind}</label>
-              <select id="ap-service" class="${selectInput}"></select>
-              <div id="ap-no-service" style="display:none; margin-top:0.5rem;" class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_no_own_services}</div>
-            </div>
+
             <div class="${infoBox}"><span class="material-symbols-outlined">key</span>${t.ga_app_secret_note}</div>
             <div style="margin-top:0.25rem;">
               ${Button({ onclick: "addApp()", children: html`<span class="material-symbols-outlined">send</span> ${t.ga_app_request}` })}
@@ -1322,10 +1318,7 @@ export const GroupAdminPage = (props: Props) => {
               <label class="${formLabel}">${t.ga_app_redirect}</label>
               <textarea id="ape-redirect" class="${dateInput}" style="min-height:64px; font-family:monospace; font-size:0.85rem;" placeholder="(空欄なら変更なし)"></textarea>
             </div>
-            <div>
-              <label class="${formLabel}">${t.ga_app_bind}</label>
-              <select id="ape-service" class="${selectInput}"></select>
-            </div>
+
             <div style="margin-top:0.25rem;">
               <span id="ape-save-btn" style="display:flex;">
                 ${Button({ onclick: "updateApp()", children: html`<span class="material-symbols-outlined">save</span> ${t.save}` })}

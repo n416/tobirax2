@@ -18,7 +18,6 @@ interface Props {
   appConfig: SystemConfig
   providers: ServiceProvider[]
   services: (Service & { provider_name?: string; owner_group_name?: string | null; app_names?: string | null; app_ids?: string | null })[]
-  contracts: (ServiceContract & { service_name?: string; provider_name?: string; group_name?: string })[]
   groups: Group[]
   apps: App[]
 }
@@ -115,29 +114,6 @@ export const AccountServicesPage = (props: Props) => {
         </div>
       </article>
 
-      <!-- ③ 契約 -->
-      <article style="padding:1.5rem; margin-bottom:1.5rem;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-          <h4 style="margin:0; font-size:1.1rem; color:#334155;">${t.am_contracts_header}</h4>
-          ${Button({ onclick: "document.getElementById('new-contract-modal').showModal()", style: "width:auto; margin:0;",
-            children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_contract}` })}
-        </div>
-        <div class="${amListGrid}">
-          ${props.contracts.length === 0 ? amEmpty(t.am_none_contracts) : ''}
-          ${props.contracts.map(ct => html`
-            <div class="${amListCard}">
-              <div>
-                <div class="${amItemTitle}">${serviceLabel({ name: ct.service_name || '', provider_name: ct.provider_name })}</div>
-                <div class="${amItemSub}">
-                  <span class="material-symbols-outlined" style="font-size:16px;">corporate_fare</span>${ct.group_name || ''}
-                  <span class="${amBadge}">${ct.seat_limit == null ? t.am_seat_unlimited : t.am_label_seat_limit + ': ' + ct.seat_limit}</span>
-                  <span style="color:#94a3b8;">${fmt(ct.valid_from)} ～ ${fmt(ct.valid_to)}</span>
-                </div>
-              </div>
-              ${amDeleteForm('/admin/am/contracts/delete', ct.id, t.am_confirm_delete_contract, t.delete)}
-            </div>`)}
-        </div>
-      </article>
 
       ${Modal({
         id: 'new-provider-modal', title: t.am_btn_add_provider, closeAction: "this.closest('dialog').close()",
@@ -163,29 +139,6 @@ export const AccountServicesPage = (props: Props) => {
           </form>`,
       })}
 
-      ${Modal({
-        id: 'new-contract-modal', title: t.am_btn_add_contract, closeAction: "this.closest('dialog').close()",
-        children: html`
-          <form method="POST" action="/admin/am/contracts">
-            <label class="${amFormLabel}">${t.am_label_contract_service}</label>
-            <select name="service_id" required style="margin-bottom:1rem;">
-              ${props.services.filter(s => !s.status || s.status === 'active').map(s => html`<option value="${s.id}">${serviceLabel(s)}</option>`)}
-            </select>
-            <label class="${amFormLabel}">${t.am_label_customer_group}</label>
-            <select name="customer_group_id" required style="margin-bottom:1rem;">
-              ${props.groups.map(g => html`<option value="${g.id}">${g.name}</option>`)}
-            </select>
-            <label class="${amFormLabel}">${t.am_label_seat_limit}</label>
-            <input type="number" name="seat_limit" min="0" placeholder="${t.am_placeholder_seat}" style="margin-bottom:1rem;" />
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-              <div><label class="${amFormLabel}">${t.label_valid_from}</label>
-                <input type="date" name="valid_from" value="${todayStr()}" required /></div>
-              <div><label class="${amFormLabel}">${t.label_valid_to}</label>
-                <input type="date" name="valid_to" value="${plusYearStr(1)}" required /></div>
-            </div>
-            <div style="margin-top:1rem;">${Button({ type: 'submit', children: t.save })}</div>
-          </form>`,
-      })}
 
       ${ServiceAppsModal(t, '/admin/api')}
       ${RejectReasonModal()}

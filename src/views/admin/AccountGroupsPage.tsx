@@ -57,6 +57,7 @@ export const AccountGroupsPage = (props: Props) => {
         var tsControlParentEdit = null;
         var currentGroupId = '';
         var currentMembers = [];
+        var currentFacilities = [];
 
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof TomSelect !== 'undefined') {
@@ -131,6 +132,8 @@ export const AccountGroupsPage = (props: Props) => {
             var vt = document.getElementById('m-valid-to'); if(vt) vt.value = '';
             window.resetAddButton();
             window.loadMembers(id);
+            window.loadFacilities(id);
+            if(window.switchTab) window.switchTab('members');
         };
         window.closeGroupModal = function() { if(gModal) gModal.close(); window.resetAddButton(); };
 
@@ -264,6 +267,110 @@ export const AccountGroupsPage = (props: Props) => {
             });
         };
 
+        window.switchTab = function(tab) {
+            var tabMembers = document.getElementById('tab-members');
+            var tabFacilities = document.getElementById('tab-facilities');
+            var btnMembers = document.getElementById('btn-tab-members');
+            var btnFacilities = document.getElementById('btn-tab-facilities');
+            if(tab === 'members') {
+                if(tabMembers) tabMembers.style.display = 'block';
+                if(tabFacilities) tabFacilities.style.display = 'none';
+                if(btnMembers) btnMembers.classList.add('active');
+                if(btnFacilities) btnFacilities.classList.remove('active');
+            } else {
+                if(tabMembers) tabMembers.style.display = 'none';
+                if(tabFacilities) tabFacilities.style.display = 'block';
+                if(btnMembers) btnMembers.classList.remove('active');
+                if(btnFacilities) btnFacilities.classList.add('active');
+            }
+        };
+
+        window.loadFacilities = function(id) {
+            fetch('/admin/api/am/group-facilities/' + id + '?t=' + new Date().getTime())
+                .then(function(r) { return r.json(); })
+                .then(function(data) { currentFacilities = data.facilities || []; window.renderFacilities(currentFacilities); })
+                .catch(function(e) { console.error(e); });
+        };
+
+        window.renderFacilities = function(list) {
+            var container = document.getElementById('modal-facility-list');
+            if(!container) return;
+            container.innerHTML = '';
+            if (!list || list.length === 0) {
+                var empty = document.createElement('div');
+                empty.style.textAlign = 'center';
+                empty.style.padding = '2rem';
+                empty.style.color = '#94a3b8';
+                empty.textContent = i18n.noFacilities || '(No facilities)';
+                container.appendChild(empty);
+                return;
+            }
+            list.forEach(function(f) {
+                var item = document.createElement('div');
+                item.style.padding = '0.75rem 0';
+                item.style.borderBottom = '1px solid #f1f5f9';
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.style.alignItems = 'center';
+
+                var left = document.createElement('div');
+                left.className = 'item-title';
+                left.innerText = f.structure_no || '(No ID)';
+                var sub = document.createElement('div');
+                sub.className = 'item-sub';
+                sub.innerText = f.building_use || '';
+                left.appendChild(sub);
+
+                var right = document.createElement('div');
+                var btnRemove = document.createElement('button');
+                btnRemove.type = 'button';
+                btnRemove.className = 'action-btn delete';
+                btnRemove.innerHTML = '<span class="material-symbols-outlined">delete</span>';
+                btnRemove.onclick = function() { window.removeFacility(f.id); };
+                right.appendChild(btnRemove);
+
+                item.appendChild(left);
+                item.appendChild(right);
+                container.appendChild(item);
+            });
+        };
+
+        window.addFacility = function() {
+            var no = document.getElementById('f-structure-no').value;
+            var use = document.getElementById('f-building-use').value;
+            if(!no) { alert(i18n.alertRequired || 'Required'); return; }
+            fetch('/admin/api/am/facility/add', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ managing_group_id: currentGroupId, structure_no: no, building_use: use })
+            })
+            .then(function(r) { if(!r.ok) { return r.json().catch(function(){return {};}).then(function(e){ throw new Error(e.error || 'Server error'); }); } return r.json(); })
+            .then(function() { 
+                document.getElementById('f-structure-no').value = '';
+                document.getElementById('f-building-use').value = '';
+                window.loadFacilities(currentGroupId); 
+            })
+            .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+        };
+
+        var removeFacTargetId = null;
+        window.removeFacility = function(fid) {
+            removeFacTargetId = fid;
+            var rm = document.getElementById('remove-fac-modal');
+            if(rm) rm.showModal();
+        };
+        window.closeRemoveFacModal = function() {
+            var rm = document.getElementById('remove-fac-modal');
+            if(rm) rm.close();
+            removeFacTargetId = null;
+        };
+        window.executeRemoveFac = function() {
+            if(!removeFacTargetId) return;
+            fetch('/admin/api/am/facility/remove', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: removeFacTargetId }) })
+            .then(function(r) { if(!r.ok) { return r.json().catch(function(){return {};}).then(function(e){ throw new Error(e.error || 'Server error'); }); } return r.json(); })
+            .then(function() { window.closeRemoveFacModal(); window.loadFacilities(currentGroupId); })
+            .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+        };
+
         window.addMembers = function() {
             var userIds = [];
             if (tsControl) { userIds = tsControl.getValue(); if (!Array.isArray(userIds)) userIds = [userIds]; }
@@ -336,6 +443,13 @@ export const AccountGroupsPage = (props: Props) => {
         0% { border-color: #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
         50% { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.2); }
         100% { border-color: #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+  `
+
+  const tabContainer = css`display:flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 1.5rem; gap: 1rem;`
+  const tabBtn = css`
+    background: none !important; border: none !important; color: #64748b !important; padding: 0.5rem 0.5rem 0.8rem !important; font-weight: 600 !important; cursor: pointer !important; box-shadow: none !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important;
+    &:hover { color: var(--primary) !important; background: none !important; box-shadow: none !important; transform: none !important; }
+    &.active { color: var(--primary) !important; border-bottom: 2px solid var(--primary) !important; }
   `
 
   const listGrid = css`display: flex; flex-direction: column; gap: 1rem;`
@@ -539,55 +653,78 @@ export const AccountGroupsPage = (props: Props) => {
                     </div>
                  </div>
 
-                 <div id="add-form-card" class="${addFormCard}">
-                    <div style="margin-bottom: 1.5rem;">
-                       <label class="${formLabel}">${t.am_label_member}</label>
-                       ${MultiSelect({
-                         id: "m-user-id",
-                         placeholder: t.placeholder_select,
-                         options: userOptions
-                       })}
-                    </div>
-
-                    <div style="margin-bottom: 1.5rem;">
-                       <label class="${formLabel}">${t.am_label_role}</label>
-                       <div class="${tomSelectWrapper}">
-                         <select id="m-role">
-                            <option value="member">${t.am_role_member}</option>
-                            <option value="group_admin">${t.am_role_group_admin}</option>
-                         </select>
-                       </div>
-                    </div>
-
-                    <div style="display:grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
-                         <div>
-                              <label class="${formLabel}">${t.label_valid_from}</label>
-                              <input type="date" id="m-valid-from" class="${dateInput}" />
-                              <div class="${quickBtnGroup}">
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -1, 'month')", children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -7, 'day')", children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -1, 'day')", children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                              </div>
-                         </div>
-                         <div>
-                             <label class="${formLabel}">${t.label_valid_to}</label>
-                             <input type="date" id="m-valid-to" class="${dateInput}" />
-                             <div class="${quickBtnGroup}">
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 1, 'month')", children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 1, 'year')", children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 99, 'forever')", children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                             </div>
-                         </div>
-                    </div>
-
-                    ${Button({ id: "btn-add-member", onclick: "addMembers()", children: html`<span class="material-symbols-outlined">person_add</span> <span>${t.am_add_member}</span>` })}
+                 <div class="${tabContainer}">
+                     <button type="button" id="btn-tab-members" class="${tabBtn} active" onclick="switchTab('members')">${t.am_header_members}</button>
+                     <button type="button" id="btn-tab-facilities" class="${tabBtn}" onclick="switchTab('facilities')">${t.am_section_facilities || '施設'}</button>
                  </div>
 
-                 <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">${t.am_header_members}</h4>
+                 <div id="tab-members" style="display:block;">
+                     <div id="add-form-card" class="${addFormCard}">
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">${t.am_label_member}</label>
+                           ${MultiSelect({
+                             id: "m-user-id",
+                             placeholder: t.placeholder_select,
+                             options: userOptions
+                           })}
+                        </div>
 
-                 <div id="modal-member-list"></div>
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">${t.am_label_role}</label>
+                           <div class="${tomSelectWrapper}">
+                             <select id="m-role">
+                                <option value="member">${t.am_role_member}</option>
+                                <option value="group_admin">${t.am_role_group_admin}</option>
+                             </select>
+                           </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                             <div>
+                                  <label class="${formLabel}">${t.label_valid_from}</label>
+                                  <input type="date" id="m-valid-from" class="${dateInput}" />
+                                  <div class="${quickBtnGroup}">
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -1, 'month')", children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -7, 'day')", children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -1, 'day')", children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                  </div>
+                             </div>
+                             <div>
+                                 <label class="${formLabel}">${t.label_valid_to}</label>
+                                 <input type="date" id="m-valid-to" class="${dateInput}" />
+                                 <div class="${quickBtnGroup}">
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 1, 'month')", children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 1, 'year')", children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 99, 'forever')", children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                 </div>
+                             </div>
+                        </div>
+
+                        ${Button({ id: "btn-add-member", onclick: "addMembers()", children: html`<span class="material-symbols-outlined">person_add</span> <span>${t.am_add_member}</span>` })}
+                     </div>
+
+                     <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">${t.am_header_members}</h4>
+                     <div id="modal-member-list"></div>
+                 </div>
+
+                 <div id="tab-facilities" style="display:none;">
+                     <div class="${addFormCard}">
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">構造物番号/施設名 (Structure No. / Name)</label>
+                           <input type="text" id="f-structure-no" class="${dateInput}" placeholder="F-12345" />
+                        </div>
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">用途 (Use)</label>
+                           <input type="text" id="f-building-use" class="${dateInput}" placeholder="Office" />
+                        </div>
+                        ${Button({ onclick: "addFacility()", children: html`<span class="material-symbols-outlined">add_business</span> <span>追加</span>` })}
+                     </div>
+
+                     <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">${t.am_section_facilities || '施設一覧'}</h4>
+                     <div id="modal-facility-list"></div>
+                 </div>
             `
           })}
 
@@ -603,6 +740,23 @@ export const AccountGroupsPage = (props: Props) => {
                       <button type="button" onclick="closeRemoveModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
                       <button type="button" onclick="executeRemove()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                          <span class="material-symbols-outlined" style="font-size:18px;">person_remove</span> ${t.am_btn_remove}
+                      </button>
+                  </div>
+            `
+          })}
+
+          ${Modal({
+            id: "remove-fac-modal",
+            title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.delete}</span>`,
+            closeAction: "closeRemoveFacModal()",
+            children: html`
+                  <div style="margin-bottom: 2rem;">
+                    <p style="color:#475569; font-size:1rem; line-height:1.5;">本当にこの施設を削除しますか？（割当も解除されます）</p>
+                  </div>
+                  <div style="display: flex; justify-content: flex-end; gap: 1rem;">
+                      <button type="button" onclick="closeRemoveFacModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
+                      <button type="button" onclick="executeRemoveFac()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                         <span class="material-symbols-outlined" style="font-size:18px;">delete</span> ${t.delete}
                       </button>
                   </div>
             `
@@ -636,6 +790,8 @@ export const AccountGroupsPage = (props: Props) => {
             data-btn-add="${t.am_add_member}"
             data-btn-change="${t.btn_change}"
             data-alert-cycle="${t.am_alert_cycle}"
+            data-alert-required="${t.error_invalid_invite || 'Required'}"
+            data-no-facilities="${t.am_no_members || 'No facilities'}"
           ></div>
 
           <script type="application/json" id="user-data">${raw(allUsersJson)}</script>

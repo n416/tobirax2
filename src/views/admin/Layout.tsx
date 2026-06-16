@@ -26,8 +26,8 @@ export const Layout = (props: LayoutProps) => {
         { label: t.nav_section_account, items: [
             { id: 'am-groups', label: t.am_section_groups, href: '/admin/am/groups' },
             { id: 'am-services', label: t.am_section_services, href: '/admin/am/services' },
+            { id: 'am-contracts', label: t.am_section_contracts, href: '/admin/am/contracts' },
             { id: 'am-grants', label: t.am_section_grants, href: '/admin/am/grants' },
-            { id: 'am-facilities', label: t.am_section_facilities, href: '/admin/am/facilities' },
             { id: 'am-assignments', label: t.am_section_assignments, href: '/admin/am/assignments' },
             { id: 'developers', label: t.am_dev_header || '開発者申請', href: '/admin/am/developers' },
         ] },
