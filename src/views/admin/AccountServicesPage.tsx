@@ -79,7 +79,7 @@ export const AccountServicesPage = (props: Props) => {
             <div class="${amListCard}">
               <div style="flex-grow:1;">
                 <div class="${amItemTitle}" style="display:flex; align-items:center; gap:0.5rem;">
-                  ${s.name}
+                  <a href="/admin/am/services/${s.id}" style="color:#2563eb; text-decoration:none;">${s.name}</a>
                   ${s.status === 'pending'
                     ? html`<span style="color:#c2410c; background:#fff7ed; border:1px solid #fdba74; padding:1px 7px; border-radius:999px; font-size:0.72rem; font-weight:700;">${t.status_pending}</span>`
                     : s.status === 'rejected'
@@ -116,17 +116,17 @@ export const AccountServicesPage = (props: Props) => {
 
 
       ${Modal({
-        id: 'new-provider-modal', title: t.am_btn_add_provider, closeAction: "this.closest('dialog').close()",
+        id: 'new-provider-modal', title: t.am_btn_add_provider, closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <form method="POST" action="/admin/am/providers">
             <label class="${amFormLabel}">${t.am_label_provider_name}</label>
-            <input type="text" name="name" placeholder="${t.am_placeholder_provider_name}" required />
+            <input type="text" name="name" required style="margin-bottom:1rem;" />
             <div style="margin-top:1rem;">${Button({ type: 'submit', children: t.save })}</div>
           </form>`,
       })}
 
       ${Modal({
-        id: 'new-service-modal', title: t.am_btn_add_service, closeAction: "this.closest('dialog').close()",
+        id: 'new-service-modal', title: t.am_btn_add_service, closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <form method="POST" action="/admin/am/services">
             <label class="${amFormLabel}">${t.am_label_provider}</label>

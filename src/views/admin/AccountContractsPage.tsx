@@ -57,7 +57,7 @@ export const AccountContractsPage = (props: Props) => {
       </article>
 
       ${Modal({
-        id: 'new-contract-modal', title: t.am_btn_add_contract, closeAction: "this.closest('dialog').close()",
+        id: 'new-contract-modal', title: t.am_btn_add_contract, closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <form method="POST" action="/admin/am/contracts">
             <label class="${amFormLabel}">${t.am_label_contract_service}</label>

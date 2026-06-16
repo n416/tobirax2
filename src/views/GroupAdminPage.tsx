@@ -1091,6 +1091,9 @@ export const GroupAdminPage = (props: Props) => {
 
       <!-- 割当タブ -->
       <div id="tab-assignments" style="display:none;">
+        <div class="${infoBox}">
+          <span class="material-symbols-outlined">info</span>${t.ga_desc_assignments}
+        </div>
         <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
           ${Button({ onclick: "openAssignModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">assignment_add</span> ${t.ga_add_assignment}` })}
         </div>
@@ -1117,6 +1120,9 @@ export const GroupAdminPage = (props: Props) => {
 
       <!-- 利用枠タブ(ゲート②) -->
       <div id="tab-grants" style="display:none;">
+        <div class="${infoBox}">
+          <span class="material-symbols-outlined">info</span>${t.ga_desc_grants}
+        </div>
         <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
           ${Button({ onclick: "openGrantModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
         </div>

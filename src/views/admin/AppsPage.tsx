@@ -17,7 +17,6 @@ interface Props {
   t: typeof dict.en
   userEmail: string
   apps: App[]
-  regTokens?: RegToken[]
   siteName: string
   appConfig: SystemConfig
 }
@@ -254,34 +253,6 @@ export const AppsPage = (props: Props) => {
             children: html`<span class="material-symbols-outlined" style="font-size: 18px;">add</span> ${t.btn_add_app}`
         })}
       </div>
-
-      <details style="margin-bottom:2rem; border:1px solid #e2e8f0; border-radius:12px; padding:1rem 1.25rem; background:#f8fafc;">
-        <summary style="cursor:pointer; font-weight:600; color:#334155;">動的登録トークン (RFC 7591 Initial Access Token)</summary>
-        <p style="font-size:0.85rem; color:#64748b; margin:0.75rem 0;">
-          ここで発行した Bearer トークンを <code>Authorization: Bearer …</code> に付けて
-          <code>POST /register</code> を呼ぶと、アプリ(クライアント)を動的に登録できます。
-          トークンを持たない・期限切れの呼び出しは拒否されます。
-        </p>
-        <form method="POST" action="/admin/registration-tokens" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem;">
-          <label style="font-size:0.85rem; color:#475569;">有効日数
-            <input type="number" name="days" min="0" placeholder="0=無期限" style="width:120px; padding:0.5rem; border-radius:8px; border:1px solid #cbd5e1; margin-left:0.4rem;" />
-          </label>
-          <button type="submit" class="btn" style="width:auto; padding:0.55rem 1rem; margin:0;">トークンを発行</button>
-        </form>
-        ${(props.regTokens && props.regTokens.length)
-          ? html`<div style="display:flex; flex-direction:column; gap:0.5rem;">
-              ${props.regTokens.map(rt => html`
-                <div style="display:flex; align-items:center; gap:0.5rem; background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:0.5rem 0.75rem;">
-                  <code style="flex:1; font-size:0.78rem; word-break:break-all; color:#0f172a;">${rt.token}</code>
-                  <span style="font-size:0.75rem; color:#94a3b8; white-space:nowrap;">${rt.expires_at ? '期限 ' + new Date(rt.expires_at * 1000).toISOString().slice(0, 10) : '無期限'}</span>
-                  <form method="POST" action="/admin/registration-tokens/delete" style="margin:0;" onsubmit="return confirm('このトークンを失効しますか？');">
-                    <input type="hidden" name="token" value="${rt.token}" />
-                    <button type="submit" title="失効" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:0.8rem;">失効</button>
-                  </form>
-                </div>`)}
-            </div>`
-          : html`<p style="font-size:0.85rem; color:#94a3b8; margin:0;">まだトークンはありません。</p>`}
-      </details>
 
       ${Modal({
         id: "new-app-modal",

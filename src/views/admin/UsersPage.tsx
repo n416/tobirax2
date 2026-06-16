@@ -13,6 +13,9 @@ interface Props {
     users: (User & { group_name?: string })[]
     apps: App[]
     groups: Group[]
+    services: any[]
+    roles: any[]
+    facilities: any[]
     inviteUrl?: string
     error?: string
     siteName: string
@@ -22,14 +25,20 @@ interface Props {
 export const UsersPage = (props: Props) => {
     const t = props.t
     const allAppsJson = JSON.stringify(props.apps.map(a => ({value: a.id, text: a.name})));
+    const allServicesJson = JSON.stringify(props.services.map(s => ({id: s.id, name: s.name})));
+    const allRolesJson = JSON.stringify(props.roles.map(r => ({id: r.id, service_id: r.service_id, role_name: r.role_name})));
+    const allFacilitiesJson = JSON.stringify(props.facilities.map(f => ({id: f.id, structure_no: f.structure_no, building_use: f.building_use})));
     const scriptContent = raw(`
         (function() {
             var i18nEl = document.getElementById('i18n-data');
             var i18n = i18nEl ? i18nEl.dataset : {};
             var ALL_APPS = [];
+            var ALL_ROLES = [];
             try {
                 var appDataEl = document.getElementById('app-data');
                 if(appDataEl) ALL_APPS = JSON.parse(appDataEl.textContent);
+                var roleDataEl = document.getElementById('roles-data');
+                if(roleDataEl) ALL_ROLES = JSON.parse(roleDataEl.textContent);
             } catch(e) { console.error(e); }
             var tsControl = null;
             var currentExistingIds = []; 
@@ -102,7 +111,12 @@ export const UsersPage = (props: Props) => {
                 var validTo = document.getElementById('perm-valid-to');
                 if(validTo) validTo.value = '';
                 window.resetGrantButton();
-                fetch('/admin/api/user-details/' + id + '?t=' + new Date().getTime())
+                if(window.switchUserTab) window.switchUserTab('permissions');
+                window.refreshUserDetails();
+            };
+            window.refreshUserDetails = function() {
+                if(!currentUserId) return;
+                fetch('/admin/api/user-details/' + currentUserId + '?t=' + new Date().getTime())
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         var emailEl = document.getElementById('modal-user-email');
@@ -110,6 +124,7 @@ export const UsersPage = (props: Props) => {
                         var groupSel = document.getElementById('modal-group-select');
                         if(groupSel) groupSel.value = data.group_id || '';
                         window.renderPerms(data.permissions);
+                        if(window.loadAssignments) window.loadAssignments(data.assignments || []);
                         currentUserPermissions = data.permissions;
                         currentExistingIds = data.permissions.map(function(p) { return p.app_id; });
                         refreshAppOptions();
@@ -218,6 +233,108 @@ export const UsersPage = (props: Props) => {
                     row.appendChild(right);
                     item.appendChild(row);
                     container.appendChild(item);
+                });
+            };
+
+            window.switchUserTab = function(tab) {
+                var pTab = document.getElementById('tab-permissions');
+                var aTab = document.getElementById('tab-assignments');
+                var pBtn = document.getElementById('btn-tab-permissions');
+                var aBtn = document.getElementById('btn-tab-assignments');
+                if(pTab) pTab.style.display = tab === 'permissions' ? 'block' : 'none';
+                if(aTab) aTab.style.display = tab === 'assignments' ? 'block' : 'none';
+                if(pBtn) pBtn.className = tab === 'permissions' ? 'btn-tab active' : 'btn-tab';
+                if(aBtn) aBtn.className = tab === 'assignments' ? 'btn-tab active' : 'btn-tab';
+            };
+
+            window.loadAssignments = function(list) {
+                var container = document.getElementById('modal-assignment-list');
+                if(!container) return;
+                container.innerHTML = '';
+                if (!list || list.length === 0) {
+                    container.innerHTML = '<div style="text-align:center; padding:2rem; color:#94a3b8;">No assignments</div>';
+                    return;
+                }
+                list.forEach(function(a) {
+                    var item = document.createElement('div');
+                    item.style.padding = '0.75rem 0';
+                    item.style.borderBottom = '1px solid #f1f5f9';
+                    item.style.display = 'flex';
+                    item.style.justifyContent = 'space-between';
+                    item.style.alignItems = 'center';
+                    
+                    var left = document.createElement('div');
+                    var title = document.createElement('div');
+                    title.className = 'item-title';
+                    title.innerText = a.service_name + ' / ' + a.role_name;
+                    var sub = document.createElement('div');
+                    sub.className = 'item-sub';
+                    sub.innerText = (a.group_name || '-') + ' / ' + (a.structure_no || '-');
+                    var dateSub = document.createElement('div');
+                    dateSub.className = 'item-sub';
+                    var fmt = function(ts) { return new Date(ts*1000).toLocaleDateString(); };
+                    dateSub.innerText = fmt(a.valid_from) + ' - ' + (a.valid_to > 2000000000 ? 'Forever' : fmt(a.valid_to));
+                    left.appendChild(title);
+                    left.appendChild(sub);
+                    left.appendChild(dateSub);
+                    
+                    var right = document.createElement('div');
+                    var btnRemove = document.createElement('button');
+                    btnRemove.type = 'button';
+                    btnRemove.className = 'action-btn delete';
+                    btnRemove.innerHTML = '<span class="material-symbols-outlined">delete</span>';
+                    btnRemove.onclick = function() { window.removeAssignment(a.id); };
+                    right.appendChild(btnRemove);
+                    
+                    item.appendChild(left);
+                    item.appendChild(right);
+                    container.appendChild(item);
+                });
+            };
+
+            window.addAssignment = function() {
+                var sid = document.getElementById('a-service-id').value;
+                var gid = document.getElementById('modal-group-select').value;
+                var fid = document.getElementById('a-facility-id').value;
+                var rid = document.getElementById('a-role-id').value;
+                var vf = document.getElementById('a-valid-from').value;
+                var vt = document.getElementById('a-valid-to').value;
+                if(!sid || !fid || !rid) return alert('必須項目が入力されていません');
+                
+                fetch('/admin/api/am/assignment/add', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user_id: currentUserId, service_id: sid, group_id: gid, facility_id: fid, service_role_id: rid, valid_from: vf, valid_to: vt })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) { 
+                    if(data.error) throw new Error(data.error); 
+                    window.refreshUserDetails();
+                })
+                .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+            };
+
+            window.removeAssignment = function(id) {
+                if(!confirm('本当にこの割当を削除しますか？')) return;
+                fetch('/admin/api/am/assignment/remove', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ id: id })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function() { window.refreshUserDetails(); })
+                .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+            };
+
+            window.updateRoleOptions = function() {
+                var sid = document.getElementById('a-service-id').value;
+                var sel = document.getElementById('a-role-id');
+                sel.innerHTML = '<option value="">-</option>';
+                ALL_ROLES.forEach(function(r) {
+                    if(r.service_id === sid) {
+                        var opt = document.createElement('option');
+                        opt.value = r.id;
+                        opt.innerText = r.role_name;
+                        sel.appendChild(opt);
+                    }
                 });
             };
             window.calcDate = function(targetId, offset, unit) {
@@ -443,6 +560,12 @@ export const UsersPage = (props: Props) => {
             border-color: var(--primary);
         }
     `
+    const tabContainer = css`display:flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 1.5rem; gap: 1rem;`
+    const tabBtn = css`
+      background: none !important; border: none !important; color: #64748b !important; padding: 0.5rem 0.5rem 0.8rem !important; font-weight: 600 !important; cursor: pointer !important; box-shadow: none !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important;
+      &:hover { color: var(--primary) !important; background: none !important; box-shadow: none !important; transform: none !important; }
+      &.active { color: var(--primary) !important; border-bottom: 2px solid var(--primary) !important; }
+    `
 
     const pageWrapper = css``
 
@@ -595,51 +718,96 @@ export const UsersPage = (props: Props) => {
                     <small style="color:#94a3b8; margin-top:0.4rem; display:block;">${t.desc_group_override}</small>
                   </div>
 
-                  <h4 style="font-size:1.1rem; margin-bottom:1rem; font-weight:600; color:#334155;">${t.tab_permissions}</h4>
-                  
-                  <div id="grant-form-card" class="${grantFormCard}">
-                    <div style="margin-bottom: 1.5rem;">
-                       <label class="${formLabel}">${t.label_app}</label>
-                       ${MultiSelect({
-                           id: "perm-app-id",
-                           placeholder: t.placeholder_select,
-                           options: props.apps.map(a => ({ value: a.id, text: a.name }))
-                       })}
-                       <label class="${checkboxLabel}">
-                           <input type="checkbox" id="exclude-existing-check" />
-                           登録されているものは含まない
-                       </label>
-                    </div>
-
-                    <div style="display:grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
-                         <div>
-                              <label class="${formLabel}">
-                                ${t.label_valid_from} <span style="font-weight:normal; color:#94a3b8; font-size:0.85em;">(開始予定日)</span>
-                              </label>
-                              <input type="date" id="perm-valid-from" class="${dateInput}" />
-                              <div class="${quickBtnGroup}">
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -1, 'month')", children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -7, 'day')", children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -1, 'day')", children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                              </div>
-                         </div>
-                         <div>
-                             <label class="${formLabel}">${t.label_valid_to}</label>
-                             <input type="date" id="perm-valid-to" class="${dateInput}" />
-                             <div class="${quickBtnGroup}">
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 1, 'month')", children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 1, 'year')", children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                  ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 99, 'forever')", children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                             </div>
-                         </div>
-                     </div>
-
-                     ${Button({ id: "btn-grant-perm", onclick: "grantPermission()", children: html`<span class="material-symbols-outlined">add</span> <span>${t.btn_grant}</span>` })}
+                  <div class="${tabContainer}">
+                      <button type="button" id="btn-tab-permissions" class="${tabBtn} active" onclick="switchUserTab('permissions')">アプリ権限</button>
+                      <button type="button" id="btn-tab-assignments" class="${tabBtn}" onclick="switchUserTab('assignments')">サービス割当</button>
                   </div>
 
-                  <div id="modal-perm-list"></div>
+                  <div id="tab-permissions" style="display:block;">
+                      <div id="grant-form-card" class="${grantFormCard}">
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">${t.label_app}</label>
+                           ${MultiSelect({
+                               id: "perm-app-id",
+                               placeholder: t.placeholder_select,
+                               options: props.apps.map(a => ({ value: a.id, text: a.name }))
+                           })}
+                           <label class="${checkboxLabel}">
+                               <input type="checkbox" id="exclude-existing-check" />
+                               登録されているものは含まない
+                           </label>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                             <div>
+                                  <label class="${formLabel}">
+                                    ${t.label_valid_from} <span style="font-weight:normal; color:#94a3b8; font-size:0.85em;">(開始予定日)</span>
+                                  </label>
+                                  <input type="date" id="perm-valid-from" class="${dateInput}" />
+                                  <div class="${quickBtnGroup}">
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -1, 'month')", children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -7, 'day')", children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -1, 'day')", children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                  </div>
+                             </div>
+                             <div>
+                                 <label class="${formLabel}">${t.label_valid_to}</label>
+                                 <input type="date" id="perm-valid-to" class="${dateInput}" />
+                                 <div class="${quickBtnGroup}">
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 1, 'month')", children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 1, 'year')", children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 99, 'forever')", children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                 </div>
+                             </div>
+                         </div>
+
+                         ${Button({ id: "btn-grant-perm", onclick: "grantPermission()", children: html`<span class="material-symbols-outlined">add</span> <span>${t.btn_grant}</span>` })}
+                      </div>
+
+                      <div id="modal-perm-list"></div>
+                  </div>
+
+                  <div id="tab-assignments" style="display:none;">
+                      <div class="${grantFormCard}">
+                          <div style="margin-bottom: 1.5rem;">
+                             <label class="${formLabel}">サービス (Service)</label>
+                             <select id="a-service-id" class="${dateInput}" style="margin-bottom:0;" onchange="updateRoleOptions()">
+                               <option value="">-</option>
+                               ${props.services.map(s => html`<option value="${s.id}">${s.name}</option>`)}
+                             </select>
+                          </div>
+                          <div style="margin-bottom: 1.5rem;">
+                             <label class="${formLabel}">ロール (Role)</label>
+                             <select id="a-role-id" class="${dateInput}" style="margin-bottom:0;">
+                               <option value="">-</option>
+                             </select>
+                          </div>
+                          <div style="margin-bottom: 1.5rem;">
+                             <label class="${formLabel}">施設 (Facility)</label>
+                             <select id="a-facility-id" class="${dateInput}" style="margin-bottom:0;">
+                               <option value="">-</option>
+                               ${props.facilities.map(f => html`<option value="${f.id}">${f.structure_no} ${f.building_use}</option>`)}
+                             </select>
+                          </div>
+                          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                               <div>
+                                    <label class="${formLabel}">${t.label_valid_from}</label>
+                                    <input type="date" id="a-valid-from" class="${dateInput}" value="${new Date().toISOString().split('T')[0]}" />
+                               </div>
+                               <div>
+                                   <label class="${formLabel}">${t.label_valid_to}</label>
+                                   <input type="date" id="a-valid-to" class="${dateInput}" value="${new Date(Date.now()+31536000000).toISOString().split('T')[0]}" />
+                               </div>
+                          </div>
+                          ${Button({ onclick: "addAssignment()", children: html`<span class="material-symbols-outlined">add</span> <span>追加</span>` })}
+                      </div>
+                      
+                      <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">割当一覧</h4>
+                      <div id="modal-assignment-list"></div>
+                  </div>
+
             `
           })}
 
@@ -686,6 +854,9 @@ export const UsersPage = (props: Props) => {
           ></div>
           
           <script type="application/json" id="app-data">${raw(allAppsJson)}</script>
+          <script type="application/json" id="services-data">${raw(allServicesJson)}</script>
+          <script type="application/json" id="roles-data">${raw(allRolesJson)}</script>
+          <script type="application/json" id="facilities-data">${raw(allFacilitiesJson)}</script>
 
           <script>
           ${scriptContent}

@@ -27,8 +27,7 @@ import { AppsPage } from './views/admin/AppsPage'
 import { GroupsPage } from './views/admin/GroupsPage'
 import { AccountGroupsPage } from './views/admin/AccountGroupsPage'
 import { AccountServicesPage } from './views/admin/AccountServicesPage'
-import { AccountGrantsPage } from './views/admin/AccountGrantsPage'
-import { AccountAssignmentsPage } from './views/admin/AccountAssignmentsPage'
+
 import { UsersPage } from './views/admin/UsersPage'
 import { LogsPage } from './views/admin/LogsPage'
 

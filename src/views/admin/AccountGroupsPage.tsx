@@ -14,6 +14,8 @@ interface Props {
   groups: (Group & { member_count?: number })[]
   // メンバー追加候補のユーザー全件
   users: User[]
+  facilities?: { id: string, structure_no: string, building_use: string, managing_group_id: string }[]
+  contracts?: any[]
   siteName: string
   appConfig: SystemConfig
 }
@@ -133,6 +135,7 @@ export const AccountGroupsPage = (props: Props) => {
             window.resetAddButton();
             window.loadMembers(id);
             window.loadFacilities(id);
+            window.loadGrants(id);
             if(window.switchTab) window.switchTab('members');
         };
         window.closeGroupModal = function() { if(gModal) gModal.close(); window.resetAddButton(); };
@@ -268,21 +271,16 @@ export const AccountGroupsPage = (props: Props) => {
         };
 
         window.switchTab = function(tab) {
-            var tabMembers = document.getElementById('tab-members');
-            var tabFacilities = document.getElementById('tab-facilities');
-            var btnMembers = document.getElementById('btn-tab-members');
-            var btnFacilities = document.getElementById('btn-tab-facilities');
-            if(tab === 'members') {
-                if(tabMembers) tabMembers.style.display = 'block';
-                if(tabFacilities) tabFacilities.style.display = 'none';
-                if(btnMembers) btnMembers.classList.add('active');
-                if(btnFacilities) btnFacilities.classList.remove('active');
-            } else {
-                if(tabMembers) tabMembers.style.display = 'none';
-                if(tabFacilities) tabFacilities.style.display = 'block';
-                if(btnMembers) btnMembers.classList.remove('active');
-                if(btnFacilities) btnFacilities.classList.add('active');
-            }
+            var tabs = ['members', 'facilities', 'grants'];
+            tabs.forEach(function(t) {
+                var content = document.getElementById('tab-' + t);
+                var btn = document.getElementById('btn-tab-' + t);
+                if(content) content.style.display = (tab === t) ? 'block' : 'none';
+                if(btn) {
+                    if(tab === t) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                }
+            });
         };
 
         window.loadFacilities = function(id) {
@@ -369,6 +367,72 @@ export const AccountGroupsPage = (props: Props) => {
             .then(function(r) { if(!r.ok) { return r.json().catch(function(){return {};}).then(function(e){ throw new Error(e.error || 'Server error'); }); } return r.json(); })
             .then(function() { window.closeRemoveFacModal(); window.loadFacilities(currentGroupId); })
             .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+        };
+
+        window.removeGrant = function(gid) {
+            if(!confirm('本当にこの利用枠を削除しますか？')) return;
+            fetch('/admin/api/am/grant/remove', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: gid }) })
+            .then(function(r) { if(!r.ok) throw new Error('err'); return r.json(); })
+            .then(function() { window.loadGrants(currentGroupId); })
+            .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+        };
+        window.addGrant = function() {
+            var cid = document.getElementById('g-contract-id').value;
+            var seats = document.getElementById('g-seat-limit').value;
+            var vf = document.getElementById('g-valid-from').value;
+            var vt = document.getElementById('g-valid-to').value;
+            if(!cid) return;
+            fetch('/admin/api/am/grant/add', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ group_id: currentGroupId, contract_id: cid, seat_limit: seats, valid_from: vf, valid_to: vt })
+            })
+            .then(function(r) { if(!r.ok) throw new Error('err'); return r.json(); })
+            .then(function() { window.loadGrants(currentGroupId); })
+            .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+        };
+        window.loadGrants = function(id) {
+            fetch('/admin/api/am/group-grants/' + id + '?t=' + new Date().getTime())
+                .then(function(r) { return r.json(); })
+                .then(function(data) { window.renderGrants(data.grants || []); })
+        };
+        window.renderGrants = function(list) {
+            var container = document.getElementById('modal-grant-list');
+            if(!container) return;
+            container.innerHTML = '';
+            if (!list || list.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:2rem; color:#94a3b8;">No grants</div>';
+                return;
+            }
+            list.forEach(function(g) {
+                var item = document.createElement('div');
+                item.style.padding = '0.75rem 0';
+                item.style.borderBottom = '1px solid #f1f5f9';
+                item.style.display = 'flex';
+                item.style.justifyContent = 'space-between';
+                item.style.alignItems = 'center';
+
+                var left = document.createElement('div');
+                left.className = 'item-title';
+                left.innerText = g.service_name || '';
+                var sub = document.createElement('div');
+                sub.className = 'item-sub';
+                var s_limit = g.seat_limit == null ? '無制限' : g.seat_limit + '枠';
+                var fmt = function(ts) { return new Date(ts*1000).toLocaleDateString(); };
+                sub.innerText = s_limit + ' (' + fmt(g.valid_from) + ' - ' + fmt(g.valid_to) + ')';
+                left.appendChild(sub);
+
+                var right = document.createElement('div');
+                var btnRemove = document.createElement('button');
+                btnRemove.type = 'button';
+                btnRemove.className = 'action-btn delete';
+                btnRemove.innerHTML = '<span class="material-symbols-outlined">delete</span>';
+                btnRemove.onclick = function() { window.removeGrant(g.id); };
+                right.appendChild(btnRemove);
+
+                item.appendChild(left);
+                item.appendChild(right);
+                container.appendChild(item);
+            });
         };
 
         window.addMembers = function() {
@@ -656,6 +720,7 @@ export const AccountGroupsPage = (props: Props) => {
                  <div class="${tabContainer}">
                      <button type="button" id="btn-tab-members" class="${tabBtn} active" onclick="switchTab('members')">${t.am_header_members}</button>
                      <button type="button" id="btn-tab-facilities" class="${tabBtn}" onclick="switchTab('facilities')">${t.am_section_facilities || '施設'}</button>
+                     <button type="button" id="btn-tab-grants" class="${tabBtn}" onclick="switchTab('grants')">利用枠</button>
                  </div>
 
                  <div id="tab-members" style="display:block;">
@@ -724,6 +789,35 @@ export const AccountGroupsPage = (props: Props) => {
 
                      <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">${t.am_section_facilities || '施設一覧'}</h4>
                      <div id="modal-facility-list"></div>
+                 </div>
+
+                 <div id="tab-grants" style="display:none;">
+                     <div class="${addFormCard}">
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">契約 (Contract)</label>
+                           <select id="g-contract-id" class="${dateInput}" style="margin-bottom:0;">
+                             ${(props.contracts || []).map(c => html`<option value="${c.id}">${c.service_name} (${c.group_name}向け)</option>`)}
+                           </select>
+                        </div>
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">配分枠数 (Seat Limit) ※空白で無制限</label>
+                           <input type="number" id="g-seat-limit" class="${dateInput}" placeholder="10" />
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                             <div>
+                                  <label class="${formLabel}">${t.label_valid_from}</label>
+                                  <input type="date" id="g-valid-from" class="${dateInput}" value="${new Date().toISOString().split('T')[0]}" />
+                             </div>
+                             <div>
+                                 <label class="${formLabel}">${t.label_valid_to}</label>
+                                 <input type="date" id="g-valid-to" class="${dateInput}" value="${new Date(Date.now()+31536000000).toISOString().split('T')[0]}" />
+                             </div>
+                        </div>
+                        ${Button({ onclick: "addGrant()", children: html`<span class="material-symbols-outlined">add</span> <span>追加</span>` })}
+                     </div>
+
+                     <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">利用枠一覧</h4>
+                     <div id="modal-grant-list"></div>
                  </div>
             `
           })}
