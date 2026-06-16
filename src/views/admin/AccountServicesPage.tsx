@@ -1,9 +1,11 @@
-import { html } from 'hono/html'
+import { html, raw } from 'hono/html'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
-import { Group, ServiceProvider, Service, ServiceContract, SystemConfig } from '../../types'
+import { Group, ServiceProvider, Service, ServiceContract, SystemConfig, App } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
+import { ServiceAppsModal } from '../components/ServiceAppsModal'
+import { RejectReasonModal, RejectReasonModalScript } from '../components/RejectReasonModal'
 import {
   amListGrid, amListCard, amItemTitle, amItemSub, amFormLabel, amBadge,
   amEmpty, amSectionHead, amDeleteForm, todayStr, plusYearStr,
@@ -18,6 +20,7 @@ interface Props {
   services: (Service & { provider_name?: string; owner_group_name?: string | null; app_names?: string | null; app_ids?: string | null })[]
   contracts: (ServiceContract & { service_name?: string; provider_name?: string; group_name?: string })[]
   groups: Group[]
+  apps: App[]
 }
 
 // アカウントマネージャ: サービスマスタ(ゲート①)。
@@ -28,6 +31,14 @@ export const AccountServicesPage = (props: Props) => {
   // サービス選択肢の表示(「サービス名（提供企業名）」)。
   const serviceLabel = (s: { name: string; provider_name?: string }) =>
     t.am_service_of_provider.replace('{service}', s.name).replace('{provider}', s.provider_name || '')
+
+  const servicesData = props.services.map(s => {
+    const ids = (s.app_ids || '').split(',').filter(Boolean);
+    const names = (s.app_names || '').split(',').filter(Boolean).map(n => n.trim());
+    const apps = ids.map((id, i) => ({ id, name: names[i] || id }));
+    return { id: s.id, name: s.name, apps };
+  });
+  const allAppsData = props.apps.map(a => ({ id: a.id, name: a.name, group_name: (a as any).group_name }));
 
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-services',
@@ -89,10 +100,15 @@ export const AccountServicesPage = (props: Props) => {
                     <input type="hidden" name="expected_apps" value="${s.app_ids || ''}" />
                     <button type="submit" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_approve}</button>
                   </form>
-                  <form method="POST" action="/admin/am/services/reject" style="margin:0;" onsubmit="return confirm('${t.confirm_reject_service}');">
-                    <input type="hidden" name="id" value="${s.id}" />
-                    <button type="submit" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_reject}</button>
-                  </form>` : ''}
+                  <button type="button" onclick="openRejectModal('/admin/am/services/reject', '${s.id}', '${s.app_ids || ''}')" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_reject}</button>
+                ` : ''}
+                ${(!s.status || s.status === 'active') ? Button({
+                  type: 'button',
+                  variant: 'outline',
+                  style: 'padding:0.4rem 0.8rem; font-size:0.85rem; height:auto; border-radius:8px; margin:0;',
+                  onclick: `manageServiceApps('${s.id}')`,
+                  children: html`<span class="material-symbols-outlined" style="font-size:16px;">apps</span> アプリ管理`
+                }) : ''}
                 ${amDeleteForm('/admin/am/services/delete', s.id, t.am_confirm_delete_service, t.delete)}
               </div>
             </div>`)}
@@ -170,6 +186,25 @@ export const AccountServicesPage = (props: Props) => {
             <div style="margin-top:1rem;">${Button({ type: 'submit', children: t.save })}</div>
           </form>`,
       })}
+
+      ${ServiceAppsModal(t, '/admin/api')}
+      ${RejectReasonModal()}
+
+      <script type="application/json" id="am-services-data">${raw(JSON.stringify(servicesData))}</script>
+      <script type="application/json" id="am-all-apps-data">${raw(JSON.stringify(allAppsData))}</script>
+      <script>
+        ${raw(RejectReasonModalScript)}
+        
+        function manageServiceApps(serviceId) {
+          var services = JSON.parse(document.getElementById('am-services-data').textContent || '[]');
+          var allApps = JSON.parse(document.getElementById('am-all-apps-data').textContent || '[]');
+          var s = services.find(function(x) { return x.id === serviceId; });
+          if (!s) return;
+          if (window.openServiceAppsModal) {
+            window.openServiceAppsModal(encodeURIComponent(JSON.stringify(s)), allApps);
+          }
+        }
+      </script>
     `,
   })
 }

@@ -479,7 +479,7 @@ export const UsersPage = (props: Props) => {
           ${Modal({
             id: "invite-modal",
             title: t.header_invite,
-            closeAction: "this.closest('dialog').close()",
+            closeAction: "this.closest('.custom-modal').close()",
             children: html`
                   <form method="POST" action="/admin/invite">
                     <div class="grid-vertical">

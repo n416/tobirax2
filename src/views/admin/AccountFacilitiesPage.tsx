@@ -49,7 +49,7 @@ export const AccountFacilitiesPage = (props: Props) => {
       </div>
 
       ${Modal({
-        id: 'new-facility-modal', title: t.am_btn_add_facility, closeAction: "this.closest('dialog').close()",
+        id: 'new-facility-modal', title: t.am_btn_add_facility, closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <form method="POST" action="/admin/am/facilities">
             <label class="${amFormLabel}">${t.am_label_managing_group}</label>

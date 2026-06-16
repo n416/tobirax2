@@ -222,14 +222,14 @@ export const AccountPage = (props: Props) => {
         ${Modal({
           id: "disable-2fa-modal",
           title: html`<span style="color:#d97706; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.btn_disable_2fa}</span>`,
-          closeAction: "this.closest('dialog').close()",
+          closeAction: "this.closest('.custom-modal').close()",
           children: html`
             <form id="disable-2fa-form" method="POST" action="/user/2fa/disable" style="margin:0;">
               <div style="margin-bottom: 2rem;">
                 <p style="color:#475569; font-size:1rem; line-height:1.5;">${t.confirm_disable_2fa}</p>
               </div>
               <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                <button type="button" onclick="this.closest('dialog').close()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
+                <button type="button" onclick="this.closest('.custom-modal').close()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
                 <button type="submit" style="background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                   <span class="material-symbols-outlined" style="font-size:18px;">check</span> ${t.btn_disable_2fa}
                 </button>

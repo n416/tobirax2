@@ -138,7 +138,7 @@ export const AccountAssignmentsPage = (props: Props) => {
       </article>
 
       ${Modal({
-        id: 'new-role-modal', title: t.am_btn_add_role, closeAction: "this.closest('dialog').close()",
+        id: 'new-role-modal', title: t.am_btn_add_role, closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <form method="POST" action="/admin/am/roles">
             <label class="${amFormLabel}">${t.am_label_role_service}</label>
@@ -162,7 +162,7 @@ export const AccountAssignmentsPage = (props: Props) => {
       })}
 
       ${Modal({
-        id: 'new-assignment-modal', title: t.am_btn_add_assignment, closeAction: "this.closest('dialog').close()",
+        id: 'new-assignment-modal', title: t.am_btn_add_assignment, closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <form method="POST" action="/admin/am/assignments">
             <label class="${amFormLabel}">${t.am_label_assign_user}</label>

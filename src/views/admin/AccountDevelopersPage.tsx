@@ -3,6 +3,7 @@ import { css } from 'hono/css'
 import { dict } from '../../i18n'
 import { Layout } from './Layout'
 import { Modal } from '../components/Modal'
+import { amListGrid, amListCard, amItemTitle, amItemSub, amEmpty, amApproveBtn, amRejectBtn } from './amShared'
 
 
 interface DeveloperApplication {
@@ -133,64 +134,73 @@ export const AccountDevelopersPage = (props: Props) => {
         <p style="font-size:0.95rem; color:var(--text-sub);">各グループの開発者権限の申請を審査します。</p>
       </div>
 
-      <div class="${card}">
-        <div class="${tableWrap}">
-          <table>
-            <thead>
-              <tr>
-                <th style="text-align:left; width:25%;">ユーザー</th>
-                <th style="text-align:left; width:20%;">対象グループ</th>
-                <th style="text-align:left; width:15%;">ステータス</th>
-                <th style="text-align:left;">申請理由</th>
-                <th style="width:100px;"></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${applications.length === 0 ? html`
-                <tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:2rem;">申請はありません</td></tr>
-              ` : applications.map(a => html`
-                <tr>
-                  <td style="text-align:left;">
-                    <div style="font-weight:600; color:var(--text-main);">${a.user_name || a.email}</div>
-                    <div style="font-size:0.8rem; color:var(--text-sub);">${a.email}</div>
-                  </td>
-                  <td style="text-align:left;">
-                    <div style="font-weight:600; color:var(--text-main);">${a.group_name}</div>
-                    <div style="font-size:0.75rem; color:var(--text-sub); font-family:monospace;">${a.group_id}</div>
-                  </td>
-                  <td style="text-align:left;">${statusBadge(a.status)}</td>
-                  <td style="text-align:left;">
-                    <div style="font-size:0.85rem; color:var(--text-sub); max-width:300px; background:rgba(0,0,0,0.02); padding:0.6rem; border-radius:6px; line-height:1.4;">
-                      <div style="font-size:0.75rem; color:#64748b; font-weight:600; margin-bottom:0.2rem;">申請理由:</div>
-                      <div style="white-space:pre-wrap; margin-bottom: ${a.admin_reason ? '0.6rem' : '0'};">${a.reason || '(理由なし)'}</div>
-                      ${a.admin_reason ? html`
-                        <div style="font-size:0.75rem; color:#64748b; font-weight:600; margin-bottom:0.2rem; border-top:1px dashed #cbd5e1; padding-top:0.6rem;">管理者事由:</div>
-                        <div style="color:${a.status === 'approved' ? 'inherit' : '#b91c1c'}; white-space:pre-wrap;">${a.admin_reason}</div>
-                      ` : ''}
-                    </div>
-                  </td>
-                  <td style="text-align:right;">
-                    ${a.status === 'pending' ? html`
-                      <button type="button" title="承認" onclick="approveRequest('${a.user_id}', '${a.group_id}')" class="${actionBtn}" style="color:#16a34a !important; margin-right:0.25rem;" onmouseover="this.style.background='#f0fdf4';this.style.color='#15803d';" onmouseout="this.style.background='transparent';">
-                        <span class="material-symbols-outlined">check_circle</span>
-                      </button>
-                      <button type="button" title="却下" onclick="openRejectModal('${a.user_id}', '${a.group_id}')" class="${actionBtn}" style="color:#ef4444 !important;" onmouseover="this.style.background='#fef2f2';this.style.color='#b91c1c';" onmouseout="this.style.background='transparent';">
-                        <span class="material-symbols-outlined">cancel</span>
-                      </button>
-                    ` : html`
-                      <span style="font-size:0.8rem; color:#94a3b8; margin-right:0.5rem;">審査済</span>
-                      ${a.status === 'approved' ? html`
-                        <button type="button" title="権限はく奪" onclick="openRevokeModal('${a.user_id}', '${a.group_id}')" class="${actionBtn}" style="color:#64748b !important;" onmouseover="this.style.background='#f1f5f9';this.style.color='#0f172a';" onmouseout="this.style.background='transparent';">
-                          <span class="material-symbols-outlined">person_remove</span>
-                        </button>
-                      ` : ''}
-                    `}
-                  </td>
-                </tr>
-              `)}
-            </tbody>
-          </table>
-        </div>
+      <div class="${amListGrid}">
+        ${applications.length === 0 ? amEmpty('申請はありません') : ''}
+        ${applications.map(a => html`
+          <div class="${amListCard}" style="flex-direction:column; align-items:stretch; gap:1.25rem;">
+            <!-- Header (User, Badges, Buttons) -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem;">
+              <div style="display:flex; align-items:center; gap:1rem;">
+                <div style="width:40px; height:40px; border-radius:50%; background:#f1f5f9; color:#64748b; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <span class="material-symbols-outlined">person</span>
+                </div>
+                <div>
+                  <div class="${amItemTitle}" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.2rem;">
+                    ${a.user_name || a.email}
+                    ${statusBadge(a.status)}
+                  </div>
+                  <div class="${amItemSub}" style="display:flex; align-items:center; gap:0.25rem;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">mail</span>${a.email}
+                  </div>
+                </div>
+              </div>
+
+              <!-- Buttons -->
+              <div style="display:flex; gap:0.5rem; flex-wrap:nowrap; justify-content:flex-end;">
+                ${a.status === 'pending' ? html`
+                  ${amRejectBtn('却下', `openRejectModal('${a.user_id}', '${a.group_id}')`)}
+                  ${amApproveBtn('承認', `approveRequest('${a.user_id}', '${a.group_id}')`)}
+                ` : html`
+                  ${a.status === 'approved' ? html`
+                    <button type="button" title="権限はく奪" onclick="openRevokeModal('${a.user_id}', '${a.group_id}')" style="background:#fff; color:#64748b; border:1px solid #e2e8f0; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.02); display:inline-flex; align-items:center; gap:0.4rem; white-space:nowrap;" onmouseover="this.style.background='#f1f5f9'; this.style.color='#0f172a';" onmouseout="this.style.background='#fff'; this.style.color='#64748b';">
+                      <span class="material-symbols-outlined" style="font-size:18px;">person_remove</span> 権限はく奪
+                    </button>
+                  ` : ''}
+                `}
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div style="height:1px; background:#e2e8f0; width:100%;"></div>
+
+            <!-- Group & Reason -->
+            <div style="display:flex; flex-wrap:wrap; gap:1.5rem;">
+              <!-- Group -->
+              <div style="flex:1; min-width:200px;">
+                <div style="font-size:0.75rem; color:#94a3b8; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.4rem;">対象グループ</div>
+                <div class="${amItemTitle}" style="font-size:0.95rem; margin-bottom:0.2rem; display:flex; align-items:center; gap:0.25rem;">
+                  <span class="material-symbols-outlined" style="font-size:18px; color:#64748b;">corporate_fare</span> ${a.group_name}
+                </div>
+                <div class="${amItemSub}" style="font-family:monospace; padding-left:1.5rem;">${a.group_id}</div>
+              </div>
+
+              <!-- Reason -->
+              <div style="flex:2; min-width:250px; background:#f8fafc; border:1px solid #e2e8f0; padding:1rem; border-radius:8px;">
+                <div style="font-size:0.75rem; color:#64748b; font-weight:700; margin-bottom:0.5rem; display:flex; align-items:center; gap:0.25rem;">
+                  <span class="material-symbols-outlined" style="font-size:16px;">chat</span>申請理由
+                </div>
+                <div style="font-size:0.9rem; color:#334155; line-height:1.6; white-space:pre-wrap; word-break:break-word;">${a.reason || html`<span style="color:#94a3b8;font-style:italic;">(理由なし)</span>`}</div>
+                
+                ${a.admin_reason ? html`
+                  <div style="font-size:0.75rem; color:#64748b; font-weight:700; margin-top:1rem; padding-top:1rem; border-top:1px dashed #cbd5e1; margin-bottom:0.5rem; display:flex; align-items:center; gap:0.25rem;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">admin_panel_settings</span>管理者事由
+                  </div>
+                  <div style="font-size:0.9rem; color:${a.status === 'approved' ? '#334155' : '#b91c1c'}; white-space:pre-wrap; word-break:break-word; font-weight:${a.status === 'rejected' ? '600' : 'normal'}; line-height:1.6;">${a.admin_reason}</div>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `)}
       </div>
       
       ${Modal({

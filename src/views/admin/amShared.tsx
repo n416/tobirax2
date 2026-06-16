@@ -66,3 +66,21 @@ export const plusYearStr = (n: number) => {
   const d = new Date(); d.setFullYear(d.getFullYear() + n)
   return d.toISOString().split('T')[0]
 }
+
+export const amApproveBtn = (title: string, onclick?: string) => html`
+  <button ${onclick ? html`type="button" onclick="${onclick}"` : html`type="submit"`} 
+    style="display:inline-flex; align-items:center; justify-content:center; gap:0.4rem; background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:background 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.05); white-space:nowrap;"
+    onmouseover="this.style.background='#15803d';" onmouseout="this.style.background='#16a34a';" title="${title}">
+    <span class="material-symbols-outlined" style="font-size:18px;">check_circle</span>
+    ${title}
+  </button>
+`
+
+export const amRejectBtn = (title: string, onclick?: string) => html`
+  <button ${onclick ? html`type="button" onclick="${onclick}"` : html`type="submit"`} 
+    style="display:inline-flex; align-items:center; justify-content:center; gap:0.4rem; background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.02); white-space:nowrap;"
+    onmouseover="this.style.background='#fef2f2'; this.style.borderColor='#f87171';" onmouseout="this.style.background='#fff'; this.style.borderColor='#fecaca';" title="${title}">
+    <span class="material-symbols-outlined" style="font-size:18px;">cancel</span>
+    ${title}
+  </button>
+`

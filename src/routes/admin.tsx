@@ -182,9 +182,11 @@ adminRouter.post('/admin/apps/approve', async (c) => {
 adminRouter.post('/admin/apps/reject', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
-    const id = (await c.req.parseBody())['id'] as string
-    await c.env.DB.prepare("UPDATE apps SET status = 'rejected' WHERE id = ? AND status = 'pending'").bind(id).run()
-    await logAudit(c, 'APP_REJECTED', { key: 'log_app_updated', params: { appName: id, status: 'rejected', admin: user.email } })
+    const body = await c.req.parseBody()
+    const id = body['id'] as string
+    const reason = (body['reason'] as string) || ''
+    await c.env.DB.prepare("UPDATE apps SET status = 'rejected', reason = ? WHERE id = ? AND status = 'pending'").bind(reason, id).run()
+    await logAudit(c, 'APP_REJECTED', { key: 'log_app_updated', params: { appName: id, status: 'rejected', reason: reason, admin: user.email } })
     return c.redirect('/admin/apps')
 })
 
@@ -597,8 +599,45 @@ adminRouter.get('/admin/am/services', async (c) => {
         LEFT JOIN groups g ON ct.customer_group_id = g.id
         ORDER BY ct.valid_from DESC`).all()
     const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+    const allApps = await c.env.DB.prepare(`
+        SELECT a.*, g.name AS group_name 
+        FROM apps a 
+        LEFT JOIN groups g ON a.owner_group_id = g.id 
+        WHERE a.status = 'active' ORDER BY a.name
+    `).all()
     return c.html(<AccountServicesPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        providers={providers.results as any} services={services.results as any} contracts={contracts.results as any} groups={groups.results as any} />)
+        providers={providers.results as any} services={services.results as any} contracts={contracts.results as any} groups={groups.results as any} apps={allApps.results as any} />)
+})
+
+adminRouter.post('/admin/api/service/app/add', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const serviceId = (body['service_id'] as string) || ''
+    const appId = (body['app_id'] as string) || ''
+    const now = Math.floor(Date.now() / 1000)
+    try {
+        await c.env.DB.prepare('INSERT INTO service_apps (service_id, app_id, created_at) VALUES (?, ?, ?)')
+            .bind(serviceId, appId, now).run()
+        const details = JSON.stringify({ key: 'log_service_app_add', params: { service: serviceId, app: appId, admin: user.email } });
+        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SERVICE_APP_ADD', details).run()
+        return c.json({ success: true })
+    } catch (e: any) {
+        if (e.message.includes('UNIQUE')) return c.json({ success: true }) // 既に紐づいている
+        return c.json({ error: e.message }, 500)
+    }
+})
+
+adminRouter.post('/admin/api/service/app/remove', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const serviceId = (body['service_id'] as string) || ''
+    const appId = (body['app_id'] as string) || ''
+    await c.env.DB.prepare('DELETE FROM service_apps WHERE service_id = ? AND app_id = ?').bind(serviceId, appId).run()
+    const details = JSON.stringify({ key: 'log_service_app_remove', params: { service: serviceId, app: appId, admin: user.email } });
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SERVICE_APP_REMOVE', details).run()
+    return c.json({ success: true })
 })
 adminRouter.post('/admin/am/providers', async (c) => {
     const user = await getAdmin(c)
@@ -662,9 +701,22 @@ adminRouter.post('/admin/am/services/approve', async (c) => {
 adminRouter.post('/admin/am/services/reject', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
-    const id = (await c.req.parseBody())['id'] as string
-    await c.env.DB.prepare("UPDATE services SET status = 'rejected' WHERE id = ? AND status = 'pending'").bind(id).run()
-    await logAudit(c, 'SERVICE_REJECTED', { key: 'log_service_delete', params: { id, admin: user.email } })
+    const body = await c.req.parseBody()
+    const id = body['id'] as string
+    const reason = (body['reason'] as string) || ''
+    
+    // 構成変更チェック(TOCTOU対策)
+    const expectedAppsRaw = (body['expected_apps'] as string) || ''
+    const expectedApps = expectedAppsRaw.split(',').filter(Boolean).sort().join(',')
+    const currentAppsRows = await c.env.DB.prepare('SELECT app_id FROM service_apps WHERE service_id = ? ORDER BY app_id').bind(id).all()
+    const currentApps = currentAppsRows.results.map((r: any) => r.app_id).sort().join(',')
+    
+    if (expectedApps !== currentApps) {
+        return c.text('Error: The service composition has changed since you opened this page. Please return to the previous page, refresh, and review again.', 409)
+    }
+
+    await c.env.DB.prepare("UPDATE services SET status = 'rejected', reason = ? WHERE id = ? AND status = 'pending'").bind(reason, id).run()
+    await logAudit(c, 'SERVICE_REJECTED', { key: 'log_service_delete', params: { id, reason, admin: user.email } })
     return c.redirect('/admin/am/services')
 })
 adminRouter.post('/admin/am/services/delete', async (c) => {

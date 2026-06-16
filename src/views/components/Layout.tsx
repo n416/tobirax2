@@ -1,5 +1,6 @@
 import { html } from 'hono/html'
 import { Style, css } from 'hono/css'
+import { filterSelectGlobalStyles, FilterSelectScript } from './FilterSelect'
 
 interface LayoutProps {
   title: string
@@ -113,6 +114,7 @@ export const Layout = (props: LayoutProps) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${props.title} - ${siteName}</title>
+      <link rel="icon" href="data:,">
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
@@ -121,6 +123,8 @@ export const Layout = (props: LayoutProps) => {
       <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
       ${globalStyles}
       ${utils}
+      ${filterSelectGlobalStyles}
+      ${FilterSelectScript}
       ${Style()} 
     </head>
     <body>

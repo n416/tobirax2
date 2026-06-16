@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS apps (
     -- 'active'(稼働) / 'inactive'(停止) / 'pending'(グループ管理者の登録申請待ち) /
     -- 'rejected'(却下)。'active' 以外は checkPermission で利用不可・ダッシュボード非表示。
     status TEXT DEFAULT 'active',
+    reason TEXT,
     icon_url TEXT,
     description TEXT,
     created_at INTEGER NOT NULL,
@@ -214,8 +215,9 @@ CREATE TABLE IF NOT EXISTS services (
     -- 刻み、提供企業は ensureGroupProvider でグループ名のダミー企業を自動採番する。
     owner_group_id TEXT REFERENCES groups(id),
     -- 'active'(承認済み/稼働) / 'pending'(承認待ち) / 'rejected'(却下)。
-    -- グループ管理者が作ったサービスは pending で始まり、運営者の承認で active になる。
-    status TEXT DEFAULT 'active'
+    -- グループ管理者が作成したサービスは pending で始まり、運営者の承認で active になる。
+    status TEXT DEFAULT 'active',
+    reason TEXT
 );
 
 -- 【サービス構成】サービス ―*:*― アプリ。承認済みアプリをサービスへ組み込む(多対多)。

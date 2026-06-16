@@ -466,7 +466,7 @@ export const AccountGroupsPage = (props: Props) => {
           ${Modal({
             id: "new-group-modal",
             title: t.am_header_new_group,
-            closeAction: "this.closest('dialog').close()",
+            closeAction: "this.closest('.custom-modal').close()",
             children: html`
                   <form method="POST" action="/admin/am/groups">
                     <div class="grid-vertical">

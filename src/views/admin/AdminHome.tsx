@@ -2,6 +2,8 @@ import { html } from 'hono/html'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
 import { SystemConfig } from '../../types'
+import { amListGrid, amListCard } from './amShared'
+import { Button } from '../components/Button'
 
 interface Props {
   t: typeof dict.en
@@ -20,41 +22,41 @@ export const AdminHome = (props: Props) => {
     siteName: props.siteName,
     appConfig: props.appConfig,
     children: html`
-      <hgroup>
-        <h2>${t.title_dashboard}</h2>
-        <h3>${t.welcome}</h3>
-      </hgroup>
+      <div style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.5rem; font-weight: 700; color: #1e293b; margin: 0 0 0.5rem 0;">${t.title_dashboard}</h2>
+        <h3 style="font-size: 1rem; font-weight: 400; color: #64748b; margin: 0;">${t.welcome}</h3>
+      </div>
 
-      <div class="grid">
-        <article>
-            <header><strong>${t.stat_apps}</strong></header>
-            <div style="font-size: 2.5rem; text-align: center; color: #0288d1;">
+      <div class="${amListGrid}">
+        <div class="${amListCard}" style="display:flex; flex-direction:column; align-items:center; padding: 2rem;">
+            <div style="font-weight:700; color:#334155; margin-bottom:1rem;">${t.stat_apps}</div>
+            <div style="font-size: 3rem; font-weight: 800; color: #0288d1; margin-bottom: 1.5rem; line-height:1;">
                 ${props.stats.apps}
             </div>
-            <footer style="text-align:center">
-                <a href="/admin/apps" role="button" class="outline">${t.nav_apps}</a>
-            </footer>
-        </article>
+            <div style="width:100%;">
+                ${Button({ variant: 'outline', onclick: "window.location.href='/admin/apps'", children: t.nav_apps })}
+            </div>
+        </div>
         
-        <article>
-            <header><strong>${t.stat_users}</strong></header>
-            <div style="font-size: 2.5rem; text-align: center; color: #43a047;">
+        <div class="${amListCard}" style="display:flex; flex-direction:column; align-items:center; padding: 2rem;">
+            <div style="font-weight:700; color:#334155; margin-bottom:1rem;">${t.stat_users}</div>
+            <div style="font-size: 3rem; font-weight: 800; color: #43a047; margin-bottom: 1.5rem; line-height:1;">
                 ${props.stats.users}
             </div>
-            <footer style="text-align:center">
-                <a href="/admin/users" role="button" class="outline">${t.nav_users}</a>
-            </footer>
-        </article>
+            <div style="width:100%;">
+                ${Button({ variant: 'outline', onclick: "window.location.href='/admin/users'", children: t.nav_users })}
+            </div>
+        </div>
         
-        <article>
-            <header><strong>${t.stat_logs}</strong></header>
-            <div style="font-size: 2.5rem; text-align: center; color: #fb8c00;">
+        <div class="${amListCard}" style="display:flex; flex-direction:column; align-items:center; padding: 2rem;">
+            <div style="font-weight:700; color:#334155; margin-bottom:1rem;">${t.stat_logs}</div>
+            <div style="font-size: 3rem; font-weight: 800; color: #fb8c00; margin-bottom: 1.5rem; line-height:1;">
                 ${props.stats.logs}
             </div>
-            <footer style="text-align:center">
-                <a href="/admin/logs" role="button" class="outline">${t.nav_logs}</a>
-            </footer>
-        </article>
+            <div style="width:100%;">
+                ${Button({ variant: 'outline', onclick: "window.location.href='/admin/logs'", children: t.nav_logs })}
+            </div>
+        </div>
       </div>
     `
   })

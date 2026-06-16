@@ -208,7 +208,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
 
     for (const gid of groupIds) {
         const { results: svcRows } = await c.env.DB.prepare(
-            'SELECT id, name, status FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
+            'SELECT id, name, status, reason FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
         ).bind(gid).all()
         // 各サービスに組み込み済みのアプリ(id, name)を付ける。
         for (const s of (svcRows as any[])) {
@@ -220,7 +220,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
         }
         servicesByGroup[gid] = svcRows || []
         const { results: appRows } = await c.env.DB.prepare(`
-            SELECT id, name, base_url, status FROM apps
+            SELECT id, name, base_url, status, reason FROM apps
             WHERE owner_group_id = ? ORDER BY created_at DESC
         `).bind(gid).all()
         appsByGroup[gid] = appRows || []
@@ -417,6 +417,21 @@ groupAdminRouter.post('/group-admin/api/service/delete', async (c) => {
     await c.env.DB.prepare('DELETE FROM service_apps WHERE service_id = ?').bind(id).run()
     await deleteServiceCascade(c, id)
     await logAudit(c, 'DELEGATED_SERVICE_DELETE', { key: 'log_service_delete', params: { id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// 自グループの却下されたサービスを再申請する
+groupAdminRouter.post('/group-admin/api/service/reapply', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const id = (await c.req.json())['id'] as string
+    const row = await c.env.DB.prepare('SELECT owner_group_id, status FROM services WHERE id = ?').bind(id).first() as { owner_group_id: string | null, status: string } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    if (row.status !== 'rejected') return c.json({ error: 'Can only reapply rejected services' }, 400)
+    await c.env.DB.prepare("UPDATE services SET status = 'pending' WHERE id = ?").bind(id).run()
+    await logAudit(c, 'DELEGATED_SERVICE_REAPPLY', { key: 'log_service_update', params: { id, status: 'pending', admin: user.email } })
     return c.json({ success: true })
 })
 

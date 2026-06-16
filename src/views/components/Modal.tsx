@@ -17,22 +17,23 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
     `
 
     const dialogClass = css`
-        background: transparent;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(4px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
         padding: 0;
         border: none;
-        z-index: 1000;
-        max-width: 100%;
-        max-height: 100%;
-        /* showModal() の中央寄せはブラウザ既定の margin:auto に依存する。
-           ユーザー向け Layout の "* { margin: 0 }" がそれを打ち消して左上に寄るため、
-           ここで明示的に中央寄せを復活させる(共通部品なので全モーダルに効く)。 */
-        margin: auto;
-
-        &::backdrop {
-            background: rgba(15, 23, 42, 0.4);
-            backdrop-filter: blur(4px);
-        }
         
+        &.open {
+            display: flex;
+        }
+
         & > article {
             background: rgba(255, 255, 255, 0.98) !important;
             border: 1px solid rgba(226, 232, 240, 0.8);
@@ -41,7 +42,7 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
             
             width: min(750px, 95vw) !important;
             max-width: 750px !important;
-            margin: 2rem auto; 
+            margin: auto; 
             padding: 0 !important; 
             
             overflow: hidden; 
@@ -50,6 +51,7 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
             position: relative;
             display: flex;
             flex-direction: column;
+            max-height: 95vh;
         }
 
         & form { margin-bottom: 0; }
@@ -108,7 +110,7 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
     `
 
     return html`
-    <dialog id="${id}" class="${dialogClass}" 
+    <div id="${id}" class="${dialogClass} custom-modal" 
         onmousedown="this.dataset.md=(event.target===this)" 
         onclick="if(event.target===this && this.dataset.md==='true') { ${closeAction} }">
         <article>
@@ -126,6 +128,16 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
                 ${children}
             </div>
         </article>
-    </dialog>
+    </div>
+    <script>
+      (function(){
+        var el = document.getElementById('${id}');
+        if (el && !el.showModal) {
+          el.showModal = function() { this.classList.add('open'); };
+          el.close = function() { this.classList.remove('open'); };
+          Object.defineProperty(el, 'open', { get: function() { return this.classList.contains('open'); }, configurable: true });
+        }
+      })();
+    </script>
     `
 }

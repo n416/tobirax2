@@ -3,6 +3,7 @@ import { css, Style } from 'hono/css'
 import { dict } from '../../i18n'
 import { SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
+import { filterSelectGlobalStyles, FilterSelectScript } from '../components/FilterSelect'
 import { Button } from '../components/Button'
 
 interface LayoutProps {
@@ -179,6 +180,7 @@ export const Layout = (props: LayoutProps) => {
     const globalOverrides = html`
       <style>
         :root { --primary: #4f46e5; --primary-hover: #4338ca; --text-main: #0f172a; --text-sub: #64748b; }
+        * { box-sizing: border-box; }
         address, blockquote, dl, figure, form, ol, p, pre, table, ul { margin-bottom: 0; }
         body { font-family: 'Inter', sans-serif; min-height: 100vh; background: linear-gradient(135deg, #f0f4ff 0%, #c7d2fe 50%, #e0e7ff 100%); background-size: 200% 200%; animation: gradient-animation 15s ease infinite; color: var(--text-main); margin: 0; padding: 0; }
         button, input, select, textarea { font-family: inherit; }
@@ -191,8 +193,8 @@ export const Layout = (props: LayoutProps) => {
         button:active { transform: translateY(0); }
         button.contrast, button.secondary, button.outline { background: transparent !important; border: 1px solid #cbd5e1; color: var(--text-sub); box-shadow: none; }
         button.contrast:hover, button.secondary:hover, button.outline:hover { background: rgba(255, 255, 255, 0.5) !important; color: var(--primary); border-color: var(--primary); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-        input:not([type="checkbox"]):not([type="radio"]), select { width: 100%; padding: 0.8rem 1rem; margin-bottom: 0; border: 1px solid #cbd5e1 !important; background-color: rgba(255, 255, 255, 0.9) !important; border-radius: 12px !important; font-size: 1rem; color: var(--text-main); transition: all 0.3s ease; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
-        input:not([type="checkbox"]):not([type="radio"]):focus, select:focus { background-color: #fff !important; border-color: var(--primary) !important; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1) !important; outline: none; }
+        input:not([type="checkbox"]):not([type="radio"]):not([role="combobox"]), select:not(.tomselected) { width: 100%; padding: 0.8rem 1rem; margin-bottom: 0; border: 1px solid #cbd5e1; background-color: rgba(255, 255, 255, 0.9); border-radius: 12px; font-size: 1rem; color: var(--text-main); transition: all 0.3s ease; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+        input:not([type="checkbox"]):not([type="radio"]):not([role="combobox"]):focus, select:not(.tomselected):focus { background-color: #fff; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1); outline: none; }
         table { border-collapse: separate; border-spacing: 0 0.5rem; }
         th { border-bottom: none; color: var(--text-sub); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.5rem 1rem; }
         td { background: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.5); border-bottom: 1px solid rgba(255,255,255,0.5); padding: 1rem; vertical-align: middle; }
@@ -212,14 +214,16 @@ export const Layout = (props: LayoutProps) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${t.tobira_admin}</title>
+      <link rel="icon" href="data:,">
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-      <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css" rel="stylesheet">
+      <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.default.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
       ${globalOverrides}
+      ${filterSelectGlobalStyles}
+      ${FilterSelectScript}
       ${Style()}
     </head>
     <body>
@@ -267,7 +271,7 @@ export const Layout = (props: LayoutProps) => {
       ${Modal({
         id: "config-modal",
         title: t.config_change_name,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
             <form method="POST" action="/admin/config">
                 <div class="grid-vertical" style="display:flex; flex-direction:column; gap:1.5rem;">

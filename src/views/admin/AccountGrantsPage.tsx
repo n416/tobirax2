@@ -58,7 +58,7 @@ export const AccountGrantsPage = (props: Props) => {
       </div>
 
       ${Modal({
-        id: 'new-grant-modal', title: t.am_btn_add_grant, closeAction: "this.closest('dialog').close()",
+        id: 'new-grant-modal', title: t.am_btn_add_grant, closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <form method="POST" action="/admin/am/grants">
             <label class="${amFormLabel}">${t.am_label_grant_group}</label>

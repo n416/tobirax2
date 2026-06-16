@@ -7,6 +7,7 @@ import { Group, App } from '../types'
 import { Button } from './components/Button'
 import { Modal } from './components/Modal'
 import { MultiSelect } from './components/MultiSelect'
+import { ServiceAppsModal } from './components/ServiceAppsModal'
 
 interface ManagedGroup extends Group {
   member_count: number
@@ -145,6 +146,8 @@ export const GroupAdminPage = (props: Props) => {
     }
     & button:hover { background: rgba(255,255,255,0.7) !important; color: var(--primary); }
     & button.active { background: #fff !important; color: var(--primary); box-shadow: 0 2px 6px -2px rgba(0,0,0,0.1) !important; }
+    input:not([type="checkbox"]):not([type="radio"]):not([role="combobox"]), select:not(.tomselected) { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; background: #fff; transition: all 0.2s; outline: none; }
+    input:not([type="checkbox"]):not([type="radio"]):not([role="combobox"]):focus, select:not(.tomselected):focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
   `
 
   const groupSelectWrapper = css`
@@ -391,8 +394,9 @@ export const GroupAdminPage = (props: Props) => {
           msgEl.innerText = message;
           pendingConfirmCallback = callback;
           execBtn.onclick = function() {
+            var cb = pendingConfirmCallback;
             closeConfirmModal();
-            if (pendingConfirmCallback) pendingConfirmCallback();
+            if (cb) cb();
           };
           modal.showModal();
         }
@@ -455,6 +459,16 @@ export const GroupAdminPage = (props: Props) => {
           .then(function(){ window.location.reload(); })
           .catch(function(e){ console.error('Error: ' + e.message); });
       };
+
+      window.manageServiceApps = function(serviceId, serviceNameEnc) {
+          var services = (servicesByGroup && servicesByGroup[currentGroupId]) ? servicesByGroup[currentGroupId] : [];
+          var s = services.find(function(x){ return x.id === serviceId; });
+          if (!s) return;
+          var availableApps = (approvedAppsByGroup && approvedAppsByGroup[currentGroupId]) ? approvedAppsByGroup[currentGroupId] : [];
+          if (window.openServiceAppsModal) {
+            window.openServiceAppsModal(encodeURIComponent(JSON.stringify(s)), availableApps);
+          }
+        };
 
       var currentManageRolesServiceId = null;
       window.manageRoles = function(serviceId, serviceNameEnc) {
@@ -827,13 +841,21 @@ export const GroupAdminPage = (props: Props) => {
             return '<span style="display:inline-flex;align-items:center;gap:0.25rem;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:999px;padding:2px 6px 2px 10px;font-size:0.78rem;margin:0 0.25rem 0.25rem 0;">' + a.name
               + (s.status !== 'active' ? '<button type="button" title="外す" onclick="removeServiceApp(\\'' + s.id + '\\',\\'' + a.id + '\\')" style="background:none;border:none;color:#6366f1;cursor:pointer;padding:0 2px;line-height:1;font-size:0.95rem;">×</button>' : '') + '</span>';
           }).join('') : '<span style="color:#cbd5e1;">—</span>';
+          
+          var reasonInfo = '';
+          if (s.status === 'rejected' && s.reason) {
+            reasonInfo = '<div style="margin-top:0.5rem; padding:0.5rem; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.8rem; color:#b91c1c;"><strong>却下事由:</strong> ' + s.reason.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br/>') + '</div>';
+          }
+          
           var encS = encodeURIComponent(JSON.stringify(s));
           return '<tr>'
             + '<td><strong>' + s.name + '</strong>'
             +   '<div style="font-size:0.75rem; color:#64748b; font-family:monospace; margin-top:2px;">' + s.id + '</div>'
             +   '<div style="margin-top:0.4rem;">' + chips + '</div>'
+            +   reasonInfo
             + '</td>'
             + '<td style="text-align:right;">'
+            +   (s.status === 'rejected' ? '<button type="button" onclick="reapplyService(\\'' + s.id + '\\')" style="background:#fff;border:1px solid #fecaca;color:#dc2626;cursor:pointer;padding:0.4rem 0.75rem;border-radius:6px;font-size:0.8rem;font-weight:600;margin-right:0.5rem;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';"><span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;margin-right:2px;">refresh</span>再申請</button>' : '')
             +   (s.status !== 'active' ? '<button type="button" onclick="manageServiceApps(\\'' + s.id + '\\', \\'' + encodeURIComponent(s.name) + '\\')" style="background:transparent;border:1px solid #cbd5e1;color:#4f46e5;cursor:pointer;padding:0.4rem 0.75rem;border-radius:6px;font-size:0.8rem;font-weight:600;margin-right:0.5rem;transition:all 0.2s;" onmouseover="this.style.background=\\'#eef2ff\\';this.style.borderColor=\\'#a5b4fc\\';"><span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;margin-right:2px;">settings_applications</span>' + (window.i18n.svcManageApps || 'アプリを組み込む') + '</button>' : '')
             +   '<button type="button" onclick="manageRoles(\\'' + s.id + '\\', \\'' + encodeURIComponent(s.name) + '\\')" style="background:transparent;border:1px solid #cbd5e1;color:#047857;cursor:pointer;padding:0.4rem 0.75rem;border-radius:6px;font-size:0.8rem;font-weight:600;margin-right:0.5rem;transition:all 0.2s;" onmouseover="this.style.background=\\'#d1fae5\\';this.style.borderColor=\\'#6ee7b7\\';"><span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;margin-right:2px;">manage_accounts</span>役割(ロール)を管理</button>'
             +   (s.status !== 'active' ? '<button type="button" title="削除" onclick="removeService(\\'' + s.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;transition:all 0.2s;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '')
@@ -867,55 +889,12 @@ export const GroupAdminPage = (props: Props) => {
             .catch(function(e){ console.error('Error: ' + e.message); });
         });
       };
-
-      // サービス構成: 承認済みアプリを組み込む/外す。
-      window.openServiceAppsModal = function(enc) {
-        var s = JSON.parse(decodeURIComponent(enc));
-        document.getElementById('sa-service-id').value = s.id;
-        document.getElementById('sa-service-name').textContent = s.name;
-        var composed = s.apps || [];
-        var composedIds = composed.map(function(a){ return a.id; });
-        // 組み込み済み一覧
-        var compEl = document.getElementById('sa-composed');
-        compEl.innerHTML = composed.length ? composed.map(function(a){
-          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:0.4rem;"><span>' + a.name + '</span>'
-            + '<button type="button" onclick="removeServiceApp(\\'' + s.id + '\\',\\'' + a.id + '\\')" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:0.85rem;">' + (window.i18n.btnRemove || '外す') + '</button></div>';
-        }).join('') : '<div style="color:#94a3b8;font-size:0.88rem;">' + (window.i18n.svcNoApps || '(まだ組み込まれていません)') + '</div>';
-        // 追加候補 = 自グループの承認済みアプリのうち未組み込みのもの
-        var approved = (approvedAppsByGroup && approvedAppsByGroup[currentGroupId]) ? approvedAppsByGroup[currentGroupId] : [];
-        var addable = approved.filter(function(a){ return composedIds.indexOf(a.id) === -1; });
-        var sel = document.getElementById('sa-app');
-        var html = '<option value="">' + (window.i18n.svcSelectApp || '承認済みアプリを選択') + '</option>';
-        addable.forEach(function(a){ html += '<option value="' + a.id + '">' + a.name + '</option>'; });
-        sel.innerHTML = html;
-        var warn = document.getElementById('sa-no-approved');
-        if (warn) warn.style.display = approved.length === 0 ? '' : 'none';
-        document.getElementById('service-apps-modal').showModal();
-      };
-      window.addServiceApp = function() {
-        var serviceId = (document.getElementById('sa-service-id')||{}).value;
-        var appId = (document.getElementById('sa-app')||{}).value;
-        if (!appId) { console.error(window.i18n.svcSelectApp || '承認済みアプリを選択'); return; }
-        fetch('/group-admin/api/service/app/add', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ service_id: serviceId, app_id: appId })
-        })
-        .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
-        .then(function(){ window.location.reload(); })
-        .catch(function(e){
-          if (e.message === 'app_not_approved') console.error(window.i18n.appNotApproved || '承認済みのアプリのみ組み込めます');
-          else console.error('Error: ' + e.message);
-        });
-      };
-      window.removeServiceApp = function(serviceId, appId) {
-        showConfirm(window.i18n.svcConfirmRemoveApp || '本当にこのアプリをサービスから外しますか？', function() {
-          fetch('/group-admin/api/service/app/remove', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ service_id: serviceId, app_id: appId })
-          })
-          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
-          .then(function(){ window.location.reload(); })
-          .catch(function(e){ console.error('Error: ' + e.message); });
+      window.reapplyService = function(id) {
+        showConfirm('このサービスを再度申請してよろしいですか？', function() {
+          fetch('/group-admin/api/service/reapply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) })
+            .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+            .then(function(){ window.location.reload(); })
+            .catch(function(e){ console.error('Error: ' + e.message); });
         });
       };
 
@@ -930,8 +909,12 @@ export const GroupAdminPage = (props: Props) => {
         }
         el.innerHTML = list.map(function(a) {
           var dataAttr = encodeURIComponent(JSON.stringify(a));
+          var reasonInfo = '';
+          if (a.status === 'rejected' && a.reason) {
+             reasonInfo = '<div style="margin-top:0.4rem; padding:0.5rem; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.75rem; color:#b91c1c;"><strong>却下事由:</strong> ' + a.reason.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br/>') + '<br/><span style="color:#ef4444; font-weight:bold;">※ 編集して保存すると自動的に再申請されます。</span></div>';
+          }
           return '<tr>'
-            + '<td><strong>' + a.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + a.id + '</div></td>'
+            + '<td><strong>' + a.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + a.id + '</div>' + reasonInfo + '</td>'
             + '<td>' + statusBadge(a.status) + '</td>'
             + '<td style="text-align:right; white-space:nowrap;">'
             +   '<button type="button" title="' + (a.status === 'active' ? '詳細' : '編集') + '" onclick="openAppEditModal(\\'' + dataAttr + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#f1f5f9\\';this.style.color=\\'#4f46e5\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">' + (a.status === 'active' ? 'visibility' : 'edit') + '</span></button>'
@@ -1264,23 +1247,12 @@ export const GroupAdminPage = (props: Props) => {
         `
       })}
 
-      ${Modal({
-        id: "custom-confirm-modal",
-        title: "確認",
-        closeAction: "closeConfirmModal()",
-        children: html`
-          <div id="custom-confirm-message" style="margin-bottom: 1.5rem; font-size: 1rem; color: #334155; line-height: 1.5;"></div>
-          <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-            <button type="button" onclick="closeConfirmModal()" style="padding: 0.6rem 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: transparent; cursor: pointer; color: #475569; font-weight: 600;">キャンセル</button>
-            <button type="button" id="custom-confirm-execute-btn" style="padding: 0.6rem 1.5rem; border: none; border-radius: 8px; background: #ef4444; color: white; cursor: pointer; font-weight: 600;">実行する</button>
-          </div>
-        `
-      })}
+
 
       ${Modal({
         id: 'add-service-modal',
         title: t.ga_svc_create,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <div>
@@ -1298,7 +1270,7 @@ export const GroupAdminPage = (props: Props) => {
       ${Modal({
         id: 'add-app-modal',
         title: t.ga_app_request,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <div>
@@ -1334,7 +1306,7 @@ export const GroupAdminPage = (props: Props) => {
       ${Modal({
         id: 'edit-app-modal-ga',
         title: t.edit,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <input type="hidden" id="ape-id" />
@@ -1367,7 +1339,7 @@ export const GroupAdminPage = (props: Props) => {
       ${Modal({
         id: 'add-member-modal',
         title: t.am_add_member,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <div>
@@ -1416,7 +1388,7 @@ export const GroupAdminPage = (props: Props) => {
       ${Modal({
         id: 'add-assign-modal',
         title: t.ga_add_assignment,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <div id="a-no-grant" style="display:none;" class="${infoBox}">
@@ -1473,7 +1445,7 @@ export const GroupAdminPage = (props: Props) => {
       ${Modal({
         id: 'add-grant-modal',
         title: t.ga_open_grant,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <div id="g-no-contract" style="display:none;" class="${infoBox}">
@@ -1518,36 +1490,7 @@ export const GroupAdminPage = (props: Props) => {
         `
       })}
 
-      <!-- サービスへのアプリ組み込みモーダル -->
-      ${Modal({
-        id: 'service-apps-modal',
-        title: t.ga_svc_manage_apps,
-        closeAction: "this.closest('dialog').close()",
-        children: html`
-          <div style="display:flex; flex-direction:column; gap:1.25rem;">
-            <input type="hidden" id="sa-service-id" />
-            <div style="font-weight:700; font-size:1.1rem; color:var(--text-main); border-bottom:1px solid #e2e8f0; padding-bottom:0.5rem; margin-bottom:0.25rem;">
-              <span id="sa-service-name"></span>
-            </div>
-            
-            <div>
-              <label class="${formLabel}">組み込み済みのアプリ</label>
-              <div id="sa-composed" style="margin-top:0.5rem;"></div>
-            </div>
-
-            <div style="margin-top:1rem; padding-top:1rem; border-top:1px dashed #cbd5e1;">
-              <label class="${formLabel}">承認済みアプリを追加</label>
-              <div id="sa-no-approved" style="display:none; margin-bottom:0.5rem;" class="${infoBox}">
-                <span class="material-symbols-outlined">info</span>利用可能な承認済みアプリがありません。（「アプリを申請」して承認を得る必要があります）
-              </div>
-              <div style="display:flex; gap:0.5rem; align-items:center;">
-                <select id="sa-app" class="${selectInput}" style="flex:1;"></select>
-                ${Button({ onclick: "addServiceApp()", children: html`<span class="material-symbols-outlined">add_link</span> 組み込む` })}
-              </div>
-            </div>
-          </div>
-        `
-      })}
+      ${ServiceAppsModal(t, '/group-admin/api')}
 
       <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
       <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>

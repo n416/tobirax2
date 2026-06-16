@@ -15,7 +15,7 @@ export const Layout = (props: Props) => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{props.title} - Tobira</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+
         <style>{`
           body { padding-top: 2rem; }
           .error { color: #d32f2f; background: #ffcdd2; padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem; }

@@ -5,6 +5,7 @@ import { dict } from '../../i18n'
 import { App, SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
+import { RejectReasonModal, RejectReasonModalScript } from '../components/RejectReasonModal'
 
 interface RegToken {
   token: string
@@ -180,11 +181,7 @@ export const AppsPage = (props: Props) => {
                 var f = document.getElementById('approve-app-form');
                 if (f) { f.querySelector('input[name="id"]').value = id; f.submit(); }
             };
-            window.rejectApp = function(id) {
-                if (!confirm((i18nEl && i18nEl.dataset.confirmReject) || 'Reject?')) return;
-                var f = document.getElementById('reject-app-form');
-                if (f) { f.querySelector('input[name="id"]').value = id; f.submit(); }
-            };
+            // rejectApp は RejectReasonModal に置き換えました
 
             // Client secret: regenerate / clear (make public)
             window.appSecretAction = function(action) {
@@ -289,7 +286,7 @@ export const AppsPage = (props: Props) => {
       ${Modal({
         id: "new-app-modal",
         title: t.header_new_app,
-        closeAction: "this.closest('dialog').close()",
+        closeAction: "this.closest('.custom-modal').close()",
         children: html`
               <form method="POST" action="/admin/apps" enctype="multipart/form-data">
                 <div class="grid-vertical" style="display:flex; flex-direction:column; gap:1.5rem;">
@@ -357,9 +354,6 @@ export const AppsPage = (props: Props) => {
       <form id="approve-app-form" method="POST" action="/admin/apps/approve">
         <input type="hidden" name="id" value="" />
       </form>
-      <form id="reject-app-form" method="POST" action="/admin/apps/reject">
-        <input type="hidden" name="id" value="" />
-      </form>
 
       <div class="${listGrid}">
         ${props.apps.map(app => html`
@@ -407,7 +401,7 @@ export const AppsPage = (props: Props) => {
                         <button type="button" title="${t.btn_approve}" onclick="event.stopPropagation(); approveApp('${app.id}')" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;">
                             <span class="material-symbols-outlined" style="font-size:18px;">check</span> ${t.btn_approve}
                         </button>
-                        <button type="button" title="${t.btn_reject}" onclick="event.stopPropagation(); rejectApp('${app.id}')" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                        <button type="button" title="${t.btn_reject}" onclick="event.stopPropagation(); openRejectModal('/admin/apps/reject', '${app.id}')" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                             ${t.btn_reject}
                         </button>`
                     : html`
@@ -522,6 +516,8 @@ export const AppsPage = (props: Props) => {
         `
       })}
 
+      ${RejectReasonModal()}
+
       <div id="i18n-data" style="display:none;"
         data-confirm-change-status="${t.confirm_change_status || 'Change status?'}"
         data-confirm-approve="${t.confirm_approve_app}"
@@ -530,6 +526,7 @@ export const AppsPage = (props: Props) => {
 
       <script>
       ${scriptContent}
+      ${raw(RejectReasonModalScript)}
       </script>
     `
   })

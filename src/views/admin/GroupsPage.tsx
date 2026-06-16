@@ -406,7 +406,7 @@ export const GroupsPage = (props: Props) => {
           ${Modal({
             id: "new-group-modal",
             title: t.header_new_group,
-            closeAction: "this.closest('dialog').close()",
+            closeAction: "this.closest('.custom-modal').close()",
             children: html`
                   <form method="POST" action="/admin/groups">
                     <div class="grid-vertical">
@@ -534,13 +534,13 @@ export const GroupsPage = (props: Props) => {
           ${Modal({
             id: "overwrite-confirm-modal",
             title: html`<span style="color:#d97706; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.confirm_overwrite || 'Overwrite?'}</span>`,
-            closeAction: "this.closest('dialog').close()",
+            closeAction: "this.closest('.custom-modal').close()",
             children: html`
                   <div style="margin-bottom: 2rem;">
                     <p id="overwrite-msg-text" style="color:#475569; font-size:1rem; line-height:1.5; white-space:pre-wrap;"></p>
                   </div>
                   <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                      <button type="button" onclick="this.closest('dialog').close()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
+                      <button type="button" onclick="this.closest('.custom-modal').close()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
                       <button type="button" onclick="window._executeOverwrite()" style="background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                          <span class="material-symbols-outlined" style="font-size:18px;">check</span> Overwrite
                       </button>
