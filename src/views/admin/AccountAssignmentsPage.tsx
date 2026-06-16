@@ -36,7 +36,7 @@ export const AccountAssignmentsPage = (props: Props) => {
     t.am_service_of_provider.replace('{service}', s.name).replace('{provider}', s.provider_name || '')
 
   // クライアント側の絞り込み用データ。
-  const rolesJson = JSON.stringify(props.roles.map(r => ({ id: r.id, service_id: r.service_id, facility_type: r.facility_type ?? null, role_name: r.role_name })))
+  const rolesJson = JSON.stringify(props.roles.map(r => ({ id: r.id, service_id: r.service_id, facility_type: r.facility_type ?? null, role_name: r.role_name, role_code: r.role_code })))
   const facUseJson = JSON.stringify(Object.fromEntries(props.facilities.map(f => [f.id, f.building_use ?? null])))
 
   const errorMsg = props.error === 'no_grant' ? t.am_grants_subtitle
@@ -95,7 +95,10 @@ export const AccountAssignmentsPage = (props: Props) => {
           ${props.roles.map(r => html`
             <div class="${amListCard}">
               <div>
-                <div class="${amItemTitle}">${r.role_name}</div>
+                <div class="${amItemTitle}">
+                  ${r.role_name}
+                  <span style="font-size:0.85em; color:#64748b; font-family:monospace; margin-left:0.5rem;">[${r.role_code}]</span>
+                </div>
                 <div class="${amItemSub}">
                   <span class="material-symbols-outlined" style="font-size:16px;">deployed_code</span>
                   ${serviceLabel({ name: r.service_name || '', provider_name: r.provider_name })}
@@ -144,8 +147,16 @@ export const AccountAssignmentsPage = (props: Props) => {
             </select>
             <label class="${amFormLabel}">${t.am_label_role_facility_type}</label>
             <input type="text" name="facility_type" placeholder="${t.am_facility_type_all}" style="margin-bottom:1rem;" />
-            <label class="${amFormLabel}">${t.am_label_role_name}</label>
-            <input type="text" name="role_name" placeholder="${t.am_placeholder_role_name}" required />
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+              <div>
+                <label class="${amFormLabel}">${t.am_label_role_name}</label>
+                <input type="text" name="role_name" placeholder="${t.am_placeholder_role_name}" required />
+              </div>
+              <div>
+                <label class="${amFormLabel}">${t.am_label_role_code}</label>
+                <input type="text" name="role_code" placeholder="${t.am_placeholder_role_code}" pattern="[a-zA-Z0-9_-]+" required />
+              </div>
+            </div>
             <div style="margin-top:1rem;">${Button({ type: 'submit', children: t.save })}</div>
           </form>`,
       })}

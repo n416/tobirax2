@@ -200,7 +200,20 @@ CREATE TABLE IF NOT EXISTS services (
     -- セルフサービス: この「サービス」を所有するグループ。NULL = 運営者が提供企業つきで
     -- 作ったグローバルサービス。group_admin が自グループ用に作ったサービスはここに owner を
     -- 刻み、提供企業は ensureGroupProvider でグループ名のダミー企業を自動採番する。
-    owner_group_id TEXT REFERENCES groups(id)
+    owner_group_id TEXT REFERENCES groups(id),
+    -- 'active'(承認済み/稼働) / 'pending'(承認待ち) / 'rejected'(却下)。
+    -- グループ管理者が作ったサービスは pending で始まり、運営者の承認で active になる。
+    status TEXT DEFAULT 'active'
+);
+
+-- 【サービス構成】サービス ―*:*― アプリ。承認済みアプリをサービスへ組み込む(多対多)。
+-- アプリ↔サービス紐づけの単一の真実。旧来の apps.service_id は移行で本表に取り込む。
+CREATE TABLE IF NOT EXISTS service_apps (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id TEXT NOT NULL REFERENCES services(id),
+    app_id     TEXT NOT NULL REFERENCES apps(id),
+    created_at INTEGER NOT NULL,
+    UNIQUE(service_id, app_id)
 );
 
 -- 【サービス契約】利用枠(ゲート②)の出所。席数上限を持つ。
@@ -239,8 +252,9 @@ CREATE TABLE IF NOT EXISTS service_role_master (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     service_id    TEXT NOT NULL REFERENCES services(id),
     facility_type TEXT,                  -- NULL=全種別 / '病院' 等で限定
+    role_code     TEXT NOT NULL DEFAULT 'general',
     role_name     TEXT NOT NULL,
-    UNIQUE(service_id, facility_type, role_name)
+    UNIQUE(service_id, facility_type, role_code)
 );
 
 -- 【サービス利用者割当 / ゲート③】個人を建物ごとにサービスへ割当+役割(マスタ参照)。
@@ -273,3 +287,5 @@ CREATE INDEX IF NOT EXISTS idx_assign_facility    ON service_user_assignments(fa
 CREATE INDEX IF NOT EXISTS idx_facility_group     ON facilities(managing_group_id);
 CREATE INDEX IF NOT EXISTS idx_rolemaster_service ON service_role_master(service_id);
 CREATE INDEX IF NOT EXISTS idx_groups_parent      ON groups(parent_id);
+CREATE INDEX IF NOT EXISTS idx_service_apps_service ON service_apps(service_id);
+CREATE INDEX IF NOT EXISTS idx_service_apps_app     ON service_apps(app_id);

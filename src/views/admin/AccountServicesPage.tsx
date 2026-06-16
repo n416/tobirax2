@@ -15,7 +15,7 @@ interface Props {
   siteName: string
   appConfig: SystemConfig
   providers: ServiceProvider[]
-  services: (Service & { provider_name?: string })[]
+  services: (Service & { provider_name?: string; owner_group_name?: string | null; app_names?: string | null; app_ids?: string | null })[]
   contracts: (ServiceContract & { service_name?: string; provider_name?: string; group_name?: string })[]
   groups: Group[]
 }
@@ -67,11 +67,34 @@ export const AccountServicesPage = (props: Props) => {
           ${props.services.length === 0 ? amEmpty(t.am_none_services) : ''}
           ${props.services.map(s => html`
             <div class="${amListCard}">
-              <div>
-                <div class="${amItemTitle}">${s.name}</div>
+              <div style="flex-grow:1;">
+                <div class="${amItemTitle}" style="display:flex; align-items:center; gap:0.5rem;">
+                  ${s.name}
+                  ${s.status === 'pending'
+                    ? html`<span style="color:#c2410c; background:#fff7ed; border:1px solid #fdba74; padding:1px 7px; border-radius:999px; font-size:0.72rem; font-weight:700;">${t.status_pending}</span>`
+                    : s.status === 'rejected'
+                    ? html`<span style="color:#b91c1c; background:#fef2f2; border:1px solid #fecaca; padding:1px 7px; border-radius:999px; font-size:0.72rem; font-weight:700;">${t.status_rejected}</span>`
+                    : ''}
+                  ${s.owner_group_name
+                    ? html`<span style="color:#7c3aed; background:#f5f3ff; border:1px solid #ddd6fe; padding:1px 7px; border-radius:999px; font-size:0.72rem; font-weight:700;">${t.app_owner_group}: ${s.owner_group_name}</span>`
+                    : ''}
+                </div>
                 <div class="${amItemSub}"><span class="material-symbols-outlined" style="font-size:16px;">business</span>${s.provider_name || ''}</div>
+                ${s.app_names ? html`<div class="${amItemSub}" style="margin-top:0.2rem;"><span class="material-symbols-outlined" style="font-size:16px;">apps</span>${s.app_names}</div>` : ''}
               </div>
-              ${amDeleteForm('/admin/am/services/delete', s.id, t.am_confirm_delete_service, t.delete)}
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                ${s.status === 'pending' ? html`
+                  <form method="POST" action="/admin/am/services/approve" style="margin:0;" onsubmit="return confirm('${t.confirm_approve_service}');">
+                    <input type="hidden" name="id" value="${s.id}" />
+                    <input type="hidden" name="expected_apps" value="${s.app_ids || ''}" />
+                    <button type="submit" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_approve}</button>
+                  </form>
+                  <form method="POST" action="/admin/am/services/reject" style="margin:0;" onsubmit="return confirm('${t.confirm_reject_service}');">
+                    <input type="hidden" name="id" value="${s.id}" />
+                    <button type="submit" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_reject}</button>
+                  </form>` : ''}
+                ${amDeleteForm('/admin/am/services/delete', s.id, t.am_confirm_delete_service, t.delete)}
+              </div>
             </div>`)}
         </div>
       </article>
@@ -130,7 +153,7 @@ export const AccountServicesPage = (props: Props) => {
           <form method="POST" action="/admin/am/contracts">
             <label class="${amFormLabel}">${t.am_label_contract_service}</label>
             <select name="service_id" required style="margin-bottom:1rem;">
-              ${props.services.map(s => html`<option value="${s.id}">${serviceLabel(s)}</option>`)}
+              ${props.services.filter(s => !s.status || s.status === 'active').map(s => html`<option value="${s.id}">${serviceLabel(s)}</option>`)}
             </select>
             <label class="${amFormLabel}">${t.am_label_customer_group}</label>
             <select name="customer_group_id" required style="margin-bottom:1rem;">

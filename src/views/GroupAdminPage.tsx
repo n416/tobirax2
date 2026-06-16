@@ -64,8 +64,10 @@ interface Props {
   grantsDetailByGroup: Record<string, { id: number; service_id: string; service_name: string; contract_id: string; seat_limit: number | null; valid_from: number; valid_to: number }[]>
   availableContracts: { id: string; service_id: string; customer_group_id: string; seat_limit: number | null; service_name: string; group_name: string | null }[]
   // セルフサービス(アプリ申請 / 自グループのサービス作成)用
-  servicesByGroup: Record<string, { id: string; name: string }[]>
-  appsByGroup: Record<string, { id: string; name: string; base_url: string; status: string; service_id: string | null; service_name: string | null }[]>
+  servicesByGroup: Record<string, { id: string; name: string; status: string; apps: { id: string; name: string }[] }[]>
+  appsByGroup: Record<string, { id: string; name: string; base_url: string; status: string }[]>
+  // サービスに組み込める = 自グループの承認済み(active)アプリ
+  approvedAppsByGroup: Record<string, { id: string; name: string }[]>
   apps: App[]
 }
 
@@ -91,6 +93,7 @@ export const GroupAdminPage = (props: Props) => {
   const availableContractsJson = JSON.stringify(props.availableContracts)
   const servicesByGroupJson = JSON.stringify(props.servicesByGroup)
   const appsByGroupJson = JSON.stringify(props.appsByGroup)
+  const approvedAppsByGroupJson = JSON.stringify(props.approvedAppsByGroup)
 
   const sectionTitle = css`
     font-size: 1.05rem;
@@ -268,6 +271,7 @@ export const GroupAdminPage = (props: Props) => {
       var availableContracts = null;
       var servicesByGroup = null;
       var appsByGroup = null;
+      var approvedAppsByGroup = null;
       var currentTab = 'members';
       var currentGroupId = '';
 
@@ -290,8 +294,10 @@ export const GroupAdminPage = (props: Props) => {
         if (ctd) availableContracts = JSON.parse(ctd.textContent);
         var svd = document.getElementById('ga-services-data');
         var apd = document.getElementById('ga-apps-data');
+        var aapd = document.getElementById('ga-approved-apps-data');
         if (svd) servicesByGroup = JSON.parse(svd.textContent);
         if (apd) appsByGroup = JSON.parse(apd.textContent);
+        if (aapd) approvedAppsByGroup = JSON.parse(aapd.textContent);
 
         var sel = document.getElementById('group-select');
         if (sel && typeof TomSelect !== 'undefined' && sel.tagName === 'SELECT') {
@@ -664,19 +670,41 @@ export const GroupAdminPage = (props: Props) => {
           .catch(function(e){ alert('Error: ' + e.message); });
       };
 
-      // ===== セルフサービス: 自グループのサービス =====
+      function statusBadge(st) {
+        var map = {
+          pending:  ['#c2410c', '#fff7ed', window.i18n.statusPending || 'Pending'],
+          rejected: ['#b91c1c', '#fef2f2', window.i18n.statusRejected || 'Rejected'],
+          inactive: ['#d97706', '#fffbeb', window.i18n.statusInactive || 'Paused'],
+          active:   ['#16a34a', '#f0fdf4', window.i18n.statusActive || 'Active']
+        };
+        var s = map[st] || map.active;
+        return '<span style="font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:999px;color:' + s[0] + ';background:' + s[1] + ';">' + s[2] + '</span>';
+      }
+
+      // ===== セルフサービス: 自グループのサービス(=承認済みアプリの束ね) =====
       function renderServices() {
         var el = document.getElementById('services-table-body');
         if (!el) return;
         var list = servicesByGroup && currentGroupId ? (servicesByGroup[currentGroupId] || []) : [];
         if (list.length === 0) {
-          el.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#94a3b8; padding:1.5rem;">' + (window.i18n.svcNone || '(なし)') + '</td></tr>';
+          el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:1.5rem;">' + (window.i18n.svcNone || '(なし)') + '</td></tr>';
           return;
         }
         el.innerHTML = list.map(function(s) {
+          var apps = s.apps || [];
+          var chips = apps.length ? apps.map(function(a){
+            return '<span style="display:inline-flex;align-items:center;gap:0.25rem;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:999px;padding:2px 6px 2px 10px;font-size:0.78rem;margin:0 0.25rem 0.25rem 0;">' + a.name
+              + (s.status !== 'active' ? '<button type="button" title="外す" onclick="removeServiceApp(\\'' + s.id + '\\',\\'' + a.id + '\\')" style="background:none;border:none;color:#6366f1;cursor:pointer;padding:0 2px;line-height:1;font-size:0.95rem;">×</button>' : '') + '</span>';
+          }).join('') : '<span style="color:#cbd5e1;">—</span>';
+          var encS = encodeURIComponent(JSON.stringify(s));
           return '<tr>'
             + '<td><strong>' + s.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + s.id + '</div></td>'
-            + '<td style="text-align:right;"><button type="button" onclick="removeService(\\'' + s.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
+            + '<td>' + statusBadge(s.status) + '</td>'
+            + '<td style="font-size:0.85rem;">' + chips + '</td>'
+            + '<td style="text-align:right; white-space:nowrap;">'
+            +   (s.status !== 'active' ? '<button type="button" title="' + (window.i18n.svcManageApps || 'アプリを組み込む') + '" onclick="openServiceAppsModal(\\'' + encS + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#f1f5f9\\';this.style.color=\\'#4f46e5\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">link</span></button>' : '')
+            +   (s.status !== 'active' ? '<button type="button" title="削除" onclick="removeService(\\'' + s.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '')
+            + '</td>'
             + '</tr>';
         }).join('');
       }
@@ -706,55 +734,81 @@ export const GroupAdminPage = (props: Props) => {
           .catch(function(e){ alert('Error: ' + e.message); });
       };
 
-      // ===== セルフサービス: アプリ登録の申請 =====
-      function statusBadge(st) {
-        var map = {
-          pending:  ['#c2410c', '#fff7ed', window.i18n.statusPending || 'Pending'],
-          rejected: ['#b91c1c', '#fef2f2', window.i18n.statusRejected || 'Rejected'],
-          inactive: ['#d97706', '#fffbeb', window.i18n.statusInactive || 'Paused'],
-          active:   ['#16a34a', '#f0fdf4', window.i18n.statusActive || 'Active']
-        };
-        var s = map[st] || map.active;
-        return '<span style="font-size:0.72rem;font-weight:700;padding:2px 8px;border-radius:999px;color:' + s[0] + ';background:' + s[1] + ';">' + s[2] + '</span>';
-      }
+      // サービス構成: 承認済みアプリを組み込む/外す。
+      window.openServiceAppsModal = function(enc) {
+        var s = JSON.parse(decodeURIComponent(enc));
+        document.getElementById('sa-service-id').value = s.id;
+        document.getElementById('sa-service-name').textContent = s.name;
+        var composed = s.apps || [];
+        var composedIds = composed.map(function(a){ return a.id; });
+        // 組み込み済み一覧
+        var compEl = document.getElementById('sa-composed');
+        compEl.innerHTML = composed.length ? composed.map(function(a){
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:0.4rem;"><span>' + a.name + '</span>'
+            + '<button type="button" onclick="removeServiceApp(\\'' + s.id + '\\',\\'' + a.id + '\\')" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:0.85rem;">' + (window.i18n.btnRemove || '外す') + '</button></div>';
+        }).join('') : '<div style="color:#94a3b8;font-size:0.88rem;">' + (window.i18n.svcNoApps || '(まだ組み込まれていません)') + '</div>';
+        // 追加候補 = 自グループの承認済みアプリのうち未組み込みのもの
+        var approved = (approvedAppsByGroup && approvedAppsByGroup[currentGroupId]) ? approvedAppsByGroup[currentGroupId] : [];
+        var addable = approved.filter(function(a){ return composedIds.indexOf(a.id) === -1; });
+        var sel = document.getElementById('sa-app');
+        var html = '<option value="">' + (window.i18n.svcSelectApp || '承認済みアプリを選択') + '</option>';
+        addable.forEach(function(a){ html += '<option value="' + a.id + '">' + a.name + '</option>'; });
+        sel.innerHTML = html;
+        var warn = document.getElementById('sa-no-approved');
+        if (warn) warn.style.display = approved.length === 0 ? '' : 'none';
+        document.getElementById('service-apps-modal').showModal();
+      };
+      window.addServiceApp = function() {
+        var serviceId = (document.getElementById('sa-service-id')||{}).value;
+        var appId = (document.getElementById('sa-app')||{}).value;
+        if (!appId) { alert(window.i18n.svcSelectApp || '承認済みアプリを選択'); return; }
+        fetch('/group-admin/api/service/app/add', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ service_id: serviceId, app_id: appId })
+        })
+        .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){
+          if (e.message === 'app_not_approved') alert(window.i18n.appNotApproved || '承認済みのアプリのみ組み込めます');
+          else alert('Error: ' + e.message);
+        });
+      };
+      window.removeServiceApp = function(serviceId, appId) {
+        if (!confirm(window.i18n.svcConfirmRemoveApp || '本当にこのアプリをサービスから外しますか？')) return;
+        fetch('/group-admin/api/service/app/remove', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ service_id: serviceId, app_id: appId })
+        })
+        .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){ alert('Error: ' + e.message); });
+      };
+
+      // ===== セルフサービス: アプリ登録の申請(サービス紐づけは扱わない) =====
       function renderApps() {
         var el = document.getElementById('apps-table-body');
         if (!el) return;
         var list = appsByGroup && currentGroupId ? (appsByGroup[currentGroupId] || []) : [];
         if (list.length === 0) {
-          el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:1.5rem;">' + (window.i18n.appNone || '(なし)') + '</td></tr>';
+          el.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#94a3b8; padding:1.5rem;">' + (window.i18n.appNone || '(なし)') + '</td></tr>';
           return;
         }
         el.innerHTML = list.map(function(a) {
-          var svc = a.service_name ? a.service_name : '—';
           var dataAttr = encodeURIComponent(JSON.stringify(a));
           return '<tr>'
             + '<td><strong>' + a.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + a.id + '</div></td>'
             + '<td>' + statusBadge(a.status) + '</td>'
-            + '<td style="font-size:0.85rem;color:#64748b;">' + svc + '</td>'
             + '<td style="text-align:right; white-space:nowrap;">'
-            +   '<button type="button" title="編集" onclick="openAppEditModal(\\'' + dataAttr + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#f1f5f9\\';this.style.color=\\'#4f46e5\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">edit</span></button>'
-            +   '<button type="button" title="削除" onclick="removeApp(\\'' + a.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>'
+            +   '<button type="button" title="' + (a.status === 'active' ? '詳細' : '編集') + '" onclick="openAppEditModal(\\'' + dataAttr + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#f1f5f9\\';this.style.color=\\'#4f46e5\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">' + (a.status === 'active' ? 'visibility' : 'edit') + '</span></button>'
+            +   (a.status !== 'active' ? '<button type="button" title="削除" onclick="removeApp(\\'' + a.id + '\\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '')
             + '</td>'
             + '</tr>';
         }).join('');
       }
 
-      function fillServiceOptions(el, selected) {
-        if (!el) return;
-        var svcs = (servicesByGroup && servicesByGroup[currentGroupId]) ? servicesByGroup[currentGroupId] : [];
-        var html = '<option value="">' + (window.i18n.appBindNone || '-- none --') + '</option>';
-        svcs.forEach(function(s){ html += '<option value="' + s.id + '"' + (s.id === selected ? ' selected' : '') + '>' + s.name + '</option>'; });
-        el.innerHTML = html;
-      }
-
       window.openAppModal = function() {
         if (!currentGroupId) return;
         ['ap-id','ap-name','ap-base-url','ap-redirect','ap-desc'].forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
-        fillServiceOptions(document.getElementById('ap-service'), '');
-        var warn = document.getElementById('ap-no-service');
-        var svcs = (servicesByGroup && servicesByGroup[currentGroupId]) ? servicesByGroup[currentGroupId] : [];
-        if (warn) warn.style.display = svcs.length === 0 ? '' : 'none';
         var m = document.getElementById('add-app-modal');
         if (m) m.showModal();
       };
@@ -764,11 +818,10 @@ export const GroupAdminPage = (props: Props) => {
         var baseUrl = (document.getElementById('ap-base-url')||{}).value;
         var redirect = (document.getElementById('ap-redirect')||{}).value;
         var desc = (document.getElementById('ap-desc')||{}).value;
-        var serviceId = (document.getElementById('ap-service')||{}).value;
         if (!id || !id.trim() || !name || !name.trim() || !baseUrl || !baseUrl.trim()) { alert(window.i18n.appFillRequired || 'ID/名前/URLは必須です'); return; }
         fetch('/group-admin/api/app/request', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: currentGroupId, id: id.trim(), name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect, description: desc, service_id: serviceId })
+          body: JSON.stringify({ group_id: currentGroupId, id: id.trim(), name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect, description: desc })
         })
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })
@@ -782,21 +835,30 @@ export const GroupAdminPage = (props: Props) => {
         document.getElementById('ape-id').value = a.id;
         document.getElementById('ape-name').value = a.name;
         document.getElementById('ape-base-url').value = a.base_url;
-        document.getElementById('ape-redirect').value = '';
-        fillServiceOptions(document.getElementById('ape-service'), a.service_id || '');
+        document.getElementById('ape-redirect').value = a.redirect_uris || '';
+        var isReadOnly = a.status === 'active';
+        ['ape-name', 'ape-base-url', 'ape-redirect'].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (el) el.disabled = isReadOnly;
+        });
+        var saveBtn = document.getElementById('ape-save-btn');
+        if (saveBtn) saveBtn.style.display = isReadOnly ? 'none' : 'flex';
         var m = document.getElementById('edit-app-modal-ga');
-        if (m) m.showModal();
+        if (m) {
+          var titleEl = m.querySelector('h3');
+          if (titleEl) titleEl.innerText = isReadOnly ? 'アプリ詳細' : (window.i18n.edit || '編集');
+          m.showModal();
+        }
       };
       window.updateApp = function() {
         var id = (document.getElementById('ape-id')||{}).value;
         var name = (document.getElementById('ape-name')||{}).value;
         var baseUrl = (document.getElementById('ape-base-url')||{}).value;
         var redirect = (document.getElementById('ape-redirect')||{}).value;
-        var serviceId = (document.getElementById('ape-service')||{}).value;
         if (!name || !name.trim() || !baseUrl || !baseUrl.trim()) { alert(window.i18n.appFillRequired || '名前/URLは必須です'); return; }
         fetch('/group-admin/api/app/update', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ id: id, name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect, service_id: serviceId })
+          body: JSON.stringify({ id: id, name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect })
         })
         .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
         .then(function(){ window.location.reload(); })
@@ -1099,7 +1161,9 @@ export const GroupAdminPage = (props: Props) => {
               <select id="ape-service" class="${selectInput}"></select>
             </div>
             <div style="margin-top:0.25rem;">
-              ${Button({ onclick: "updateApp()", children: html`<span class="material-symbols-outlined">save</span> ${t.save}` })}
+              <span id="ape-save-btn" style="display:flex;">
+                ${Button({ onclick: "updateApp()", children: html`<span class="material-symbols-outlined">save</span> ${t.save}` })}
+              </span>
             </div>
           </div>
         `
@@ -1260,6 +1324,37 @@ export const GroupAdminPage = (props: Props) => {
         `
       })}
 
+      <!-- サービスへのアプリ組み込みモーダル -->
+      ${Modal({
+        id: 'service-apps-modal',
+        title: t.ga_svc_manage_apps,
+        closeAction: "this.closest('dialog').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <input type="hidden" id="sa-service-id" />
+            <div style="font-weight:700; font-size:1.1rem; color:var(--text-main); border-bottom:1px solid #e2e8f0; padding-bottom:0.5rem; margin-bottom:0.25rem;">
+              <span id="sa-service-name"></span>
+            </div>
+            
+            <div>
+              <label class="${formLabel}">組み込み済みのアプリ</label>
+              <div id="sa-composed" style="margin-top:0.5rem;"></div>
+            </div>
+
+            <div style="margin-top:1rem; padding-top:1rem; border-top:1px dashed #cbd5e1;">
+              <label class="${formLabel}">承認済みアプリを追加</label>
+              <div id="sa-no-approved" style="display:none; margin-bottom:0.5rem;" class="${infoBox}">
+                <span class="material-symbols-outlined">info</span>利用可能な承認済みアプリがありません。（「アプリを申請」して承認を得る必要があります）
+              </div>
+              <div style="display:flex; gap:0.5rem; align-items:center;">
+                <select id="sa-app" class="${selectInput}" style="flex:1;"></select>
+                ${Button({ onclick: "addServiceApp()", children: html`<span class="material-symbols-outlined">add_link</span> 組み込む` })}
+              </div>
+            </div>
+          </div>
+        `
+      })}
+
       <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
       <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>
       <script type="application/json" id="ga-perms-data">${raw(permsByGroupJson)}</script>
@@ -1271,6 +1366,7 @@ export const GroupAdminPage = (props: Props) => {
       <script type="application/json" id="ga-contracts-data">${raw(availableContractsJson)}</script>
       <script type="application/json" id="ga-services-data">${raw(servicesByGroupJson)}</script>
       <script type="application/json" id="ga-apps-data">${raw(appsByGroupJson)}</script>
+      <script type="application/json" id="ga-approved-apps-data">${raw(approvedAppsByGroupJson)}</script>
       <script>
         window.i18n = {
           noMembers: '${t.am_no_members}',
@@ -1303,6 +1399,12 @@ export const GroupAdminPage = (props: Props) => {
           statusInactive: '${t.ga_status_inactive}',
           appFillRequired: 'ID / 名前 / URL は必須です',
           appIdTaken: 'そのアプリIDは既に使われています',
+          svcManageApps: '${t.ga_svc_manage_apps}',
+          btnRemove: '${t.ga_btn_remove}',
+          svcNoApps: '${t.ga_svc_no_apps}',
+          svcSelectApp: '${t.ga_svc_select_app}',
+          appNotApproved: '${t.ga_app_not_approved}',
+          svcConfirmRemoveApp: '${t.ga_svc_confirm_remove_app}',
         };
       </script>
       <script>

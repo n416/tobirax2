@@ -32,11 +32,14 @@ export interface App {
   client_secret?: string | null // null/undefined = パブリッククライアント(PKCE)
   redirect_uris?: string | null // 改行区切りの完全一致 redirect_uris(OIDC)。空なら base_url のオリジン照合にフォールバック
   backchannel_logout_uri?: string | null // OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント
+  // 【旧】単一サービス束縛。紐づけの真実は service_apps(多対多)へ移行済み。表示・移行用に残置。
   service_id?: string | null
   service_name?: string | null
   // セルフサービス: 申請/所有グループ。NULL = 運営者が直接作ったグローバルアプリ。
   owner_group_id?: string | null
   owner_group_name?: string | null
+  // 表示用: このアプリが組み込まれているサービス数(service_apps 由来)。
+  service_count?: number
 }
 
 export interface Session {
@@ -91,6 +94,16 @@ export interface Service {
   created_at: number
   // セルフサービス: 所有グループ。NULL = 運営者が提供企業つきで作ったグローバルサービス。
   owner_group_id?: string | null
+  // 'active'(承認済み) / 'pending'(承認待ち) / 'rejected'(却下)。
+  status?: string
+}
+
+// アカウントマネージャ【サービス構成】サービス ―*:*― アプリ。承認済みアプリを束ねる。
+export interface ServiceApp {
+  id: number
+  service_id: string
+  app_id: string
+  created_at: number
 }
 
 // アカウントマネージャ【サービス契約】利用枠(ゲート②)の出所。席数上限を持つ。(migration 0004)
@@ -128,6 +141,7 @@ export interface ServiceRole {
   id: number
   service_id: string
   facility_type?: string | null  // null=全種別 / '病院'等で限定
+  role_code: string
   role_name: string
 }
 

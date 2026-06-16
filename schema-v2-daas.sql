@@ -99,9 +99,10 @@ CREATE TABLE facilities (
 CREATE TABLE service_role_master (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     service_id    TEXT NOT NULL REFERENCES services(id),
-    facility_type TEXT,                  -- NULL=全種別 / '病院' などで限定
-    role_name     TEXT NOT NULL,         -- 例: 点検管理者 / 点検作業者 / 院内立会者
-    UNIQUE(service_id, facility_type, role_name)
+    facility_type TEXT,                  -- NULL=全種別 / '病院' 等で限定
+    role_code     TEXT NOT NULL DEFAULT 'general',
+    role_name     TEXT NOT NULL,
+    UNIQUE(service_id, facility_type, role_code)
 );
 
 -- 【サービス利用者割当 / ゲート③】個人を「建物ごと」にサービスへ割り当て、役割を付ける。

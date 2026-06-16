@@ -219,14 +219,24 @@ async function getManagedGroupIds(c: any, userId: string): Promise<Set<string>> 
 //   結果を表示に変換する。運営者ルートと委任ルートで共通利用し、判定の二重管理を防ぐ。
 async function createAssignment(c: any, p: { userId: string; groupId: string; serviceId: string; facilityId: string; roleId: number; validFrom: number; validTo: number }): Promise<'no_grant' | 'seat' | 'ok'> {
     // ゲート②: このグループ×サービスの利用枠が無ければ割当不可。
+    // ただし、自グループが所有する「active」なサービスは無条件で利用可能(自作ツールのため)。
     const grant = await c.env.DB.prepare('SELECT * FROM group_service_grants WHERE group_id = ? AND service_id = ?')
         .bind(p.groupId, p.serviceId).first() as any
-    if (!grant) return 'no_grant'
+    let isSelfOwned = false;
+    if (!grant) {
+        const svc = await c.env.DB.prepare('SELECT owner_group_id, status FROM services WHERE id = ?').bind(p.serviceId).first() as { owner_group_id: string | null, status: string } | null;
+        if (svc && svc.owner_group_id === p.groupId && svc.status === 'active') {
+            isSelfOwned = true;
+        } else {
+            return 'no_grant'
+        }
+    }
+    
     // 席数チェック(ライセンス=利用者数)。既にこのグループ×サービスに居る人は新規席を消費しない。
     const existing = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM service_user_assignments WHERE user_id = ? AND group_id = ? AND service_id = ?')
         .bind(p.userId, p.groupId, p.serviceId).first() as { c: number } | null
     const isNewSeat = (existing?.c || 0) === 0
-    if (isNewSeat) {
+    if (isNewSeat && grant && !isSelfOwned) {
         // 支店別サブ枠(grant.seat_limit)。
         if (grant.seat_limit != null) {
             const usedG = await c.env.DB.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM service_user_assignments WHERE group_id = ? AND service_id = ?')
@@ -271,6 +281,7 @@ async function getEntitlements(c: any, userId: string, serviceId: string): Promi
             a.facility_id     AS facility_id,
             f.structure_no    AS structure_no,
             f.building_use    AS building_use,
+            rm.role_code      AS role_code,
             rm.role_name      AS role_name,
             a.valid_from      AS valid_from,
             a.valid_to        AS valid_to
@@ -311,6 +322,7 @@ async function deleteServiceCascade(c: any, serviceId: string) {
         c.env.DB.prepare('DELETE FROM service_role_master WHERE service_id = ?').bind(serviceId),
         c.env.DB.prepare('DELETE FROM group_service_grants WHERE service_id = ?').bind(serviceId),
         c.env.DB.prepare('DELETE FROM service_contracts WHERE service_id = ?').bind(serviceId),
+        c.env.DB.prepare('DELETE FROM service_apps WHERE service_id = ?').bind(serviceId),
         c.env.DB.prepare('DELETE FROM services WHERE id = ?').bind(serviceId),
     ])
 }
@@ -468,7 +480,7 @@ app.get('/group-admin', async (c) => {
             profileName={user.name} profilePicture={user.picture}
             managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
             grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}}
-            servicesByGroup={{}} appsByGroup={{}} apps={[]} />)
+            servicesByGroup={{}} appsByGroup={{}} approvedAppsByGroup={{}} apps={[]} />)
     }
 
     const groupIds = managedGroups.map((g: any) => g.id as string)
@@ -544,8 +556,12 @@ app.get('/group-admin', async (c) => {
             SELECT gs.service_id, s.name AS service_name
             FROM group_service_grants gs JOIN services s ON gs.service_id = s.id
             WHERE gs.group_id = ? AND gs.valid_from <= ? AND gs.valid_to >= ?
-            ORDER BY s.name
-        `).bind(gid, now, now).all()
+            UNION
+            SELECT id AS service_id, name AS service_name
+            FROM services
+            WHERE owner_group_id = ? AND status = 'active'
+            ORDER BY service_name
+        `).bind(gid, now, now, gid).all()
         grantsByGroup[gid] = results || []
     }
     const { results: allFacilities } = await c.env.DB.prepare('SELECT id, structure_no, building_use, managing_group_id FROM facilities').all()
@@ -578,21 +594,31 @@ app.get('/group-admin', async (c) => {
     const availableContracts = (allContracts as any[]).filter(ct => managedIds.has(ct.customer_group_id))
 
     // セルフサービス用データ:
-    //   - servicesByGroup: 各グループが所有する(owner_group_id)サービス。アプリ申請の紐付け先。
+    //   - servicesByGroup: 各グループが所有するサービス(status + 組み込み済みアプリ一覧)。
     //   - appsByGroup: 各グループが申請/所有するアプリ(status 込み)。
+    //   - approvedAppsByGroup: 各グループが所有する「承認済み(active)」アプリ = サービスに組み込める部品。
     const servicesByGroup: Record<string, any[]> = {}
     const appsByGroup: Record<string, any[]> = {}
+    const approvedAppsByGroup: Record<string, any[]> = {}
     for (const gid of groupIds) {
         const { results: svcRows } = await c.env.DB.prepare(
-            'SELECT id, name FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
+            'SELECT id, name, status FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
         ).bind(gid).all()
+        // 各サービスに組み込み済みのアプリ(id, name)を付ける。
+        for (const s of (svcRows as any[])) {
+            const { results: comp } = await c.env.DB.prepare(`
+                SELECT sa.app_id AS id, a.name AS name FROM service_apps sa
+                JOIN apps a ON a.id = sa.app_id WHERE sa.service_id = ? ORDER BY a.name
+            `).bind(s.id).all()
+            s.apps = comp || []
+        }
         servicesByGroup[gid] = svcRows || []
         const { results: appRows } = await c.env.DB.prepare(`
-            SELECT a.id, a.name, a.base_url, a.status, a.service_id, s.name AS service_name
-            FROM apps a LEFT JOIN services s ON a.service_id = s.id
-            WHERE a.owner_group_id = ? ORDER BY a.created_at DESC
+            SELECT id, name, base_url, status FROM apps
+            WHERE owner_group_id = ? ORDER BY created_at DESC
         `).bind(gid).all()
         appsByGroup[gid] = appRows || []
+        approvedAppsByGroup[gid] = (appRows as any[]).filter(a => a.status === 'active').map(a => ({ id: a.id, name: a.name }))
     }
 
     return c.html(<GroupAdminPage
@@ -610,6 +636,7 @@ app.get('/group-admin', async (c) => {
         rolesByService={rolesByService}
         servicesByGroup={servicesByGroup}
         appsByGroup={appsByGroup}
+        approvedAppsByGroup={approvedAppsByGroup}
         apps={[]}
     />)
   } catch (e: any) {
@@ -757,8 +784,11 @@ app.post('/group-admin/api/service/create', async (c) => {
     if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
     const providerId = await ensureGroupProvider(c, groupId)
     const id = 'svc-' + crypto.randomUUID()
-    await c.env.DB.prepare('INSERT INTO services (id, provider_id, name, created_at, owner_group_id) VALUES (?, ?, ?, ?, ?)')
+    // サービスは承認待ち(pending)で作成。承認済みアプリを組み込んでから運営者が承認する。
+    await c.env.DB.prepare("INSERT INTO services (id, provider_id, name, created_at, owner_group_id, status) VALUES (?, ?, ?, ?, ?, 'pending')")
         .bind(id, providerId, name, Math.floor(Date.now() / 1000), groupId).run()
+    // 割当用にデフォルトの「一般利用」役割を自動作成する
+    await c.env.DB.prepare("INSERT INTO service_role_master (service_id, role_code, role_name) VALUES (?, 'general', '一般利用')").bind(id).run()
     await logAudit(c, 'DELEGATED_SERVICE_CREATE', { key: 'log_service_add', params: { name, admin: user.email } })
     return c.json({ success: true, id })
 })
@@ -768,19 +798,61 @@ app.post('/group-admin/api/service/delete', async (c) => {
     const user = await getUser(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
     const id = (await c.req.json())['id'] as string
-    const row = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(id).first() as { owner_group_id: string | null } | null
+    const row = await c.env.DB.prepare('SELECT owner_group_id, status FROM services WHERE id = ?').bind(id).first() as { owner_group_id: string | null, status: string } | null
     if (!row) return c.json({ error: 'Not found' }, 404)
     const managed = await getManagedGroupIds(c, user.id)
     // owner が無い(運営者作成のグローバルサービス)は委任では消せない。
     if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
-    await c.env.DB.prepare('UPDATE apps SET service_id = NULL WHERE service_id = ?').bind(id).run()
+    if (row.status === 'active') return c.json({ error: 'Cannot delete an active service. Please request a pause first.' }, 403)
+    // 構成(service_apps)を外し、契約/利用枠/役割/割当を連鎖削除する(アプリ自体は消さない)。
+    await c.env.DB.prepare('DELETE FROM service_apps WHERE service_id = ?').bind(id).run()
     await deleteServiceCascade(c, id)
     await logAudit(c, 'DELEGATED_SERVICE_DELETE', { key: 'log_service_delete', params: { id, admin: user.email } })
     return c.json({ success: true })
 })
 
-// アプリ登録の申請。status='pending' で作成。owner_group_id を刻み、紐付けサービスは
-//   自分の所有サービスのみ許可(越境束縛を拒否)。client_secret は機密既定で生成。
+// サービス構成: 承認済みアプリを自グループのサービスへ組み込む(多対多)。
+//   対象サービスが自グループ所有 かつ アプリが自グループ所有の承認済み(active) であること。
+app.post('/group-admin/api/service/app/add', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const serviceId = (body['service_id'] as string) || ''
+    const appId = (body['app_id'] as string) || ''
+    if (!serviceId || !appId) return c.json({ error: 'missing fields' }, 400)
+    const managed = await getManagedGroupIds(c, user.id)
+    const svc = await c.env.DB.prepare('SELECT owner_group_id, status FROM services WHERE id = ?').bind(serviceId).first() as { owner_group_id: string | null, status: string } | null
+    if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    if (svc.status === 'active') return c.json({ error: 'Cannot modify an active service' }, 403)
+    // 組み込めるのは「自グループ所有 かつ 承認済み(active)」のアプリのみ。
+    const app = await c.env.DB.prepare('SELECT owner_group_id, status FROM apps WHERE id = ?').bind(appId).first() as { owner_group_id: string | null; status: string } | null
+    if (!app || !app.owner_group_id || !managed.has(app.owner_group_id)) return c.json({ error: 'bad_app' }, 403)
+    if (app.status !== 'active') return c.json({ error: 'app_not_approved' }, 400)
+    await c.env.DB.prepare('INSERT OR IGNORE INTO service_apps (service_id, app_id, created_at) VALUES (?, ?, ?)')
+        .bind(serviceId, appId, Math.floor(Date.now() / 1000)).run()
+    await logAudit(c, 'DELEGATED_SERVICE_APP_ADD', { key: 'log_service_app_add', params: { service: serviceId, app: appId, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// サービス構成: 組み込んだアプリを外す。
+app.post('/group-admin/api/service/app/remove', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const serviceId = (body['service_id'] as string) || ''
+    const appId = (body['app_id'] as string) || ''
+    const managed = await getManagedGroupIds(c, user.id)
+    const svc = await c.env.DB.prepare('SELECT owner_group_id, status FROM services WHERE id = ?').bind(serviceId).first() as { owner_group_id: string | null, status: string } | null
+    if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    if (svc.status === 'active') return c.json({ error: 'Cannot modify an active service' }, 403)
+    await c.env.DB.prepare('DELETE FROM service_apps WHERE service_id = ? AND app_id = ?').bind(serviceId, appId).run()
+    await logAudit(c, 'DELEGATED_SERVICE_APP_REMOVE', { key: 'log_service_app_remove', params: { service: serviceId, app: appId, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// アプリ登録の申請。status='pending' で作成し owner_group_id を刻む。
+//   サービスへの紐づけはここでは行わない(承認後にサービス構成側で組み込む)。
+//   client_secret は機密既定で生成。
 app.post('/group-admin/api/app/request', async (c) => {
     const user = await getUser(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
@@ -791,28 +863,22 @@ app.post('/group-admin/api/app/request', async (c) => {
     const baseUrl = ((body['base_url'] as string) || '').trim()
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const description = ((body['description'] as string) || '').trim() || null
-    const serviceId = ((body['service_id'] as string) || '').trim() || null
     if (!groupId || !id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
     const managed = await getManagedGroupIds(c, user.id)
     if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
     // ID 衝突チェック(PK)。
     const dup = await c.env.DB.prepare('SELECT id FROM apps WHERE id = ?').bind(id).first()
     if (dup) return c.json({ error: 'id_taken' }, 409)
-    // 紐付けサービスは自分の所有サービスのみ(越境束縛の防止)。
-    if (serviceId) {
-        const svc = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(serviceId).first() as { owner_group_id: string | null } | null
-        if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'bad_service' }, 403)
-    }
     const clientSecret = generateToken() + generateToken().replace(/-/g, '')
     await c.env.DB.prepare(`
-        INSERT INTO apps (id, name, base_url, status, created_at, description, client_secret, redirect_uris, service_id, owner_group_id)
-        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
-    `).bind(id, name, baseUrl, Math.floor(Date.now() / 1000), description, clientSecret, redirectUris, serviceId, groupId).run()
+        INSERT INTO apps (id, name, base_url, status, created_at, description, client_secret, redirect_uris, owner_group_id)
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+    `).bind(id, name, baseUrl, Math.floor(Date.now() / 1000), description, clientSecret, redirectUris, groupId).run()
     await logAudit(c, 'DELEGATED_APP_REQUEST', { key: 'log_app_created', params: { appName: name, id, admin: user.email } })
     return c.json({ success: true })
 })
 
-// 自グループのアプリ(申請含む)を更新。status は変更不可(自己承諾の防止)。
+// 自グループのアプリ(申請含む)を更新。status は変更不可(自己承諾の防止)。サービス紐づけは扱わない。
 app.post('/group-admin/api/app/update', async (c) => {
     const user = await getUser(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
@@ -822,19 +888,16 @@ app.post('/group-admin/api/app/update', async (c) => {
     const baseUrl = ((body['base_url'] as string) || '').trim()
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const description = ((body['description'] as string) || '').trim() || null
-    const serviceId = ((body['service_id'] as string) || '').trim() || null
     if (!id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
-    const row = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null } | null
+    const row = await c.env.DB.prepare('SELECT owner_group_id, status FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null, status: string } | null
     if (!row) return c.json({ error: 'Not found' }, 404)
     const managed = await getManagedGroupIds(c, user.id)
     if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
-    if (serviceId) {
-        const svc = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(serviceId).first() as { owner_group_id: string | null } | null
-        if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'bad_service' }, 403)
-    }
-    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, redirect_uris = ?, description = ?, service_id = ? WHERE id = ?')
-        .bind(name, baseUrl, redirectUris, description, serviceId, id).run()
-    await logAudit(c, 'DELEGATED_APP_UPDATE', { key: 'log_app_updated', params: { appName: name, status: 'Updated', admin: user.email } })
+    if (row.status === 'active') return c.json({ error: 'Cannot edit an active app' }, 403)
+    const newStatus = row.status === 'rejected' ? 'pending' : row.status
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, redirect_uris = ?, description = ?, status = ? WHERE id = ?')
+        .bind(name, baseUrl, redirectUris, description, newStatus, id).run()
+    await logAudit(c, 'DELEGATED_APP_UPDATE', { key: 'log_app_updated', params: { appName: name, status: newStatus, admin: user.email } })
     return c.json({ success: true })
 })
 
@@ -843,15 +906,17 @@ app.post('/group-admin/api/app/delete', async (c) => {
     const user = await getUser(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
     const id = (await c.req.json())['id'] as string
-    const row = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null } | null
+    const row = await c.env.DB.prepare('SELECT owner_group_id, status FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null, status: string } | null
     if (!row) return c.json({ error: 'Not found' }, 404)
     const managed = await getManagedGroupIds(c, user.id)
     if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    if (row.status === 'active') return c.json({ error: 'Cannot delete an active app. Please request a pause first.' }, 403)
     await c.env.DB.batch([
         c.env.DB.prepare('DELETE FROM permissions WHERE app_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM group_permissions WHERE app_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM auth_codes WHERE app_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM app_sessions WHERE app_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM service_apps WHERE app_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM apps WHERE id = ?').bind(id),
     ])
     await logAudit(c, 'DELEGATED_APP_DELETE', { key: 'log_app_deleted', params: { id, admin: user.email } })
@@ -1568,27 +1633,31 @@ app.get('/entitlements/me', async (c) => {
         .bind(token, Math.floor(Date.now() / 1000)).first() as any
     if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
 
-    // トークンを発行した OIDC クライアント → ドメインサービスを引く。
-    const appRow = await c.env.DB.prepare('SELECT id, service_id FROM apps WHERE id = ?')
-        .bind(session.app_id).first() as { id: string; service_id: string | null } | null
-    if (!appRow || !appRow.service_id) {
-        // 403: このクライアントはどのサービスにも束縛されていない(エンタイトルメント用ではない)。
-        return c.json({ error: 'not_entitlement_client', error_description: 'this client is not bound to a service' }, 403)
-    }
-    const service = await c.env.DB.prepare('SELECT id, name FROM services WHERE id = ?')
-        .bind(appRow.service_id).first() as { id: string; name: string } | null
-    if (!service) {
-        // 束縛先サービスが削除済み等で見つからない場合も問い合わせ不可とする。
-        return c.json({ error: 'not_entitlement_client', error_description: 'the bound service does not exist' }, 403)
+    // トークンを発行した OIDC クライアント → 組み込まれているドメインサービスを service_apps から引く。
+    //   アプリは多対多で複数サービスに属しうる。承認済み(active)サービスのみ対象。
+    const { results: svcRows } = await c.env.DB.prepare(`
+        SELECT s.id AS id, s.name AS name FROM service_apps sa
+        JOIN services s ON s.id = sa.service_id
+        WHERE sa.app_id = ? AND (s.status IS NULL OR s.status = 'active')
+        ORDER BY s.name
+    `).bind(session.app_id).all()
+    const boundServices = (svcRows as { id: string; name: string }[]) || []
+    if (boundServices.length === 0) {
+        // 403: このクライアントはどの(承認済み)サービスにも組み込まれていない = エンタイトルメント用ではない。
+        return c.json({ error: 'not_entitlement_client', error_description: 'this client is not part of any service' }, 403)
     }
 
-    const entitlements = await getEntitlements(c, session.user_id, service.id)
-    return c.json({
-        subject: session.user_id,
-        service: { id: service.id, name: service.name },
-        as_of: Math.floor(Date.now() / 1000),
-        entitlements,
-    })
+    // 各サービスについて ①②③ 全通過の割当を列挙する。
+    const services = [] as any[]
+    for (const s of boundServices) {
+        services.push({ service: { id: s.id, name: s.name }, entitlements: await getEntitlements(c, session.user_id, s.id) })
+    }
+    const asOf = Math.floor(Date.now() / 1000)
+    // 単一サービスのクライアントは従来通り service / entitlements をトップレベルにも出す(後方互換)。
+    if (services.length === 1) {
+        return c.json({ subject: session.user_id, service: services[0].service, as_of: asOf, entitlements: services[0].entitlements, services })
+    }
+    return c.json({ subject: session.user_id, as_of: asOf, services })
 })
 
 // OIDC Back-Channel Logout 1.0 §2.4: logout_token は `events` メンバーを持ち subject を
@@ -1898,16 +1967,17 @@ app.get('/admin/apps', async (c) => {
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
+    // アプリ↔サービスの紐づけは service_apps(多対多)に一本化したため、何個のサービスに
+    // 組み込まれているかを件数で表示する(単一束縛 apps.service_id は廃止)。
     const { results } = await c.env.DB.prepare(`
-        SELECT a.*, s.name as service_name, g.name as owner_group_name
+        SELECT a.*, g.name as owner_group_name,
+               (SELECT COUNT(*) FROM service_apps sa WHERE sa.app_id = a.id) AS service_count
         FROM apps a
-        LEFT JOIN services s ON a.service_id = s.id
         LEFT JOIN groups g ON a.owner_group_id = g.id
         ORDER BY (a.status = 'pending') DESC, a.created_at DESC
     `).all()
-    const services = await c.env.DB.prepare('SELECT id, name FROM services ORDER BY created_at DESC').all()
     const regTokens = await c.env.DB.prepare('SELECT token, created_at, expires_at FROM registration_tokens ORDER BY created_at DESC').all()
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} services={services.results as any} regTokens={regTokens.results as any} siteName={siteName} appConfig={config} />)
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} regTokens={regTokens.results as any} siteName={siteName} appConfig={config} />)
 })
 
 // RFC 7591 動的登録用の Initial Access Token を発行する。任意の `days` で有効期限を
@@ -1955,9 +2025,9 @@ app.post('/admin/apps', async (c) => {
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
-    const serviceId = ((body['service_id'] as string) || '').trim() || null
-    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri, service_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri, serviceId).run()
+    // アプリ↔サービスの紐づけはここでは行わない(サービス構成側 service_apps で組み込む)。
+    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri).run()
 
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
@@ -1994,9 +2064,9 @@ app.post('/admin/apps/update', async (c) => {
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
-    const serviceId = ((body['service_id'] as string) || '').trim() || null
-    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ?, backchannel_logout_uri = ?, service_id = ? WHERE id = ?')
-        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, serviceId, id).run()
+    // アプリ↔サービスの紐づけはここでは行わない(サービス構成側 service_apps で組み込む)。
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ?, backchannel_logout_uri = ? WHERE id = ?')
+        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, id).run()
         
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: body['name'], status: 'Updated', admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
@@ -2427,9 +2497,15 @@ app.get('/admin/am/services', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const providers = await c.env.DB.prepare('SELECT * FROM service_providers ORDER BY created_at DESC').all()
+    // 承認待ち(pending)を先頭に。所有グループ名と、組み込み済みアプリ名(カンマ連結)も付ける。
     const services = await c.env.DB.prepare(`
-        SELECT s.*, p.name AS provider_name FROM services s
-        LEFT JOIN service_providers p ON s.provider_id = p.id ORDER BY s.created_at DESC`).all()
+        SELECT s.*, p.name AS provider_name, g.name AS owner_group_name,
+               (SELECT GROUP_CONCAT(a.name, ', ') FROM service_apps sa JOIN apps a ON a.id = sa.app_id WHERE sa.service_id = s.id) AS app_names,
+               (SELECT GROUP_CONCAT(sa.app_id, ',') FROM service_apps sa WHERE sa.service_id = s.id) AS app_ids
+        FROM services s
+        LEFT JOIN service_providers p ON s.provider_id = p.id
+        LEFT JOIN groups g ON s.owner_group_id = g.id
+        ORDER BY (s.status = 'pending') DESC, s.created_at DESC`).all()
     const contracts = await c.env.DB.prepare(`
         SELECT ct.*, s.name AS service_name, p.name AS provider_name, g.name AS group_name
         FROM service_contracts ct
@@ -2475,6 +2551,37 @@ app.post('/admin/am/services', async (c) => {
             .bind(crypto.randomUUID(), providerId, name, Math.floor(Date.now() / 1000)).run()
         await logAudit(c, 'SERVICE_ADD', { key: 'log_service_add', params: { name, admin: user.email } })
     }
+    return c.redirect('/admin/am/services')
+})
+// グループ管理者が構成・申請したサービス(status='pending')を承諾して有効化する。運営者専用。
+app.post('/admin/am/services/approve', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const body = await c.req.parseBody()
+    const id = body['id'] as string
+    
+    // 構成変更チェック(TOCTOU対策)
+    const expectedAppsRaw = (body['expected_apps'] as string) || ''
+    const expectedApps = expectedAppsRaw.split(',').filter(Boolean).sort().join(',')
+    
+    const currentAppsRows = await c.env.DB.prepare('SELECT app_id FROM service_apps WHERE service_id = ? ORDER BY app_id').bind(id).all()
+    const currentApps = currentAppsRows.results.map((r: any) => r.app_id).sort().join(',')
+    
+    if (expectedApps !== currentApps) {
+        return c.text('Error: The service composition has changed since you opened this page. Please return to the previous page, refresh, and review again.', 409)
+    }
+
+    await c.env.DB.prepare("UPDATE services SET status = 'active' WHERE id = ? AND status = 'pending'").bind(id).run()
+    await logAudit(c, 'SERVICE_APPROVED', { key: 'log_service_add', params: { name: id, admin: user.email } })
+    return c.redirect('/admin/am/services')
+})
+// サービス申請を却下する(status='rejected')。運営者専用。
+app.post('/admin/am/services/reject', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const id = (await c.req.parseBody())['id'] as string
+    await c.env.DB.prepare("UPDATE services SET status = 'rejected' WHERE id = ? AND status = 'pending'").bind(id).run()
+    await logAudit(c, 'SERVICE_REJECTED', { key: 'log_service_delete', params: { id, admin: user.email } })
     return c.redirect('/admin/am/services')
 })
 app.post('/admin/am/services/delete', async (c) => {
@@ -2654,10 +2761,11 @@ app.post('/admin/am/roles', async (c) => {
     const body = await c.req.parseBody()
     const serviceId = (body['service_id'] as string) || ''
     const facilityType = ((body['facility_type'] as string) || '').trim() || null
+    const roleCode = ((body['role_code'] as string) || '').trim() || 'general'
     const roleName = ((body['role_name'] as string) || '').trim()
     if (serviceId && roleName) {
-        await c.env.DB.prepare('INSERT INTO service_role_master (service_id, facility_type, role_name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
-            .bind(serviceId, facilityType, roleName).run()
+        await c.env.DB.prepare('INSERT INTO service_role_master (service_id, facility_type, role_code, role_name) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING')
+            .bind(serviceId, facilityType, roleCode, roleName).run()
         await logAudit(c, 'ROLE_ADD', { key: 'log_role_add', params: { role: roleName, admin: user.email } })
     }
     return c.redirect('/admin/am/assignments')
