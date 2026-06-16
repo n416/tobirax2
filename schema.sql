@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS group_developer_applications (
     group_id   TEXT NOT NULL REFERENCES groups(id),
     status     TEXT NOT NULL DEFAULT 'pending',
     reason     TEXT,
+    admin_reason TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY(user_id, group_id)

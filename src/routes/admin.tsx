@@ -1028,3 +1028,91 @@ adminRouter.post('/admin/config', async (c) => {
     }
 })
 
+
+
+// ============================================================
+// システム管理者: 開発者申請の管理 (group_developer_applications)
+// ============================================================
+adminRouter.get('/admin/am/developers', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.redirect('/login')
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+
+    // 全申請を取得
+    const { results } = await c.env.DB.prepare(`
+        SELECT 
+            d.user_id, d.group_id, d.status, d.reason, d.admin_reason, d.created_at as applied_at, d.updated_at as processed_at,
+            u.email, u.name as user_name,
+            g.name as group_name
+        FROM group_developer_applications d
+        LEFT JOIN users u ON d.user_id = u.id
+        LEFT JOIN groups g ON d.group_id = g.id
+        ORDER BY (d.status = 'pending') DESC, d.created_at DESC
+    `).all()
+
+    return c.html(<AccountDevelopersPage 
+        t={getLang(c)} 
+        userEmail={user.email} 
+        applications={results as any} 
+        siteName={siteName} 
+        appConfig={config} 
+    />)
+})
+
+adminRouter.post('/admin/api/developers/approve', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const { user_id, group_id } = body
+    
+    const now = Math.floor(Date.now() / 1000)
+    await c.env.DB.prepare(`
+        UPDATE group_developer_applications 
+        SET status = 'approved', updated_at = ?
+        WHERE user_id = ? AND group_id = ? AND status = 'pending'
+    `).bind(now, user_id, group_id).run()
+
+    const details = JSON.stringify({ key: 'log_dev_approve', params: { group: group_id, target_user: user_id, admin: user.email } })
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('DEV_APPROVE', details).run()
+    
+    return c.json({ success: true })
+})
+
+adminRouter.post('/admin/api/developers/reject', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const { user_id, group_id, admin_reason } = body
+    
+    const now = Math.floor(Date.now() / 1000)
+    await c.env.DB.prepare(`
+        UPDATE group_developer_applications 
+        SET status = 'rejected', admin_reason = ?, updated_at = ?
+        WHERE user_id = ? AND group_id = ? AND status = 'pending'
+    `).bind(admin_reason || null, now, user_id, group_id).run()
+
+    const details = JSON.stringify({ key: 'log_dev_reject', params: { group: group_id, target_user: user_id, admin: user.email } })
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('DEV_REJECT', details).run()
+    
+    return c.json({ success: true })
+})
+
+adminRouter.post('/admin/api/developers/revoke', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const { user_id, group_id, admin_reason } = body
+    
+    const now = Math.floor(Date.now() / 1000)
+    await c.env.DB.prepare(`
+        UPDATE group_developer_applications 
+        SET status = 'revoked', admin_reason = ?, updated_at = ?
+        WHERE user_id = ? AND group_id = ? AND status = 'approved'
+    `).bind(admin_reason || null, now, user_id, group_id).run()
+
+    const details = JSON.stringify({ key: 'log_dev_revoke', params: { group: group_id, target_user: user_id, admin: user.email } })
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('DEV_REVOKE', details).run()
+    
+    return c.json({ success: true })
+})

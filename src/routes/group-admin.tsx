@@ -73,7 +73,9 @@ groupAdminRouter.get('/group-admin', async (c) => {
             profileName={user.name} profilePicture={user.picture}
             managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
             grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}}
-            servicesByGroup={{}} appsByGroup={{}} approvedAppsByGroup={{}} apps={[]} />)
+            
+            servicesByGroup={{}} appsByGroup={{}} approvedAppsByGroup={{}} devStatuses={{}} apps={[]} />)
+
     }
 
     const groupIds = managedGroups.map((g: any) => g.id as string)
@@ -192,7 +194,18 @@ groupAdminRouter.get('/group-admin', async (c) => {
     //   - approvedAppsByGroup: 各グループが所有する「承認済み(active)」アプリ = サービスに組み込める部品。
     const servicesByGroup: Record<string, any[]> = {}
     const appsByGroup: Record<string, any[]> = {}
+    
     const approvedAppsByGroup: Record<string, any[]> = {}
+    
+    // 開発者申請のステータスを取得
+    const devStatuses: Record<string, { status: string, reason: string | null, admin_reason: string | null }> = {}
+    const { results: devRows } = await c.env.DB.prepare(
+        'SELECT group_id, status, reason, admin_reason FROM group_developer_applications WHERE user_id = ?'
+    ).bind(user.id).all()
+    for (const r of (devRows as any[])) {
+        devStatuses[r.group_id] = { status: r.status, reason: r.reason, admin_reason: r.admin_reason }
+    }
+
     for (const gid of groupIds) {
         const { results: svcRows } = await c.env.DB.prepare(
             'SELECT id, name, status FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
@@ -229,8 +242,11 @@ groupAdminRouter.get('/group-admin', async (c) => {
         rolesByService={rolesByService}
         servicesByGroup={servicesByGroup}
         appsByGroup={appsByGroup}
+        
         approvedAppsByGroup={approvedAppsByGroup}
+        devStatuses={devStatuses}
         apps={[]}
+
     />)
   } catch (e: any) {
     return c.json({ error: e.message, stack: e.stack }, 500)
@@ -443,14 +459,45 @@ groupAdminRouter.post('/group-admin/api/service/app/remove', async (c) => {
     return c.json({ success: true })
 })
 
-// アプリ登録の申請。status='pending' で作成し owner_group_id を刻む。
+
+// 開発者申請のエンドポイント
+groupAdminRouter.post('/group-admin/api/developer/apply', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const reason = body['reason'] as string
+    
+    // Check if user is in the group (or managed subtree)
+    const managedIds = await getManagedGroupIds(c, user.id)
+    if (!managedIds.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    
+    const now = Math.floor(Date.now() / 1000)
+    await c.env.DB.prepare(`
+        INSERT INTO group_developer_applications (user_id, group_id, status, reason, created_at, updated_at) 
+        VALUES (?, ?, 'pending', ?, ?, ?)
+        ON CONFLICT(user_id, group_id) DO UPDATE SET status='pending', reason=excluded.reason, admin_reason=NULL, updated_at=excluded.updated_at
+    `).bind(user.id, groupId, reason, now, now).run()
+    
+    const details = JSON.stringify({ key: 'log_dev_apply', params: { group: groupId, user: user.email } })
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('DEV_APPLY', details).run()
+    return c.json({ success: true })
+})
+
+// アプリ登録の申請
+// 。status='pending' で作成し owner_group_id を刻む。
 //   サービスへの紐づけはここでは行わない(承認後にサービス構成側で組み込む)。
 //   client_secret は機密既定で生成。
 groupAdminRouter.post('/group-admin/api/app/request', async (c) => {
     const user = await getUser(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
     const body = await c.req.json()
+    
     const groupId = body['group_id'] as string
+    
+    const devApp = await c.env.DB.prepare('SELECT status FROM group_developer_applications WHERE user_id = ? AND group_id = ?').bind(user.id, groupId).first<{ status: string }>()
+    if (!devApp || devApp.status !== 'approved') return c.json({ error: 'Developer status not approved for this group' }, 403)
+
     const id = ((body['id'] as string) || '').trim()
     const name = ((body['name'] as string) || '').trim()
     const baseUrl = ((body['base_url'] as string) || '').trim()

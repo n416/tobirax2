@@ -427,7 +427,21 @@ export const GroupAdminPage = (props: Props) => {
           if(pendingUi) pendingUi.style.display = 'none';
           if(devUi) devUi.style.display = 'none';
           var rejectMsg = document.getElementById('dev-rejected-msg');
-          if (rejectMsg) rejectMsg.style.display = status === 'rejected' ? 'flex' : 'none';
+          if (rejectMsg) {
+            rejectMsg.style.display = status === 'rejected' ? 'flex' : 'none';
+            if (status === 'rejected') {
+              var el = document.getElementById('dev-rejected-reason-text');
+              if (el) el.innerText = ds.admin_reason || '事由なし';
+            }
+          }
+          var revokedMsg = document.getElementById('dev-revoked-msg');
+          if (revokedMsg) {
+            revokedMsg.style.display = status === 'revoked' ? 'flex' : 'none';
+            if (status === 'revoked') {
+              var el2 = document.getElementById('dev-revoked-reason-text');
+              if (el2) el2.innerText = ds.admin_reason || '事由なし';
+            }
+          }
         }
       };
 
@@ -1169,37 +1183,69 @@ export const GroupAdminPage = (props: Props) => {
 
       <!-- アプリ／サービス タブ(セルフサービス) -->
       <div id="tab-apps" style="display:none;">
-        <!-- 自グループのサービス -->
-        <div class="${sectionTitle}"><span class="material-symbols-outlined">category</span>${t.ga_svc_section}</div>
-        <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_svc_desc}</div>
-        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-          ${Button({ onclick: "openServiceModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.ga_svc_create}` })}
-        </div>
-        <div class="${card}">
-          <div class="${tableWrap}">
-            <table>
-              <thead><tr><th>${t.ga_svc_name}</th><th></th></tr></thead>
-              <tbody id="services-table-body">
-                <tr><td colspan="2" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
-              </tbody>
-            </table>
+
+        <!-- 開発者申請前の表示 -->
+        <div id="dev-not-approved" style="display:none; margin-bottom:1.5rem;">
+          <div class="${sectionTitle}"><span class="material-symbols-outlined">developer_board</span>開発者機能の利用申請</div>
+          <div class="${infoBox}"><span class="material-symbols-outlined">info</span>OIDCアプリの登録やサービスの作成を行うには、システム管理者の承認が必要です。</div>
+          <div class="${card}" style="max-width:600px;">
+            <label class="${formLabel}">申請理由 (必須)</label>
+            <textarea id="dev-apply-reason" class="${dateInput}" style="min-height:80px; margin-bottom:1rem;" placeholder="アプリの利用目的などを入力してください"></textarea>
+            ${Button({ onclick: "applyDeveloper()", style: "width:auto;", children: html`<span class="material-symbols-outlined">send</span> 承認を申請する` })}
+            <div id="dev-rejected-msg" style="display:none; margin-top:1.5rem; color:#b91c1c; background:#fef2f2; padding:1rem; border-radius:8px; align-items:flex-start; gap:0.5rem; flex-direction:column;">
+              <div style="display:flex; align-items:center; gap:0.5rem; font-weight:600;"><span class="material-symbols-outlined">error</span><span>前回の申請は以下の事由により却下されました。理由を修正して再度申請してください。</span></div>
+              <div style="padding:0.75rem; background:rgba(0,0,0,0.03); border-radius:6px; width:100%; box-sizing:border-box; white-space:pre-wrap; margin-top:0.5rem;" id="dev-rejected-reason-text"></div>
+            </div>
+            <div id="dev-revoked-msg" style="display:none; margin-top:1.5rem; color:#b45309; background:#fffbeb; padding:1rem; border-radius:8px; align-items:flex-start; gap:0.5rem; flex-direction:column;">
+              <div style="display:flex; align-items:center; gap:0.5rem; font-weight:600;"><span class="material-symbols-outlined">warning</span><span>開発者権限は以下の事由によりはく奪されました。再度権限が必要な場合は改めて申請してください。</span></div>
+              <div style="padding:0.75rem; background:rgba(0,0,0,0.03); border-radius:6px; width:100%; box-sizing:border-box; white-space:pre-wrap; margin-top:0.5rem;" id="dev-revoked-reason-text"></div>
+            </div>
           </div>
         </div>
 
-        <!-- アプリ登録の申請 -->
-        <div class="${sectionTitle}" style="margin-top:1rem;"><span class="material-symbols-outlined">apps</span>${t.ga_app_section}</div>
-        <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_app_desc}</div>
-        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-          ${Button({ onclick: "openAppModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">note_add</span> ${t.ga_app_request}` })}
+        <!-- 申請中(Pending)の表示 -->
+        <div id="dev-pending" style="display:none; margin-bottom:1.5rem;">
+          <div class="${sectionTitle}"><span class="material-symbols-outlined">developer_board</span>開発者機能の利用申請</div>
+          <div class="${infoBox}" style="background:#fffbeb; color:#b45309; border-color:#fcd34d;">
+            <span class="material-symbols-outlined" style="color:#f59e0b;">hourglass_empty</span>
+            システム管理者の承認をお待ちください。承認されるまでアプリやサービスの作成はできません。
+          </div>
         </div>
-        <div class="${card}">
-          <div class="${tableWrap}">
-            <table>
-              <thead><tr><th>${t.ga_app_name}</th><th>${t.status}</th><th>${t.ga_app_bind}</th><th></th></tr></thead>
-              <tbody id="apps-table-body">
-                <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
-              </tbody>
-            </table>
+
+        <!-- 承認済み(Approved)の表示 -->
+        <div id="dev-approved" style="display:none;">
+          <!-- 自グループのサービス -->
+          <div class="${sectionTitle}"><span class="material-symbols-outlined">category</span>${t.ga_svc_section}</div>
+          <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_svc_desc}</div>
+          <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+            ${Button({ onclick: "openServiceModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.ga_svc_create}` })}
+          </div>
+          <div class="${card}">
+            <div class="${tableWrap}">
+              <table>
+                <thead><tr><th>${t.ga_svc_name}</th><th></th></tr></thead>
+                <tbody id="services-table-body">
+                  <tr><td colspan="2" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- アプリ登録の申請 -->
+          <div class="${sectionTitle}" style="margin-top:1rem;"><span class="material-symbols-outlined">apps</span>${t.ga_app_section}</div>
+          <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_app_desc}</div>
+          <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+            ${Button({ onclick: "openAppModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">note_add</span> ${t.ga_app_request}` })}
+          </div>
+          <div class="${card}">
+            <div class="${tableWrap}">
+              <table>
+                <thead><tr><th>${t.ga_app_name}</th><th>${t.status}</th><th>${t.ga_app_bind}</th><th></th></tr></thead>
+                <tbody id="apps-table-body">
+                  <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:1.5rem;">読込中...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
