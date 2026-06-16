@@ -119,7 +119,7 @@ export const UserDashboard = (props: Props) => {
     title: t.title_user_dashboard,
     siteName: props.siteName,
     lang: t.lang,
-    width: 960,
+    width: 1000,
     align: 'top',
     children: html`
         ${UserTopbar({

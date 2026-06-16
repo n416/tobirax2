@@ -8,7 +8,8 @@ interface ButtonProps {
   className?: string
   onclick?: string
   style?: string
-  variant?: "primary" | "outline"
+  href?: string
+  variant?: "primary" | "outline" | "danger" | "ghost"
 }
 
 export const Button = (props: ButtonProps) => {
@@ -42,6 +43,7 @@ export const Button = (props: ButtonProps) => {
     &:hover {
         transform: translateY(-2px);
         box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
+        color: white;
     }
     &:active {
         transform: translateY(0);
@@ -61,7 +63,46 @@ export const Button = (props: ButtonProps) => {
     }
   `
 
-  const variantClass = variant === 'outline' ? outline : primary
+  const ghost = css`
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid #cbd5e1;
+    color: var(--text-main);
+    box-shadow: none;
+    &:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+        background: #fff;
+    }
+  `
+
+  const danger = css`
+    background: #fff;
+    border: 1px solid #fecaca;
+    color: #dc2626;
+    box-shadow: none;
+    &:hover {
+        background: #fef2f2;
+        color: #dc2626;
+    }
+  `
+
+  const variantClass = variant === 'outline' ? outline :
+                       variant === 'danger' ? danger :
+                       variant === 'ghost' ? ghost : primary
+
+  if (props.href) {
+    return html`
+      <a 
+          href="${props.href}"
+          class="${baseBtn} ${variantClass} ${props.className || ''}"
+          id="${props.id || ''}"
+          onclick="${props.onclick || ''}"
+          style="${props.style || ''}"
+      >
+          ${props.children}
+      </a>
+    `
+  }
 
   return html`
     <button 

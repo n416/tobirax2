@@ -281,6 +281,11 @@ export const GroupAdminPage = (props: Props) => {
       var currentGroupId = '';
 
       document.addEventListener('DOMContentLoaded', function() {
+        try {
+          var savedTab = localStorage.getItem('ga_current_tab');
+          if (savedTab) currentTab = savedTab;
+        } catch(e){}
+
         var md = document.getElementById('ga-members-data');
         var ad = document.getElementById('ga-assigns-data');
         var pd = document.getElementById('ga-perms-data');
@@ -342,6 +347,8 @@ export const GroupAdminPage = (props: Props) => {
           currentGroupId = initialVal;
           renderAll();
         }
+        window.switchTab(currentTab);
+        
         if (typeof TomSelect !== 'undefined') {
           var el = document.getElementById('m-user-id');
           if (el) {
@@ -361,6 +368,7 @@ export const GroupAdminPage = (props: Props) => {
 
       window.switchTab = function(tab) {
         currentTab = tab;
+        try { localStorage.setItem('ga_current_tab', tab); } catch(e){}
         ['members', 'assignments', 'grants', 'access', 'apps'].forEach(function(t) {
           var btn = document.getElementById('tab-btn-' + t);
           var pane = document.getElementById('tab-' + t);
@@ -999,7 +1007,7 @@ export const GroupAdminPage = (props: Props) => {
       title: t.ga_title,
       siteName: props.siteName,
       lang: t.lang,
-      width: 800,
+      width: 1000,
       align: 'top',
       children: html`
         ${UserTopbar({ t, siteName: props.siteName, userEmail: props.userEmail, active: 'group-admin', profileName: props.profileName, profilePicture: props.profilePicture, isGroupAdmin: true })}
@@ -1490,6 +1498,42 @@ export const GroupAdminPage = (props: Props) => {
       })}
 
       ${ServiceAppsModal(t, '/group-admin/api')}
+
+      <!-- 役割管理モーダル -->
+      ${Modal({
+        id: 'manage-roles-modal',
+        title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">manage_accounts</span> 役割の管理 - <span id="mr-service-name"></span></span>`,
+        closeAction: "this.closest('.custom-modal').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <!-- 現在の役割リスト -->
+            <div id="mr-role-list" style="display:flex; flex-direction:column; gap:0.5rem; max-height: 250px; overflow-y: auto; padding: 0.5rem; background: rgba(255,255,255,0.5); border: 1px solid #cbd5e1; border-radius: 8px;">
+            </div>
+
+            <hr style="border:none; border-top:1px solid #cbd5e1; margin: 0.5rem 0;" />
+
+            <!-- 新規追加フォーム -->
+            <div style="font-weight: 600; color: var(--text-main); font-size: 0.95rem;">新しい役割を追加</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+              <div>
+                <label class="${formLabel}">役割名 (例: 担当者)</label>
+                <input type="text" id="mr-role-name" class="${dateInput}" />
+              </div>
+              <div>
+                <label class="${formLabel}">ロールコード (例: staff)</label>
+                <input type="text" id="mr-role-code" class="${dateInput}" />
+              </div>
+            </div>
+            <div>
+              <label class="${formLabel}">施設区分 (任意・指定する場合のみ)</label>
+              <input type="text" id="mr-facility-type" class="${dateInput}" placeholder="例: 倉庫" />
+            </div>
+            <div style="margin-top:0.5rem; text-align: right;">
+              ${Button({ onclick: "addRole()", children: html`<span class="material-symbols-outlined">add</span> 役割を追加`, style: "width:auto;" })}
+            </div>
+          </div>
+        `
+      })}
 
       <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
       <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>

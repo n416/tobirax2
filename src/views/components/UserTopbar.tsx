@@ -20,6 +20,7 @@ export const UserTopbar = (props: Props) => {
   const bar = css`
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 1.25rem;
     padding: 0.85rem 1.25rem;
     margin-bottom: 2rem;
@@ -62,7 +63,7 @@ export const UserTopbar = (props: Props) => {
     & a:hover { background: rgba(255, 255, 255, 0.7); color: var(--primary); }
     & a.active { background: #ffffff; color: var(--primary); box-shadow: 0 2px 6px -2px rgba(0,0,0,0.08); }
 
-    @media (max-width: 560px) {
+    @media (max-width: 800px) {
       & a span:not(.material-symbols-outlined) { display: none; }
     }
   `
@@ -95,7 +96,7 @@ export const UserTopbar = (props: Props) => {
     font-size: 0.88rem;
     color: var(--text-sub);
     font-weight: 500;
-    @media (max-width: 720px) { display: none; }
+    @media (max-width: 900px) { display: none; }
   `
 
   const logoutBtn = css`

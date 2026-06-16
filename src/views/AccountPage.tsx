@@ -4,6 +4,7 @@ import { dict } from '../i18n'
 import { Layout } from './components/Layout'
 import { UserTopbar } from './components/UserTopbar'
 import { Modal } from './components/Modal'
+import { Button } from './components/Button'
 
 interface Props {
   t: typeof dict.en
@@ -80,16 +81,6 @@ export const AccountPage = (props: Props) => {
     & input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
   `
 
-  const primaryBtn = css`
-    display: inline-flex; align-items: center; gap: 0.4rem;
-    background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-    color: #fff; border: none; border-radius: 10px;
-    padding: 0.6rem 1.3rem; font-size: 0.92rem; font-weight: 700; cursor: pointer;
-    box-shadow: 0 4px 6px -1px rgba(79,70,229,0.25); transition: all 0.2s;
-    & .material-symbols-outlined { font-size: 18px; }
-    &:hover { transform: translateY(-1px); box-shadow: 0 8px 14px -3px rgba(79,70,229,0.35); }
-  `
-
   const secRow = css`
     display: flex; align-items: center; justify-content: space-between; gap: 1rem;
     padding: 1rem 0;
@@ -102,22 +93,6 @@ export const AccountPage = (props: Props) => {
   `
   const badgeOn = css`color:#16a34a; background:#dcfce7; padding:2px 10px; border-radius:99px; font-size:0.8rem; font-weight:700;`
   const badgeOff = css`color:#64748b; background:#f1f5f9; padding:2px 10px; border-radius:99px; font-size:0.8rem; font-weight:700;`
-
-  const ghostBtn = css`
-    display: inline-flex; align-items: center; gap: 0.35rem;
-    background: rgba(255,255,255,0.7); border: 1px solid #cbd5e1; border-radius: 10px;
-    padding: 0.5rem 1rem; font-size: 0.88rem; font-weight: 600; color: var(--text-main) !important;
-    text-decoration: none; cursor: pointer; transition: all 0.2s;
-    & .material-symbols-outlined { font-size: 18px; }
-    &:hover { border-color: var(--primary); color: var(--primary) !important; background: #fff; }
-  `
-  const dangerBtn = css`
-    display: inline-flex; align-items: center; gap: 0.35rem;
-    background: #fff; border: 1px solid #fecaca; border-radius: 10px;
-    padding: 0.5rem 1rem; font-size: 0.88rem; font-weight: 600; color: #dc2626; cursor: pointer; transition: all 0.2s;
-    & .material-symbols-outlined { font-size: 18px; }
-    &:hover { background: #fef2f2; }
-  `
 
   const successBanner = css`
     display: flex; align-items: center; gap: 0.5rem;
@@ -133,7 +108,7 @@ export const AccountPage = (props: Props) => {
     title: t.account_settings,
     siteName: props.siteName,
     lang: t.lang,
-    width: 760,
+    width: 1000,
     align: 'top',
     children: html`
         ${UserTopbar({
@@ -183,7 +158,7 @@ export const AccountPage = (props: Props) => {
               <input type="url" name="picture" value="${props.profilePicture || ''}" placeholder="https://..." />
             </label>
             <div style="text-align:right;">
-              <button type="submit" class="${primaryBtn}"><span class="material-symbols-outlined">save</span>${t.save}</button>
+              ${Button({ type: "submit", children: html`<span class="material-symbols-outlined">save</span>${t.save}`, style: "width: auto; padding: 0.6rem 1.3rem;" })}
             </div>
           </form>
         </section>
@@ -204,8 +179,8 @@ export const AccountPage = (props: Props) => {
             </div>
             <div>
               ${props.has2FA
-                ? html`<button type="button" class="${dangerBtn}" onclick="document.getElementById('disable-2fa-modal').showModal()"><span class="material-symbols-outlined">lock_open</span>${t.btn_disable_2fa}</button>`
-                : html`<a href="/user/2fa/setup" class="${primaryBtn}"><span class="material-symbols-outlined">add_moderator</span>${t.btn_setup_2fa}</a>`}
+                ? Button({ type: "button", variant: "danger", onclick: "document.getElementById('disable-2fa-modal').showModal()", children: html`<span class="material-symbols-outlined">lock_open</span>${t.btn_disable_2fa}`, style: "width: auto; padding: 0.5rem 1rem;" })
+                : Button({ href: "/user/2fa/setup", children: html`<span class="material-symbols-outlined">add_moderator</span>${t.btn_setup_2fa}`, style: "width: auto; padding: 0.5rem 1rem;" })}
             </div>
           </div>
 
@@ -214,7 +189,7 @@ export const AccountPage = (props: Props) => {
               <div class="ttl"><span class="material-symbols-outlined">key</span>${t.header_change_password}</div>
             </div>
             <div>
-              <a href="/change-password" class="${ghostBtn}"><span class="material-symbols-outlined">key</span>${t.btn_change_password}</a>
+              ${Button({ variant: "ghost", href: "/change-password", children: html`<span class="material-symbols-outlined">key</span>${t.btn_change_password}`, style: "width: auto; padding: 0.5rem 1rem;" })}
             </div>
           </div>
         </section>
