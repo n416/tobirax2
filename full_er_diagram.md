@@ -226,6 +226,7 @@ erDiagram
         INTEGER valid_from
         INTEGER valid_to
     }
+    %% 施設(建物): 当システムはアクセス権の対象となる論理的な施設（各棟）を管理する責務を持つため、物理的な工事履歴を持たず1レコードとして扱う
     facilities {
         TEXT id PK
         TEXT structure_no
