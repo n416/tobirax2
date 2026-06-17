@@ -585,9 +585,9 @@ adminRouter.get('/admin/api/am/group-members/:id', async (c) => {
     if (!await getAdmin(c)) return c.json({ error: 'Unauthorized' }, 401)
     const groupId = c.req.param('id')
     const { results } = await c.env.DB.prepare(`
-        SELECT m.id, m.user_id, m.role, m.valid_from, m.valid_to, u.email, u.name
+        SELECT m.id, m.user_id, m.is_group_admin, m.is_billing_admin, m.is_developer, m.valid_from, m.valid_to, u.email, u.name
         FROM group_memberships m JOIN users u ON m.user_id = u.id
-        WHERE m.group_id = ? ORDER BY (m.role = 'group_admin') DESC, u.email
+        WHERE m.group_id = ? ORDER BY m.is_group_admin DESC, m.is_billing_admin DESC, u.email
     `).bind(groupId).all()
     return c.json({ members: results })
 })
@@ -597,19 +597,27 @@ adminRouter.post('/admin/api/am/membership/add', async (c) => {
     const body = await c.req.json()
     const groupId = body['group_id'] as string
     const userIds = (body['user_ids'] as string[]) || []
-    // 役割は member / group_admin(運用担当) / billing_admin(決済権者) の3種。
-    const role = (body['role'] === 'group_admin' || body['role'] === 'billing_admin') ? body['role'] : 'member'
+    // 役割は兼任可能なフラグ(グループ管理者/決裁権者/開発者)。未指定はすべて 0(=メンバー)。
+    const isGroupAdmin = body['is_group_admin'] ? 1 : 0
+    const isBillingAdmin = body['is_billing_admin'] ? 1 : 0
+    const isDeveloper = body['is_developer'] ? 1 : 0
     const validFrom = Number(body['valid_from'])
     const validTo = Number(body['valid_to'])
     if (!groupId || userIds.length === 0) return c.json({ error: 'group_id and user_ids required' }, 400)
-    // UNIQUE(user_id, group_id) を活かして upsert(役割・期間を更新)。
+    // UNIQUE(user_id, group_id) を活かして upsert(フラグ・期間を更新)。role 列は既定値('member')に任せる。
     for (const uid of userIds) {
         await c.env.DB.prepare(`
-            INSERT INTO group_memberships (user_id, group_id, role, valid_from, valid_to) VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, group_id) DO UPDATE SET role=excluded.role, valid_from=excluded.valid_from, valid_to=excluded.valid_to
-        `).bind(uid, groupId, role, validFrom, validTo).run()
+            INSERT INTO group_memberships (user_id, group_id, is_group_admin, is_billing_admin, is_developer, valid_from, valid_to)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, group_id) DO UPDATE SET
+                is_group_admin=excluded.is_group_admin,
+                is_billing_admin=excluded.is_billing_admin,
+                is_developer=excluded.is_developer,
+                valid_from=excluded.valid_from, valid_to=excluded.valid_to
+        `).bind(uid, groupId, isGroupAdmin, isBillingAdmin, isDeveloper, validFrom, validTo).run()
     }
-    const details = JSON.stringify({ key: 'log_membership_add', params: { count: userIds.length, group: groupId, role: role, admin: user.email } });
+    const roleLabel = [isGroupAdmin && 'group_admin', isBillingAdmin && 'billing_admin', isDeveloper && 'developer'].filter(Boolean).join(',') || 'member'
+    const details = JSON.stringify({ key: 'log_membership_add', params: { count: userIds.length, group: groupId, role: roleLabel, admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_ADD', details).run()
     return c.json({ success: true })
 })
@@ -622,36 +630,6 @@ adminRouter.post('/admin/api/am/membership/remove', async (c) => {
     const details = JSON.stringify({ key: 'log_membership_remove', params: { id: id, admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_REMOVE', details).run()
     return c.json({ success: true })
-})
-
-// 【決裁権者パスワードの初期設定/リセット】運営のみ。決裁権者(billing_admin)の sudo の起点。
-//   本人(役割保持者)に初期設定させると second factor の意味が無くなるため、運営が設定して
-//   対象者にオフラインで渡す、という権限分離にする。状態取得(設定済みか)もここで返す。
-adminRouter.get('/admin/api/am/billing-password/:id', async (c) => {
-    if (!await getAdmin(c)) return c.json({ error: 'Unauthorized' }, 401)
-    const groupId = c.req.param('id')
-    const grp = await c.env.DB.prepare('SELECT billing_password_hash FROM groups WHERE id = ?').bind(groupId).first() as { billing_password_hash: string | null } | null
-    if (!grp) return c.json({ error: 'Not found' }, 404)
-    return c.json({ has_password: !!grp.billing_password_hash })
-})
-adminRouter.post('/admin/api/am/billing-password', async (c) => {
-    const user = await getAdmin(c)
-    if (!user) return c.json({ error: 'Unauthorized' }, 401)
-    const body = await c.req.json()
-    const groupId = body['group_id'] as string
-    const password = ((body['password'] as string) ?? '').trim()
-    if (!groupId) return c.json({ error: 'group_id required' }, 400)
-    const grp = await c.env.DB.prepare('SELECT id FROM groups WHERE id = ?').bind(groupId).first()
-    if (!grp) return c.json({ error: 'Not found' }, 404)
-    // 空文字 = 解除(NULL に戻す)。それ以外 = bcrypt ハッシュで設定。
-    const hash = password === '' ? null : await hashPassword(password)
-    await c.env.DB.prepare('UPDATE groups SET billing_password_hash = ? WHERE id = ?').bind(hash, groupId).run()
-    // パスワード変更/解除に伴い、このグループの既存昇格(sudo)を全失効させる。
-    await c.env.DB.prepare('DELETE FROM billing_elevations WHERE group_id = ?').bind(groupId).run()
-    const ev = password === '' ? 'BILLING_PASSWORD_CLEAR' : 'BILLING_PASSWORD_SET'
-    const details = JSON.stringify({ key: password === '' ? 'log_billing_pw_clear' : 'log_billing_pw_set', params: { group: groupId, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind(ev, details).run()
-    return c.json({ success: true, has_password: password !== '' })
 })
 
 // ============================================================
@@ -1169,88 +1147,41 @@ adminRouter.post('/admin/config', async (c) => {
 
 
 // ============================================================
-// システム管理者: 開発者申請の管理 (group_developer_applications)
+// システム管理者: 権限申請の管理 (role_applications)
+//   運営が処理するのは「有効な決裁権者が一人も居ないグループ」の申請のみ。
+//   決裁権者の居るグループの申請は、その決裁権者が委任ポータルで処理する。
+//   承認/却下の実処理は委任側の汎用エンドポイント(/group-admin/api/roles/*)を共用する
+//   (運営は決裁権者不在グループに対して canApproveFor が真になる)。
 // ============================================================
 adminRouter.get('/admin/am/developers', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
+    const now = Math.floor(Date.now() / 1000)
 
-    // 全申請を取得
+    // 決裁権者不在グループの申請を、保留中を先頭にして取得する。
     const { results } = await c.env.DB.prepare(`
-        SELECT 
-            d.user_id, d.group_id, d.status, d.reason, d.admin_reason, d.created_at as applied_at, d.updated_at as processed_at,
-            u.email, u.name as user_name,
-            g.name as group_name
-        FROM group_developer_applications d
-        LEFT JOIN users u ON d.user_id = u.id
-        LEFT JOIN groups g ON d.group_id = g.id
-        ORDER BY (d.status = 'pending') DESC, d.created_at DESC
-    `).all()
+        SELECT
+            ra.id, ra.user_id, ra.group_id, ra.role_type, ra.status, ra.reason, ra.admin_reason,
+            ra.created_at AS applied_at, ra.updated_at AS processed_at,
+            u.email, u.name AS user_name, g.name AS group_name
+        FROM role_applications ra
+        LEFT JOIN users u ON ra.user_id = u.id
+        LEFT JOIN groups g ON ra.group_id = g.id
+        WHERE NOT EXISTS (
+            SELECT 1 FROM group_memberships bm
+            WHERE bm.group_id = ra.group_id AND bm.is_billing_admin = 1
+              AND bm.valid_from <= ? AND bm.valid_to >= ?
+        )
+        ORDER BY (ra.status = 'pending') DESC, ra.created_at DESC
+    `).bind(now, now).all()
 
-    return c.html(<AccountDevelopersPage 
-        t={getLang(c)} 
-        userEmail={user.email} 
-        applications={results as any} 
-        siteName={siteName} 
-        appConfig={config} 
+    return c.html(<AccountDevelopersPage
+        t={getLang(c)}
+        userEmail={user.email}
+        applications={results as any}
+        siteName={siteName}
+        appConfig={config}
     />)
-})
-
-adminRouter.post('/admin/api/developers/approve', async (c) => {
-    const user = await getAdmin(c)
-    if (!user) return c.json({ error: 'Unauthorized' }, 401)
-    const body = await c.req.json()
-    const { user_id, group_id } = body
-    
-    const now = Math.floor(Date.now() / 1000)
-    await c.env.DB.prepare(`
-        UPDATE group_developer_applications 
-        SET status = 'approved', updated_at = ?
-        WHERE user_id = ? AND group_id = ? AND status = 'pending'
-    `).bind(now, user_id, group_id).run()
-
-    const details = JSON.stringify({ key: 'log_dev_approve', params: { group: group_id, target_user: user_id, admin: user.email } })
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('DEV_APPROVE', details).run()
-    
-    return c.json({ success: true })
-})
-
-adminRouter.post('/admin/api/developers/reject', async (c) => {
-    const user = await getAdmin(c)
-    if (!user) return c.json({ error: 'Unauthorized' }, 401)
-    const body = await c.req.json()
-    const { user_id, group_id, admin_reason } = body
-    
-    const now = Math.floor(Date.now() / 1000)
-    await c.env.DB.prepare(`
-        UPDATE group_developer_applications 
-        SET status = 'rejected', admin_reason = ?, updated_at = ?
-        WHERE user_id = ? AND group_id = ? AND status = 'pending'
-    `).bind(admin_reason || null, now, user_id, group_id).run()
-
-    const details = JSON.stringify({ key: 'log_dev_reject', params: { group: group_id, target_user: user_id, admin: user.email } })
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('DEV_REJECT', details).run()
-    
-    return c.json({ success: true })
-})
-
-adminRouter.post('/admin/api/developers/revoke', async (c) => {
-    const user = await getAdmin(c)
-    if (!user) return c.json({ error: 'Unauthorized' }, 401)
-    const body = await c.req.json()
-    const { user_id, group_id, admin_reason } = body
-    
-    const now = Math.floor(Date.now() / 1000)
-    await c.env.DB.prepare(`
-        UPDATE group_developer_applications 
-        SET status = 'revoked', admin_reason = ?, updated_at = ?
-        WHERE user_id = ? AND group_id = ? AND status = 'approved'
-    `).bind(admin_reason || null, now, user_id, group_id).run()
-
-    const details = JSON.stringify({ key: 'log_dev_revoke', params: { group: group_id, target_user: user_id, admin: user.email } })
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('DEV_REVOKE', details).run()
-    
-    return c.json({ success: true })
 })

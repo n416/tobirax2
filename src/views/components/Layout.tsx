@@ -68,7 +68,6 @@ export const Layout = (props: LayoutProps) => {
   const containerClass = css`
     width: 100%;
     max-width: ${maxWidth};
-    perspective: 1000px;
     margin: 0 auto;
   `
 

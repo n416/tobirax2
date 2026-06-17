@@ -7,9 +7,11 @@ import { amListGrid, amListCard, amItemTitle, amItemSub, amEmpty, amApproveBtn, 
 
 
 interface DeveloperApplication {
+  id: number
   user_id: string
   group_id: string
-  status: 'pending' | 'approved' | 'rejected' | 'revoked'
+  role_type: 'group_admin' | 'billing_admin' | 'developer'
+  status: 'pending' | 'approved' | 'rejected'
   reason: string | null
   admin_reason: string | null
   applied_at: number
@@ -56,21 +58,20 @@ export const AccountDevelopersPage = (props: Props) => {
   `
 
   const scriptContent = `
-    var targetUserId = null;
-    var targetGroupId = null;
+    var targetId = null;
 
-    function approveRequest(user_id, group_id) {
-      fetch('/admin/api/developers/approve', {
+    function approveRequest(id) {
+      fetch('/group-admin/api/roles/approve', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id, group_id })
+        body: JSON.stringify({ application_id: id })
       }).then(res => {
         if (!res.ok) throw new Error('Error ' + res.status);
         window.location.reload();
       }).catch(err => console.error(err.message));
     }
 
-    function openRejectModal(uid, gid) {
-      targetUserId = uid; targetGroupId = gid;
+    function openRejectModal(id) {
+      targetId = id;
       document.getElementById('reject-reason').value = '';
       document.getElementById('reject-error').style.display = 'none';
       document.getElementById('reject-modal').showModal();
@@ -79,28 +80,9 @@ export const AccountDevelopersPage = (props: Props) => {
     function executeReject() {
       var reason = document.getElementById('reject-reason').value.trim();
       if (!reason) { document.getElementById('reject-error').style.display = 'block'; return; }
-      fetch('/admin/api/developers/reject', {
+      fetch('/group-admin/api/roles/reject', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: targetUserId, group_id: targetGroupId, admin_reason: reason })
-      }).then(res => {
-        if (!res.ok) throw new Error('Error ' + res.status);
-        window.location.reload();
-      }).catch(err => console.error(err.message));
-    }
-
-    function openRevokeModal(uid, gid) {
-      targetUserId = uid; targetGroupId = gid;
-      document.getElementById('revoke-reason').value = '';
-      document.getElementById('revoke-error').style.display = 'none';
-      document.getElementById('revoke-modal').showModal();
-    }
-    function closeRevokeModal() { document.getElementById('revoke-modal').close(); }
-    function executeRevoke() {
-      var reason = document.getElementById('revoke-reason').value.trim();
-      if (!reason) { document.getElementById('revoke-error').style.display = 'block'; return; }
-      fetch('/admin/api/developers/revoke', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: targetUserId, group_id: targetGroupId, admin_reason: reason })
+        body: JSON.stringify({ application_id: targetId, admin_reason: reason })
       }).then(res => {
         if (!res.ok) throw new Error('Error ' + res.status);
         window.location.reload();
@@ -113,9 +95,18 @@ export const AccountDevelopersPage = (props: Props) => {
       pending:  ['#c2410c', '#fff7ed', '申請中'],
       rejected: ['#b91c1c', '#fef2f2', '却下'],
       approved: ['#16a34a', '#f0fdf4', '承認済'],
-      revoked:  ['#475569', '#f1f5f9', 'はく奪済']
     }
     const s = map[st] || map.pending
+    return html`<span style="white-space:nowrap;display:inline-block;font-size:0.75rem;font-weight:700;padding:4px 10px;border-radius:999px;color:${s[0]};background:${s[1]};">${s[2]}</span>`
+  }
+
+  function roleTypeBadge(rt: string) {
+    const map: any = {
+      group_admin:   ['#9a3412', '#ffedd5', t.am_role_group_admin],
+      billing_admin: ['#5b21b6', '#ede9fe', t.am_role_billing_admin],
+      developer:     ['#0e7490', '#cffafe', t.am_role_developer],
+    }
+    const s = map[rt] || map.developer
     return html`<span style="white-space:nowrap;display:inline-block;font-size:0.75rem;font-weight:700;padding:4px 10px;border-radius:999px;color:${s[0]};background:${s[1]};">${s[2]}</span>`
   }
 
@@ -129,9 +120,9 @@ export const AccountDevelopersPage = (props: Props) => {
 
       <div style="margin-bottom:1.75rem;">
         <h1 style="font-size:1.5rem; font-weight:800; color:var(--text-main); letter-spacing:-0.02em; margin-bottom:0.25rem;">
-          <span class="material-symbols-outlined" style="color:var(--primary); vertical-align:middle; margin-right:0.4rem;">code</span>開発者申請の管理
+          <span class="material-symbols-outlined" style="color:var(--primary); vertical-align:middle; margin-right:0.4rem;">how_to_reg</span>権限申請の管理
         </h1>
-        <p style="font-size:0.95rem; color:var(--text-sub);">各グループの開発者権限の申請を審査します。</p>
+        <p style="font-size:0.95rem; color:var(--text-sub);">決裁権者が不在のグループからの権限申請（グループ管理者・決裁権者・開発者）を審査します。</p>
       </div>
 
       <div class="${amListGrid}">
@@ -145,8 +136,9 @@ export const AccountDevelopersPage = (props: Props) => {
                   <span class="material-symbols-outlined">person</span>
                 </div>
                 <div>
-                  <div class="${amItemTitle}" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.2rem;">
+                  <div class="${amItemTitle}" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.2rem; flex-wrap:wrap;">
                     ${a.user_name || a.email}
+                    ${roleTypeBadge(a.role_type)}
                     ${statusBadge(a.status)}
                   </div>
                   <div class="${amItemSub}" style="display:flex; align-items:center; gap:0.25rem;">
@@ -158,15 +150,9 @@ export const AccountDevelopersPage = (props: Props) => {
               <!-- Buttons -->
               <div style="display:flex; gap:0.5rem; flex-wrap:nowrap; justify-content:flex-end;">
                 ${a.status === 'pending' ? html`
-                  ${amRejectBtn('却下', `openRejectModal('${a.user_id}', '${a.group_id}')`)}
-                  ${amApproveBtn('承認', `approveRequest('${a.user_id}', '${a.group_id}')`)}
-                ` : html`
-                  ${a.status === 'approved' ? html`
-                    <button type="button" title="権限はく奪" onclick="openRevokeModal('${a.user_id}', '${a.group_id}')" style="background:#fff; color:#64748b; border:1px solid #e2e8f0; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.02); display:inline-flex; align-items:center; gap:0.4rem; white-space:nowrap;" onmouseover="this.style.background='#f1f5f9'; this.style.color='#0f172a';" onmouseout="this.style.background='#fff'; this.style.color='#64748b';">
-                      <span class="material-symbols-outlined" style="font-size:18px;">person_remove</span> 権限はく奪
-                    </button>
-                  ` : ''}
-                `}
+                  ${amRejectBtn('却下', `openRejectModal(${a.id})`)}
+                  ${amApproveBtn('承認', `approveRequest(${a.id})`)}
+                ` : ''}
               </div>
             </div>
 
@@ -209,30 +195,13 @@ export const AccountDevelopersPage = (props: Props) => {
         closeAction: "closeRejectModal()",
         children: html`
           <div style="margin-bottom: 1.5rem;">
-            <p style="color:#475569; font-size:0.95rem; line-height:1.5; margin-bottom:1rem;">却下事由を入力してください。この事由はグループ管理者に表示されます。</p>
+            <p style="color:#475569; font-size:0.95rem; line-height:1.5; margin-bottom:1rem;">却下事由を入力してください。この事由は申請者に表示されます。</p>
             <textarea id="reject-reason" style="width:100%; min-height:100px; padding:0.75rem; border:1px solid #cbd5e1; border-radius:8px; font-size:0.95rem; color:#334155; box-sizing:border-box;" placeholder="却下事由を入力"></textarea>
             <div id="reject-error" style="color:#ef4444; font-size:0.85rem; margin-top:0.5rem; display:none;">事由は必須です。</div>
           </div>
           <div style="display: flex; justify-content: flex-end; gap: 1rem;">
             <button type="button" onclick="closeRejectModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">キャンセル</button>
             <button type="button" onclick="executeReject()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">却下する</button>
-          </div>
-        `
-      })}
-
-      ${Modal({
-        id: "revoke-modal",
-        title: html`<span style="color:#f59e0b; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">person_remove</span> 権限はく奪事由の入力</span>`,
-        closeAction: "closeRevokeModal()",
-        children: html`
-          <div style="margin-bottom: 1.5rem;">
-            <p style="color:#475569; font-size:0.95rem; line-height:1.5; margin-bottom:1rem;">権限はく奪事由を入力してください。この事由はグループ管理者に表示されます。</p>
-            <textarea id="revoke-reason" style="width:100%; min-height:100px; padding:0.75rem; border:1px solid #cbd5e1; border-radius:8px; font-size:0.95rem; color:#334155; box-sizing:border-box;" placeholder="はく奪事由を入力"></textarea>
-            <div id="revoke-error" style="color:#ef4444; font-size:0.85rem; margin-top:0.5rem; display:none;">事由は必須です。</div>
-          </div>
-          <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-            <button type="button" onclick="closeRevokeModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">キャンセル</button>
-            <button type="button" onclick="executeRevoke()" style="background: #f59e0b; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">権限をはく奪する</button>
           </div>
         `
       })}

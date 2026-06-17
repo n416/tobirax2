@@ -178,7 +178,7 @@ async function getUserCtx(c: any): Promise<{ user: User; isGroupAdmin: boolean }
     if (!user) return null
     const now = Math.floor(Date.now() / 1000)
     const ga = await c.env.DB.prepare(
-        `SELECT 1 FROM group_memberships WHERE user_id = ? AND role IN ('group_admin', 'billing_admin') AND valid_from <= ? AND valid_to >= ? LIMIT 1`
+        `SELECT 1 FROM group_memberships WHERE user_id = ? AND (is_group_admin = 1 OR is_billing_admin = 1) AND valid_from <= ? AND valid_to >= ? LIMIT 1`
     ).bind(user.id, now, now).first()
     return { user, isGroupAdmin: !!ga }
 }
@@ -193,7 +193,7 @@ export async function getManagedGroupIds(c: any, userId: string): Promise<Set<st
     // 運用担当(group_admin)に加え、決済権者(billing_admin)も割当画面を操作できる。
     // どちらのロールも自分のグループ + その子孫(サブツリー)を管理対象に持つ。
     const { results: adminRows } = await c.env.DB.prepare(
-        `SELECT group_id FROM group_memberships WHERE user_id = ? AND role IN ('group_admin', 'billing_admin') AND valid_from <= ? AND valid_to >= ?`
+        `SELECT group_id FROM group_memberships WHERE user_id = ? AND (is_group_admin = 1 OR is_billing_admin = 1) AND valid_from <= ? AND valid_to >= ?`
     ).bind(userId, now, now).all()
     const roots = (adminRows as any[]).map(r => r.group_id as string)
     const managed = new Set<string>()
@@ -224,7 +224,7 @@ export async function getManagedGroupIds(c: any, userId: string): Promise<Set<st
 export async function getBillingGroupIds(c: any, userId: string): Promise<Set<string>> {
     const now = Math.floor(Date.now() / 1000)
     const { results: adminRows } = await c.env.DB.prepare(
-        `SELECT group_id FROM group_memberships WHERE user_id = ? AND role = 'billing_admin' AND valid_from <= ? AND valid_to >= ?`
+        `SELECT group_id FROM group_memberships WHERE user_id = ? AND is_billing_admin = 1 AND valid_from <= ? AND valid_to >= ?`
     ).bind(userId, now, now).all()
     const roots = (adminRows as any[]).map(r => r.group_id as string)
     const managed = new Set<string>()
@@ -244,26 +244,6 @@ export async function getBillingGroupIds(c: any, userId: string): Promise<Set<st
         for (const child of childrenMap.get(id) || []) stack.push(child)
     }
     return managed
-}
-
-// 決裁権者(billing_admin)の sudo 昇格が now 時点で有効かを返す。
-//   利用枠の予算操作(開放・分配・取消)の直前ゲートに使う。ロール(getBillingGroupIds)に加え、
-//   グループの決裁権者パスワードで得た短命の昇格を必須にすることで「役割を配っただけで即sudo」を防ぐ。
-export async function isBillingElevated(c: any, userId: string, groupId: string): Promise<boolean> {
-    const now = Math.floor(Date.now() / 1000)
-    const row = await c.env.DB.prepare('SELECT 1 FROM billing_elevations WHERE user_id = ? AND group_id = ? AND expires_at > ?')
-        .bind(userId, groupId, now).first()
-    return !!row
-}
-
-// 予算操作の sudo ゲートが「今この操作を遮るべきか」を返す(opt-in 方式)。
-//   context グループに決裁権者パスワードが設定されている場合のみ昇格を要求する。
-//   未設定のグループは従来どおりノーゲートで通す(true を返さない)。
-export async function billingGateBlocks(c: any, userId: string, groupId: string): Promise<boolean> {
-    const grp = await c.env.DB.prepare('SELECT billing_password_hash FROM groups WHERE id = ?')
-        .bind(groupId).first() as { billing_password_hash: string | null } | null
-    if (!grp || !grp.billing_password_hash) return false   // 未設定 → ゲートなし
-    return !(await isBillingElevated(c, userId, groupId))   // 設定済み → 昇格していなければ遮断
 }
 
 // 利用者割当(ゲート③)の中核ロジック: ゲート②(利用枠)確認 + 席数上限チェック + upsert。
@@ -338,7 +318,9 @@ export async function getEntitlements(c: any, userId: string, serviceId: string)
         SELECT
             a.group_id        AS group_id,
             g.name            AS group_name,
-            m.role            AS membership_role,
+            m.is_group_admin   AS is_group_admin,
+            m.is_billing_admin AS is_billing_admin,
+            m.is_developer     AS is_developer,
             a.facility_id     AS facility_id,
             f.structure_no    AS structure_no,
             f.building_use    AS building_use,
@@ -363,7 +345,7 @@ export async function getEntitlements(c: any, userId: string, serviceId: string)
         ORDER BY g.name, f.structure_no
     `).bind(now, now, now, now, userId, serviceId, now, now).all()
     return (results as any[]).map(r => ({
-        group:    { id: r.group_id, name: r.group_name, membership_role: r.membership_role },
+        group:    { id: r.group_id, name: r.group_name, is_group_admin: !!r.is_group_admin, is_billing_admin: !!r.is_billing_admin, is_developer: !!r.is_developer },
         facility: { id: r.facility_id, structure_no: r.structure_no, building_use: r.building_use },
         role:     r.role_name,
         valid_from: r.valid_from,
@@ -481,7 +463,31 @@ app.get('/', async (c) => {
           ((up.valid_from <= ? AND up.valid_to >= ?) OR (up.id IS NULL AND gp.valid_from <= ? AND gp.valid_to >= ?))
       `).bind(user.id, user.group_id || null, now, now, now, now).all()
 
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
+        // 権限申請セクション用: 自分が有効に所属するグループと現在のロールフラグ、
+        //   および保留中/却下の申請状態を渡す。
+        const { results: memberships } = await c.env.DB.prepare(`
+            SELECT m.group_id, g.name AS group_name, m.is_group_admin, m.is_billing_admin, m.is_developer
+            FROM group_memberships m JOIN groups g ON g.id = m.group_id
+            WHERE m.user_id = ? AND m.valid_from <= ? AND m.valid_to >= ?
+            ORDER BY g.name
+        `).bind(user.id, now, now).all()
+        const { results: myApps } = await c.env.DB.prepare(
+            "SELECT group_id, role_type, status, admin_reason FROM role_applications WHERE user_id = ? AND status IN ('pending','rejected')"
+        ).bind(user.id).all()
+        const appMap: Record<string, { status: string; admin_reason: string | null }> = {}
+        for (const a of (myApps as any[])) appMap[a.group_id + '|' + a.role_type] = { status: a.status, admin_reason: a.admin_reason }
+        const myMemberships = (memberships as any[]).map(m => ({
+            group_id: m.group_id,
+            group_name: m.group_name,
+            is_group_admin: !!m.is_group_admin,
+            is_billing_admin: !!m.is_billing_admin,
+            is_developer: !!m.is_developer,
+            app_group_admin: appMap[m.group_id + '|group_admin'] || null,
+            app_billing_admin: appMap[m.group_id + '|billing_admin'] || null,
+            app_developer: appMap[m.group_id + '|developer'] || null,
+        }))
+
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} myMemberships={myMemberships} />)
     } catch (e: any) {
         return c.json({ error: e.message, stack: e.stack }, 500)
     }

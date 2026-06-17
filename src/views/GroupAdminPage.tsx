@@ -18,13 +18,18 @@ interface GroupMember {
   user_id: string
   email: string
   name: string | null
-  role: 'group_admin' | 'billing_admin' | 'member'
+  // 兼任可能なロールフラグ(0/1)。member は全フラグ 0。
+  is_group_admin: number
+  is_billing_admin: number
+  is_developer: number
   valid_from: number
   valid_to: number
 }
 
 interface Assignment {
   id: number
+  user_id: string
+  service_id: string
   user_email: string
   user_name: string | null
   service_name: string
@@ -73,7 +78,7 @@ interface Props {
   appsByGroup: Record<string, { id: string; name: string; base_url: string; status: string }[]>
   // サービスに組み込める = 自グループの承認済み(active)アプリ
   approvedAppsByGroup: Record<string, { id: string; name: string }[]>
-  devStatuses?: Record<string, { status: string; reason: string | null }>
+  devStatuses?: Record<string, { status: string; reason: string | null; admin_reason?: string | null }>
   apps: App[]
 }
 
@@ -319,27 +324,33 @@ export const GroupAdminPage = (props: Props) => {
         if (apd) appsByGroup = JSON.parse(apd.textContent);
         if (aapd) approvedAppsByGroup = JSON.parse(aapd.textContent);
 
+        var savedGroupId = null;
+        try { savedGroupId = localStorage.getItem('ga_current_group_id'); } catch(e){}
+
         var sel = document.getElementById('group-select');
+        var tsInstance = null;
         if (sel && typeof TomSelect !== 'undefined' && sel.tagName === 'SELECT') {
-          new TomSelect('#group-select', {
+          tsInstance = new TomSelect('#group-select', {
             create: false,
             sortField: { field: '$order' },
             searchField: ['text'],
             placeholder: '検索...',
             onChange: function(val) {
                currentGroupId = val;
+               try { localStorage.setItem('ga_current_group_id', val); } catch(e){}
                renderAll();
             },
             render: {
               option: function(data, escape) {
-                var depth = parseInt(data.$option.getAttribute('data-depth') || '0', 10);
-                var origName = data.$option.getAttribute('data-origname') || data.text;
+                var depth = parseInt(data.depth || (data.$option && data.$option.getAttribute('data-depth')) || '0', 10);
+                var origName = data.origname || (data.$option && data.$option.getAttribute('data-origname')) || data.text;
                 var pad = depth * 1.5;
                 var icon = depth > 0 ? '<span class="material-symbols-outlined" style="font-size:16px; color:#94a3b8; flex-shrink:0;">subdirectory_arrow_right</span>' : '';
-                return '<div style="padding-left:' + pad + 'rem; display:flex; align-items:center; gap:0.4rem;">' + icon + '<span style="font-weight:' + (depth===0?'700':'500') + '; color:var(--text-main);">' + escape(origName) + '</span></div>';
+                return '<div><div style="padding-left:' + pad + 'rem; display:flex; align-items:center; gap:0.4rem;">' + icon + '<span style="font-weight:' + (depth===0?'700':'500') + '; color:var(--text-main);">' + escape(origName) + '</span></div></div>';
               },
               item: function(data, escape) {
-                return '<div style="display:flex; align-items:center; gap:0.4rem; padding: 0 0.4rem;">' + escape(data.text) + '</div>';
+                var origName = data.origname || (data.$option && data.$option.getAttribute('data-origname')) || data.text;
+                return '<div><div style="display:flex; align-items:center; gap:0.4rem; padding: 0 0.4rem;">' + escape(origName) + '</div></div>';
               }
             }
           });
@@ -347,15 +358,26 @@ export const GroupAdminPage = (props: Props) => {
           // TomSelectが使えない環境用フォールバック
           sel.addEventListener('change', function(e) {
             currentGroupId = e.target.value;
+            try { localStorage.setItem('ga_current_group_id', currentGroupId); } catch(e){}
             renderAll();
           });
         }
         
         // 初期描画用
-        var initialVal = sel ? sel.value : null;
-        if (initialVal) {
-          currentGroupId = initialVal;
-          renderAll();
+        if (savedGroupId && sel && sel.querySelector('option[value="' + savedGroupId + '"]')) {
+          if (tsInstance) {
+            tsInstance.setValue(savedGroupId); // onChangeが発火してcurrentGroupIdがセットされる
+          } else {
+            sel.value = savedGroupId;
+            currentGroupId = savedGroupId;
+            renderAll();
+          }
+        } else {
+          var initialVal = sel ? sel.value : null;
+          if (initialVal) {
+            currentGroupId = initialVal;
+            renderAll();
+          }
         }
         window.switchTab(currentTab);
         
@@ -365,6 +387,9 @@ export const GroupAdminPage = (props: Props) => {
             window.tsCtrl = new TomSelect('#m-user-id', { plugins: ['remove_button'], create: false, maxItems: null });
           }
         }
+
+        // 承認待ちの権限申請(自分が決裁権者/運営として処理できるもの)を読み込む。
+        if (window.loadRoleApprovals) window.loadRoleApprovals();
       });
 
       window.switchGroup = function() {
@@ -372,6 +397,7 @@ export const GroupAdminPage = (props: Props) => {
         var sel = document.getElementById('group-select');
         if(sel) {
            currentGroupId = sel.value;
+           try { localStorage.setItem('ga_current_group_id', currentGroupId); } catch(e){}
            renderAll();
         }
       };
@@ -472,9 +498,71 @@ export const GroupAdminPage = (props: Props) => {
       window.applyDeveloper = function() {
         var reason = (document.getElementById('dev-apply-reason') || {}).value;
         if (!reason || !reason.trim()) { console.error('申請理由を入力してください'); return; }
-        fetch('/group-admin/api/developer/apply', {
+        fetch('/group-admin/api/roles/apply', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ group_id: currentGroupId, reason: reason.trim() })
+          body: JSON.stringify({ group_id: currentGroupId, role_type: 'developer', reason: reason.trim() })
+        }).then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){ window.location.reload(); })
+          .catch(function(e){ console.error('Error: ' + e.message); });
+      };
+
+      // ===== 権限申請の承認/却下(決裁権者・運営) =====
+      function roleTypeLabel(rt) {
+        if (rt === 'billing_admin') return window.i18n.roleBilling || '決裁権者';
+        if (rt === 'group_admin') return window.i18n.roleAdmin || 'グループ管理者';
+        if (rt === 'developer') return window.i18n.roleDeveloper || '開発者';
+        return rt;
+      }
+      window.loadRoleApprovals = function() {
+        var card = document.getElementById('role-approvals-card');
+        var body = document.getElementById('role-approvals-body');
+        if (!card || !body) return;
+        fetch('/group-admin/api/roles/applications', { headers: { 'Accept': 'application/json' } })
+          .then(function(r){ return r.ok ? r.json() : { applications: [] }; })
+          .then(function(d){
+            var apps = (d && d.applications) ? d.applications : [];
+            if (apps.length === 0) { card.style.display = 'none'; return; }
+            card.style.display = '';
+            body.innerHTML = apps.map(function(a){
+              var who = a.user_name ? (a.user_name + ' <' + a.user_email + '>') : a.user_email;
+              var reason = a.reason ? a.reason : '(理由なし)';
+              return '<div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.85rem 1rem; margin-bottom:0.75rem; background:white;">'
+                + '<div style="display:flex; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; align-items:flex-start;">'
+                +   '<div style="min-width:0;">'
+                +     '<div style="font-weight:700; color:#0f172a;">' + who + '</div>'
+                +     '<div style="font-size:0.82rem; color:#64748b; margin-top:0.15rem;">' + (a.group_name || a.group_id) + ' ・ <span style="font-weight:700; color:#5b21b6;">' + roleTypeLabel(a.role_type) + '</span></div>'
+                +     '<div style="font-size:0.88rem; color:#334155; margin-top:0.5rem; white-space:pre-wrap;">' + reason + '</div>'
+                +   '</div>'
+                +   '<div style="display:flex; gap:0.5rem; flex-shrink:0;">'
+                +     '<button type="button" onclick="approveRole(' + a.id + ')" style="background:#10b981; color:white; border:none; border-radius:8px; padding:0.45rem 0.85rem; font-weight:700; cursor:pointer;">' + (window.i18n.raApprove || '承認') + '</button>'
+                +     '<button type="button" onclick="openRejectRole(' + a.id + ')" style="background:transparent; color:#b91c1c; border:1px solid #fecaca; border-radius:8px; padding:0.45rem 0.85rem; font-weight:700; cursor:pointer;">' + (window.i18n.raReject || '却下') + '</button>'
+                +   '</div>'
+                + '</div>'
+                + '</div>';
+            }).join('');
+          })
+          .catch(function(){ card.style.display = 'none'; });
+      };
+      window.approveRole = function(id) {
+        fetch('/group-admin/api/roles/approve', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ application_id: id })
+        }).then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(){ window.location.reload(); })
+          .catch(function(e){ console.error('Error: ' + e.message); });
+      };
+      var rejectRoleTargetId = null;
+      window.openRejectRole = function(id) {
+        rejectRoleTargetId = id;
+        var ta = document.getElementById('ra-reject-reason'); if (ta) ta.value = '';
+        var m = document.getElementById('ra-reject-modal'); if (m) m.showModal();
+      };
+      window.executeRejectRole = function() {
+        if (!rejectRoleTargetId) return;
+        var reason = (document.getElementById('ra-reject-reason') || {}).value || '';
+        fetch('/group-admin/api/roles/reject', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ application_id: rejectRoleTargetId, admin_reason: reason })
         }).then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
           .then(function(){ window.location.reload(); })
           .catch(function(e){ console.error('Error: ' + e.message); });
@@ -556,12 +644,16 @@ export const GroupAdminPage = (props: Props) => {
           return;
         }
         el.innerHTML = list.map(function(m) {
-          var isAdmin = m.role === 'group_admin';
-          var isBilling = m.role === 'billing_admin';
-          var badgeColor = isBilling ? '#5b21b6' : (isAdmin ? '#9a3412' : '#475569');
-          var badgeBg = isBilling ? '#ede9fe' : (isAdmin ? '#ffedd5' : '#f1f5f9');
-          var badgeLabel = isBilling ? (window.i18n.roleBilling || '決済権者') : (isAdmin ? (window.i18n.roleAdmin || 'グループ管理者') : (window.i18n.roleMember || 'メンバー'));
-          var badgeHtml = '<span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + badgeColor + '; background:' + badgeBg + ';">' + badgeLabel + '</span>';
+          // 兼任可能なので、保持しているフラグごとにバッジを並べる。すべて 0 ならメンバー。
+          function badge(color, bg, label) {
+            return '<span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + color + '; background:' + bg + '; margin-right:4px;">' + label + '</span>';
+          }
+          var badges = [];
+          if (m.is_billing_admin) badges.push(badge('#5b21b6', '#ede9fe', window.i18n.roleBilling || '決裁権者'));
+          if (m.is_group_admin) badges.push(badge('#9a3412', '#ffedd5', window.i18n.roleAdmin || 'グループ管理者'));
+          if (m.is_developer) badges.push(badge('#0e7490', '#cffafe', window.i18n.roleDeveloper || '開発者'));
+          if (badges.length === 0) badges.push(badge('#475569', '#f1f5f9', window.i18n.roleMember || 'メンバー'));
+          var badgeHtml = badges.join('');
           var displayName = m.name || m.email;
           var subEmail = m.name ? ('<div style="font-size:0.8rem; color:#94a3b8;">' + m.email + '</div>') : '';
           return '<tr>'
@@ -589,6 +681,11 @@ export const GroupAdminPage = (props: Props) => {
         var summaryEl = document.getElementById('assigns-summary');
         var list = assignsByGroup && currentGroupId ? (assignsByGroup[currentGroupId] || []) : [];
         var grants = grantsDetailByGroup && currentGroupId ? (grantsDetailByGroup[currentGroupId] || []) : [];
+
+        var btnWrap = document.getElementById('btn-add-assign-wrap');
+        if (btnWrap) {
+          btnWrap.style.display = grants.length === 0 ? 'none' : 'flex';
+        }
 
         if (summaryEl) {
           if (grants.length === 0) {
@@ -704,14 +801,16 @@ export const GroupAdminPage = (props: Props) => {
         if (!Array.isArray(userIds)) userIds = [userIds];
         userIds = userIds.filter(function(id) { return id; });
         if (!userIds.length) { console.error('ユーザーを選択してください'); return; }
-        var role = document.getElementById('m-role').value || 'member';
+        var isGroupAdmin = !!(document.getElementById('chk_group_admin') || {}).checked;
+        var isBillingAdmin = !!(document.getElementById('chk_billing_admin') || {}).checked;
+        var isDeveloper = !!(document.getElementById('chk_developer') || {}).checked;
         var startVal = document.getElementById('m-valid-from').value;
         var endVal = document.getElementById('m-valid-to').value;
         var validFrom = startVal ? Math.floor(new Date(startVal).getTime()/1000) : Math.floor(Date.now()/1000);
         var validTo = endVal ? Math.floor(new Date(endVal).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
         fetch('/group-admin/api/membership/add', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: currentGroupId, user_ids: userIds, role: role, valid_from: validFrom, valid_to: validTo })
+          body: JSON.stringify({ group_id: currentGroupId, user_ids: userIds, is_group_admin: isGroupAdmin, is_billing_admin: isBillingAdmin, is_developer: isDeveloper, valid_from: validFrom, valid_to: validTo })
         })
         .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
         .then(function() { window.location.reload(); })
@@ -722,6 +821,7 @@ export const GroupAdminPage = (props: Props) => {
         var m = document.getElementById('add-member-modal');
         if (m) m.showModal();
         if (window.tsCtrl) window.tsCtrl.clear();
+        ['chk_group_admin','chk_billing_admin','chk_developer'].forEach(function(id){ var e=document.getElementById(id); if(e) e.checked=false; });
         var vf = document.getElementById('m-valid-from'); if(vf) vf.value = new Date().toISOString().split('T')[0];
         var vt = document.getElementById('m-valid-to'); if(vt) vt.value = '';
       };
@@ -864,11 +964,44 @@ export const GroupAdminPage = (props: Props) => {
               } else {
                 seat = g.seat_limit + ' <span style="color:#94a3b8; font-size:0.78rem;">(' + (i18n.grantDistributed || '子へ配分') + ' ' + childSeats + ' / ' + (i18n.grantAvailable || '利用可能') + ' ' + Math.max(0, g.seat_limit - childSeats) + ')</span>';
               }
+              var isRootGrant = (availableContracts || []).some(function(c) { return c.id === g.contract_id && c.customer_group_id === currentGroupId; });
+              var deleteBtn = isRootGrant ? '<button type="button" onclick="removeGrant(' + g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '';
               return '<tr>'
                 + '<td><strong>' + g.service_name + '</strong></td>'
                 + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
                 + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(g.valid_from) + ' ～ ' + fmt(g.valid_to) + '</td>'
-                + '<td style="text-align:right;"><button type="button" onclick="removeGrant(' + g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
+                + '<td style="text-align:right;">' + deleteBtn + '</td>'
+                + '</tr>';
+            }).join('');
+          }
+        }
+
+        // ---- 「利用枠を開放」ボタンの表示制御 ----
+        var openGrantBtnWrap = document.getElementById('btn-open-grant-wrap');
+        if (openGrantBtnWrap) {
+          var myContractsBtn = (availableContracts || []).filter(function(c) { return c.customer_group_id === currentGroupId; });
+          var parentGrantsBtn = (grantsDetailByGroup && grantsDetailByGroup[currentGroupId]) ? grantsDetailByGroup[currentGroupId] : [];
+          if (myContractsBtn.length === 0 && parentGrantsBtn.length === 0) {
+            openGrantBtnWrap.style.display = 'none';
+          } else {
+            openGrantBtnWrap.style.display = 'flex';
+          }
+        }
+
+        // ---- 所有している契約（箱） ----
+        var contractsSec = document.getElementById('contracts-section');
+        var contractsBody = document.getElementById('contracts-table-body');
+        if (contractsSec && contractsBody) {
+          var myContracts = (availableContracts || []).filter(function(c) { return c.customer_group_id === currentGroupId; });
+          if (myContracts.length === 0) {
+            contractsSec.style.display = 'none';
+          } else {
+            contractsSec.style.display = '';
+            contractsBody.innerHTML = myContracts.map(function(c) {
+              var seat = (c.seat_limit == null) ? (i18n.seatUnlimited || '無制限') : c.seat_limit;
+              return '<tr>'
+                + '<td><strong>' + c.service_name + (c.group_name ? ' (' + c.group_name + ')' : '') + '</strong></td>'
+                + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
                 + '</tr>';
             }).join('');
           }
@@ -929,11 +1062,14 @@ export const GroupAdminPage = (props: Props) => {
         var isSelf = (tgt === currentGroupId);
         var contractEl = document.getElementById('g-contract');
         var warn = document.getElementById('g-no-contract');
+        var hasData = false;
+
         if (isSelf) {
-          // 自グループ: システム管理者から配布可能な契約を開放(ルート枠)。
-          var contracts = availableContracts || [];
+          // 自グループ: システム管理者から配布された、自グループが顧客となっている契約のみを開放(ルート枠)。
+          var contracts = (availableContracts || []).filter(function(c) { return c.customer_group_id === currentGroupId; });
           fillSelect(contractEl, contracts.map(function(ct){ return { id: ct.id, label: ct.service_name + (ct.group_name ? ' / ' + ct.group_name : '') + (ct.seat_limit != null ? ' (' + ct.seat_limit + ')' : '') }; }), 'id', 'label', window.i18n.selectContract || '契約を選択');
           if (warn) warn.style.display = contracts.length === 0 ? '' : 'none';
+          hasData = contracts.length > 0;
         } else {
           // 子グループ: 親(自グループ)が保有する枠をサービス単位で分割。契約は親の枠を継承(value=契約ID)。
           var parentGrants = (grantsDetailByGroup && grantsDetailByGroup[currentGroupId]) ? grantsDetailByGroup[currentGroupId] : [];
@@ -943,12 +1079,21 @@ export const GroupAdminPage = (props: Props) => {
             return { id: g.contract_id, label: g.service_name + ' (' + (window.i18n.grantAvailable || '利用可能') + ' ' + remain + ')' };
           }), 'id', 'label', window.i18n.selectService || 'サービスを選択');
           if (warn) warn.style.display = parentGrants.length === 0 ? '' : 'none';
+          hasData = parentGrants.length > 0;
         }
-        // 席数フィールド: 子グループへ配るときのみ表示&必須。
+
+        var contractWrap = document.getElementById('g-contract-wrap');
         var seatWrap = document.getElementById('g-seat-wrap');
-        if (seatWrap) seatWrap.style.display = isSelf ? 'none' : '';
+        var datesWrap = document.getElementById('g-dates-wrap');
+        var submitBtn = document.getElementById('g-submit-btn');
+
+        if (contractWrap) contractWrap.style.display = hasData ? '' : 'none';
+        if (seatWrap) seatWrap.style.display = hasData ? '' : 'none';
+        if (datesWrap) datesWrap.style.display = hasData ? 'grid' : 'none';
+        if (submitBtn) submitBtn.style.display = hasData ? '' : 'none';
+        
         var seatInput = document.getElementById('g-seat');
-        if (seatInput) { seatInput.required = !isSelf; if (isSelf) seatInput.value = ''; }
+        if (seatInput) { seatInput.required = true; }
       };
 
       function showGrantError(msg) {
@@ -961,11 +1106,11 @@ export const GroupAdminPage = (props: Props) => {
         var target = (document.getElementById('g-target') || {}).value || currentGroupId;
         var isSelf = (target === currentGroupId);
         var contractId = (document.getElementById('g-contract') || {}).value;
-        var seatVal = isSelf ? '' : (((document.getElementById('g-seat') || {}).value || '') + '').trim();
+        var seatVal = (((document.getElementById('g-seat') || {}).value || '') + '').trim();
         var sv = document.getElementById('g-valid-from').value;
         var ev = document.getElementById('g-valid-to').value;
         if (!contractId) { showGrantError(window.i18n.selectContract || '契約を選択してください'); return; }
-        if (!isSelf && seatVal === '') { showGrantError(window.i18n.errSeatRequired || '上限枠数を入力してください'); return; }
+        if (seatVal === '') { showGrantError(window.i18n.errSeatRequired || '上限枠数を入力してください'); return; }
         var validFrom = sv ? Math.floor(new Date(sv).getTime()/1000) : Math.floor(Date.now()/1000);
         var validTo = ev ? Math.floor(new Date(ev).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
         fetch('/group-admin/api/grant/add', {
@@ -975,93 +1120,9 @@ export const GroupAdminPage = (props: Props) => {
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })
         .catch(function(e){
-          if (e.message === 'needs_elevation') { showBillingElevation('addGrant'); return; }
           if (e.message === 'over_budget') showGrantError(window.i18n.errOverBudget || '親の残り枠を超えています');
           else if (e.message === 'seat_required') showGrantError(window.i18n.errSeatRequired || '上限枠数を入力してください');
           else showGrantError('Error: ' + e.message);
-        });
-      };
-
-      var pendingBillingAction = null;
-      window.showBillingElevation = function(action) {
-        pendingBillingAction = action;
-        var p = document.getElementById('billing-elevate-pwd');
-        if (p) p.value = '';
-        var err = document.getElementById('billing-elevate-err');
-        if (err) err.style.display = 'none';
-        var m = document.getElementById('billing-elevation-modal');
-        if (m) m.showModal();
-      };
-      window.executeBillingElevation = function() {
-        var pwd = document.getElementById('billing-elevate-pwd').value;
-        var err = document.getElementById('billing-elevate-err');
-        fetch('/group-admin/api/billing/elevate', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: currentGroupId, password: pwd })
-        })
-        .then(function(r){ if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error||'Error'); }); return r.json(); })
-        .then(function(res){
-           document.getElementById('billing-elevation-modal').close();
-           if (pendingBillingAction === 'addGrant') window.addGrant();
-           else if (pendingBillingAction === 'executeRemoveGrant') window.executeRemoveGrant();
-           pendingBillingAction = null;
-        })
-        .catch(function(e){
-           if (err) {
-             err.style.display = '';
-             if (e.message === 'bad_password') err.textContent = 'パスワードが間違っています。';
-             else if (e.message === 'no_password') err.textContent = '決裁権者パスワードが未設定です。システム管理者に依頼してください。';
-             else err.textContent = 'エラーが発生しました: ' + e.message;
-           }
-        });
-      };
-
-      // 決裁権者パスワードのローテーション(本人が現パスワードで変更)。
-      window.openBillingRotate = function() {
-        if (!currentGroupId) return;
-        var cur = document.getElementById('billing-rotate-cur'); if (cur) cur.value = '';
-        var nw = document.getElementById('billing-rotate-new'); if (nw) nw.value = '';
-        var err = document.getElementById('billing-rotate-err'); if (err) err.style.display = 'none';
-        var m = document.getElementById('billing-rotate-modal');
-        if (m) m.showModal();
-      };
-      window.executeBillingRotate = function() {
-        var cur = (document.getElementById('billing-rotate-cur') || {}).value || '';
-        var nw = (document.getElementById('billing-rotate-new') || {}).value || '';
-        var err = document.getElementById('billing-rotate-err');
-        if (!nw) { if (err) { err.style.display=''; err.textContent = window.i18n.billingNewRequired || '新しいパスワードを入力してください。'; } return; }
-        fetch('/group-admin/api/billing/rotate', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: currentGroupId, current_password: cur, new_password: nw })
-        })
-        .then(function(r){ if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error||'Error'); }); return r.json(); })
-        .then(function(){ var m = document.getElementById('billing-rotate-modal'); if (m) m.close(); })
-        .catch(function(e){
-          if (!err) return;
-          err.style.display = '';
-          if (e.message === 'bad_password') err.textContent = window.i18n.billingBadPassword || '現在のパスワードが違います。';
-          else if (e.message === 'no_password') err.textContent = window.i18n.billingNoPassword || '決裁権者パスワードが未設定です。システム管理者に初期設定を依頼してください。';
-          else err.textContent = 'Error: ' + e.message;
-        });
-      };
-      // パスワードを解除してノーゲートに戻す(現パスワードが必要)。new_password を空で送る。
-      window.executeBillingClear = function() {
-        var cur = (document.getElementById('billing-rotate-cur') || {}).value || '';
-        var err = document.getElementById('billing-rotate-err');
-        if (!cur) { if (err) { err.style.display=''; err.textContent = window.i18n.billingCurRequired || '現在のパスワードを入力してください。'; } return; }
-        if (!confirm(window.i18n.billingClearConfirm || 'パスワードを解除して、このグループの予算操作をパスワード無し（ノーゲート）に戻しますか？')) return;
-        fetch('/group-admin/api/billing/rotate', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: currentGroupId, current_password: cur, new_password: '' })
-        })
-        .then(function(r){ if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error||'Error'); }); return r.json(); })
-        .then(function(){ var m = document.getElementById('billing-rotate-modal'); if (m) m.close(); })
-        .catch(function(e){
-          if (!err) return;
-          err.style.display = '';
-          if (e.message === 'bad_password') err.textContent = window.i18n.billingBadPassword || '現在のパスワードが違います。';
-          else if (e.message === 'no_password') err.textContent = window.i18n.billingNoPassword || '決裁権者パスワードが未設定です。システム管理者に初期設定を依頼してください。';
-          else err.textContent = 'Error: ' + e.message;
         });
       };
 
@@ -1092,7 +1153,6 @@ export const GroupAdminPage = (props: Props) => {
             renderAssignments();
           })
           .catch(function(e){
-            if (e.message === 'needs_elevation') { window.closeRemoveGrantModal(); showBillingElevation('executeRemoveGrant'); return; }
             console.error('Error: ' + e.message);
           });
       };
@@ -1312,6 +1372,12 @@ export const GroupAdminPage = (props: Props) => {
         <p style="font-size:0.95rem; color:var(--text-sub);">${t.ga_subtitle}</p>
       </div>
 
+      <!-- 権限申請一覧(承認/却下)。決裁権者・運営として処理できる保留中申請のみ表示。 -->
+      <div id="role-approvals-card" class="${card}" style="display:none; margin-bottom:1.5rem; padding:1.25rem;">
+        <div class="${sectionTitle}" style="margin-bottom:0.75rem;"><span class="material-symbols-outlined">how_to_reg</span>${t.ra_pending_title}</div>
+        <div id="role-approvals-body"></div>
+      </div>
+
       ${groups.length > 1 ? html`
         <div style="margin-bottom:1.5rem; display:flex; align-items:center; gap:0.75rem;">
           <span class="material-symbols-outlined" style="color:var(--primary);">group</span>
@@ -1378,10 +1444,18 @@ export const GroupAdminPage = (props: Props) => {
         <div class="${infoBox}">
           <span class="material-symbols-outlined">info</span>${t.ga_desc_assignments}
         </div>
-        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-          ${Button({ onclick: "openAssignModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">assignment_add</span> ${t.ga_add_assignment}` })}
-        </div>
+        
         <div id="assigns-summary" style="margin-bottom:1rem; display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:1rem;"></div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:0.75rem; margin-top:1.5rem;">
+          <div class="${sectionTitle}" style="margin:0;">
+            <span class="material-symbols-outlined">group</span>割当済みメンバー
+          </div>
+          <div id="btn-add-assign-wrap" style="display:flex; justify-content:flex-end; align-items:center; gap:0.75rem;">
+            ${Button({ onclick: "openAssignModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">assignment_add</span> ${t.ga_add_assignment}` })}
+          </div>
+        </div>
+        
         <div class="${card}">
           <div class="${tableWrap}">
             <table>
@@ -1409,13 +1483,39 @@ export const GroupAdminPage = (props: Props) => {
         <div class="${infoBox}">
           <span class="material-symbols-outlined">info</span>${t.ga_desc_grants}
         </div>
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:1rem;">
-          <button type="button" onclick="openBillingRotate()" style="width:auto; background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:8px; padding:0.5rem 0.85rem; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:0.4rem;">
-            <span class="material-symbols-outlined" style="font-size:18px;">key</span>${t.ga_billing_rotate}
-          </button>
-          ${Button({ onclick: "openGrantModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
-        </div>
+        
         <div id="grants-summary" style="margin-bottom:1rem; display:flex; gap:1rem; flex-wrap:wrap;"></div>
+
+        <!-- 所有している契約（箱） -->
+        <div id="contracts-section" style="display:none; margin-bottom:1.5rem;">
+          <div class="${sectionTitle}" style="margin-bottom:0.75rem;">
+            <span class="material-symbols-outlined">file_copy</span>契約 (箱)
+          </div>
+          <div class="${card}">
+            <div class="${tableWrap}">
+              <table>
+                <thead>
+                  <tr>
+                    <th>契約名</th>
+                    <th>席数上限</th>
+                  </tr>
+                </thead>
+                <tbody id="contracts-table-body">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:0.75rem; margin-top:1.5rem;">
+          <div class="${sectionTitle}" style="margin:0;">
+            <span class="material-symbols-outlined">inventory_2</span>自グループの利用枠 (実体)
+          </div>
+          <div id="btn-open-grant-wrap" style="display:flex; justify-content:flex-end; align-items:center; gap:0.75rem;">
+            ${Button({ onclick: "openGrantModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
+          </div>
+        </div>
+        
         <div class="${card}">
           <div class="${tableWrap}">
             <table>
@@ -1662,11 +1762,18 @@ export const GroupAdminPage = (props: Props) => {
             </div>
             <div>
               <label class="${formLabel}">${t.am_label_role}</label>
-              <select id="m-role" class="${selectInput}">
-                <option value="member">${t.am_role_member}</option>
-                <option value="group_admin">${t.am_role_group_admin}</option>
-                <option value="billing_admin">${t.am_role_billing_admin}</option>
-              </select>
+              <div style="display:flex; flex-direction:column; gap:0.6rem; padding:0.25rem 0;">
+                <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-size:0.92rem; color:var(--text-main);">
+                  <input type="checkbox" id="chk_group_admin" style="width:18px; height:18px; cursor:pointer;" /> ${t.am_role_group_admin}
+                </label>
+                <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-size:0.92rem; color:var(--text-main);">
+                  <input type="checkbox" id="chk_billing_admin" style="width:18px; height:18px; cursor:pointer;" /> ${t.am_role_billing_admin}
+                </label>
+                <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-size:0.92rem; color:var(--text-main);">
+                  <input type="checkbox" id="chk_developer" style="width:18px; height:18px; cursor:pointer;" /> ${t.am_role_developer}
+                </label>
+                <div style="font-size:0.78rem; color:#94a3b8;">${t.am_role_hint}</div>
+              </div>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
               <div>
@@ -1695,57 +1802,6 @@ export const GroupAdminPage = (props: Props) => {
           <div style="display:flex; justify-content:flex-end; gap:1rem;">
             <button type="button" onclick="closeRemoveModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
             <button type="button" onclick="executeRemove()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">person_remove</span>${t.am_btn_remove}</button>
-          </div>
-        `
-      })}
-
-      <!-- 決裁権者 昇格モーダル -->
-      ${Modal({
-        id: 'billing-elevation-modal',
-        title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined" style="color:#f59e0b;">admin_panel_settings</span>予算操作の承認</span>`,
-        closeAction: "this.closest('.custom-modal').close()",
-        children: html`
-          <div style="display:flex; flex-direction:column; gap:1.25rem;">
-            <div class="${infoBox}">
-              <span class="material-symbols-outlined">info</span>
-              利用枠（予算）の操作を実行するため、決裁権者パスワードを入力してください。
-            </div>
-            <div>
-              <label class="${formLabel}">決裁権者パスワード</label>
-              <input type="password" id="billing-elevate-pwd" class="${dateInput}" />
-            </div>
-            <div id="billing-elevate-err" style="display:none; color:#ef4444; font-size:0.85rem; font-weight:600;"></div>
-            <div style="margin-top:0.5rem;">
-              ${Button({ onclick: "executeBillingElevation()", children: html`<span class="material-symbols-outlined">lock_open</span> 認証して実行` })}
-            </div>
-          </div>
-        `
-      })}
-
-      <!-- 決裁権者パスワードのローテーション モーダル -->
-      ${Modal({
-        id: 'billing-rotate-modal',
-        title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined" style="color:#7c3aed;">key</span>${t.ga_billing_rotate}</span>`,
-        closeAction: "this.closest('.custom-modal').close()",
-        children: html`
-          <div style="display:flex; flex-direction:column; gap:1.25rem;">
-            <div class="${infoBox}">
-              <span class="material-symbols-outlined">info</span>${t.ga_billing_rotate_hint}
-            </div>
-            <div>
-              <label class="${formLabel}">${t.ga_billing_current_pw}</label>
-              <input type="password" id="billing-rotate-cur" class="${dateInput}" autocomplete="current-password" />
-            </div>
-            <div>
-              <label class="${formLabel}">${t.ga_billing_new_pw}</label>
-              <input type="password" id="billing-rotate-new" class="${dateInput}" autocomplete="new-password" />
-            </div>
-            <div id="billing-rotate-err" style="display:none; color:#ef4444; font-size:0.85rem; font-weight:600;"></div>
-            <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.5rem;">
-              ${Button({ onclick: "executeBillingRotate()", style: "width:auto;", children: html`<span class="material-symbols-outlined">key</span> ${t.ga_billing_rotate}` })}
-              <button type="button" onclick="executeBillingClear()" style="width:auto; background:transparent; border:1px solid #fecaca; color:#b91c1c; border-radius:8px; padding:0.5rem 0.85rem; cursor:pointer; font-weight:600;">${t.ga_billing_clear}</button>
-            </div>
-            <div style="font-size:0.78rem; color:#94a3b8;">${t.ga_billing_clear_hint}</div>
           </div>
         `
       })}
@@ -1901,6 +1957,23 @@ export const GroupAdminPage = (props: Props) => {
         `
       })}
 
+      <!-- 権限申請の却下理由モーダル -->
+      ${Modal({
+        id: 'ra-reject-modal',
+        title: html`<span style="color:#b91c1c; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">block</span>${t.ra_reject_title}</span>`,
+        closeAction: "this.closest('.custom-modal').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1rem;">
+            <p style="color:#475569; font-size:0.92rem; line-height:1.5;">${t.ra_reject_desc}</p>
+            <textarea id="ra-reject-reason" class="${dateInput}" style="min-height:90px;" placeholder="${t.ra_reject_placeholder}"></textarea>
+            <div style="display:flex; justify-content:flex-end; gap:0.75rem;">
+              <button type="button" onclick="this.closest('.custom-modal').close()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+              <button type="button" onclick="executeRejectRole()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:700;cursor:pointer;">${t.ra_reject_submit}</button>
+            </div>
+          </div>
+        `
+      })}
+
       <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
       <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>
       <script type="application/json" id="ga-perms-data">${raw(permsByGroupJson)}</script>
@@ -1920,6 +1993,7 @@ export const GroupAdminPage = (props: Props) => {
           noMembers: '${t.am_no_members}',
           roleAdmin: '${t.am_role_group_admin}',
           roleBilling: '${t.am_role_billing_admin}',
+          roleDeveloper: '${t.am_role_developer}',
           roleMember: '${t.am_role_member}',
           noAssignments: '${t.ga_no_assignments}',
           noAccess: '${t.ga_no_access}',
@@ -1943,11 +2017,8 @@ export const GroupAdminPage = (props: Props) => {
           noChildGrants: '${t.ga_no_child_grants}',
           errOverBudget: '${t.ga_err_over_budget}',
           errSeatRequired: '${t.ga_err_seat_required}',
-          billingNewRequired: '${t.ga_billing_new_required}',
-          billingBadPassword: '${t.ga_billing_bad_password}',
-          billingNoPassword: '${t.ga_billing_no_password}',
-          billingCurRequired: '${t.ga_billing_cur_required}',
-          billingClearConfirm: '${t.ga_billing_clear_confirm}',
+          raApprove: '${t.ra_approve}',
+          raReject: '${t.ra_reject}',
           svcNone: '${t.ga_svc_none}',
           svcName: '${t.ga_svc_name}',
           svcConfirmRemove: '${t.ga_svc_confirm_remove}',
