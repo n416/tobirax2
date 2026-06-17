@@ -33,6 +33,7 @@ export const Layout = (props: LayoutProps) => {
             { id: 'apps', label: t.nav_apps, href: '/admin/apps' },
             { id: 'groups', label: t.nav_groups, href: '/admin/groups' },
             { id: 'users', label: t.nav_users, href: '/admin/users' },
+            { id: 'tags', label: t.nav_tags || 'タグ管理', href: '/admin/tags' },
         ] },
         { label: t.nav_section_system, items: [
             { id: 'logs', label: t.nav_logs, href: '/admin/logs' },
@@ -218,6 +219,10 @@ export const Layout = (props: LayoutProps) => {
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+      <script>
+          // Suppress Chrome DevTools bug spam
+          window.__chromium_devtools_metrics_reporter = window.__chromium_devtools_metrics_reporter || function() {};
+      </script>
       <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.default.min.css" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
       ${globalOverrides}

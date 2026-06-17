@@ -126,3 +126,17 @@ VALUES
 INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at)
 VALUES 
   ('fac-demo-1', 'Bldg-A', 'オフィス', 'g-middle', 1700000000);
+
+-- -------------------------------------------------------------------------
+-- 11. タグとアプリ紐付け
+-- -------------------------------------------------------------------------
+INSERT INTO tags (id, name, status, owner_group_id, created_at)
+VALUES 
+  ('tag-official', '公式アプリ', 'active', NULL, 1700000000),
+  ('tag-beta', 'ベータ版', 'active', NULL, 1700000000),
+  ('tag-dev', '開発部門推奨', 'active', 'g-middle', 1700000000);
+
+INSERT INTO app_tags (app_id, tag_id, status, requesting_group_id, created_at)
+VALUES 
+  ('app-user-reg', 'tag-official', 'active', NULL, 1700000000),
+  ('app-wiki', 'tag-dev', 'active', 'g-middle', 1700000000);

@@ -2,11 +2,7 @@
 // このファイルはクライアントサイドで実行されるJavaScriptです。
 // コンパイル時に構文チェックを行うため、関数として定義し文字列化して配信します。
 
-export const appsClientScript = '(' + function() {
-  // バンドラ(esbuild等)が自動挿入するデバッグ用関数への対策
-  var __name = function(f) { return f; };
-
-
+export const getAppsClientScript = (t: any) => `
         (function() {
             // 画像プレビュー機能
             window.handleIconPreview = function(input, previewId) {
@@ -81,22 +77,6 @@ export const appsClientScript = '(' + function() {
 
                 editModal.showModal();
                 setTimeout(function() {
-            // 画像プレビュー機能
-            window.handleIconPreview = function(input, previewId) {
-                if (input.files && input.files[0]) {
-                    var reader = new FileReader();
-                    reader.onload = function(e) {
-                        var div = document.getElementById(previewId);
-                        var img = div ? div.querySelector('img') : null;
-                        if(img) {
-                            img.src = e.target.result;
-                            div.style.display = 'block';
-                        }
-                    };
-                    reader.readAsDataURL(input.files[0]);
-                }
-            };
-    
                     var closeBtn = document.getElementById('edit-close-btn');
                     if(closeBtn) closeBtn.focus();
                 }, 50);
@@ -114,7 +94,8 @@ export const appsClientScript = '(' + function() {
                 var tm = document.getElementById('toggle-confirm-modal');
                 if(tm) {
                     var msgEl = document.getElementById('toggle-msg-text');
-                    var tmpl = i18n.confirmChangeStatus || 'Change status?';
+                    var i18nEl = document.getElementById('i18n-data');
+                    var tmpl = (i18nEl && i18nEl.dataset.confirmChangeStatus) || 'Change status?';
                     if(msgEl) msgEl.innerText = tmpl.replace('{name}', name);
                     tm.showModal();
                 }
@@ -157,8 +138,8 @@ export const appsClientScript = '(' + function() {
             };
 
             // Approve / Reject app registration request (pending -> active / rejected)
-            var i18nEl = document.getElementById('i18n-data');
             window.approveApp = function(id) {
+                var i18nEl = document.getElementById('i18n-data');
                 if (!confirm((i18nEl && i18nEl.dataset.confirmApprove) || 'Approve?')) return;
                 var f = document.getElementById('approve-app-form');
                 if (f) { f.querySelector('input[name="id"]').value = id; f.submit(); }
@@ -179,5 +160,4 @@ export const appsClientScript = '(' + function() {
                 }
             };
         })();
-  
-}.toString() + ')();';
+`;

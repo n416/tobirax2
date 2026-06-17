@@ -86,7 +86,8 @@ groupAdminRouter.get('/group-admin', async (c) => {
             managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
             grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}}
             isBillingAdmin={isBillingAdmin} childrenByGroup={{}}
-            servicesByGroup={{}} appsByGroup={{}} approvedAppsByGroup={{}} devStatuses={{}} apps={[]} />)
+            servicesByGroup={{}} appsByGroup={{}} approvedAppsByGroup={{}} devStatuses={{}} apps={[]}
+            appTagsByGroup={{}} customTagsByGroup={{}} availableTags={[]} />)
 
     }
 
@@ -247,6 +248,11 @@ groupAdminRouter.get('/group-admin', async (c) => {
         devStatuses[r.group_id] = { status: 'approved', reason: devStatuses[r.group_id]?.reason ?? null, admin_reason: null }
     }
 
+    const appTagsByGroup: Record<string, any[]> = {}
+    const customTagsByGroup: Record<string, any[]> = {}
+    const { results: tagsResult } = await c.env.DB.prepare("SELECT id, name FROM tags WHERE status = 'active' ORDER BY name").all()
+    const availableTags = tagsResult || []
+
     for (const gid of groupIds) {
         const { results: svcRows } = await c.env.DB.prepare(
             'SELECT id, name, status, reason FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
@@ -266,6 +272,24 @@ groupAdminRouter.get('/group-admin', async (c) => {
         `).bind(gid).all()
         appsByGroup[gid] = appRows || []
         approvedAppsByGroup[gid] = (appRows as any[]).filter(a => a.status === 'active').map(a => ({ id: a.id, name: a.name }))
+
+        const { results: atRows } = await c.env.DB.prepare(`
+            SELECT at.id, at.app_id, a.name as app_name, at.tag_id, t.name as tag_name, at.status, at.created_at
+            FROM app_tags at
+            JOIN apps a ON at.app_id = a.id
+            JOIN tags t ON at.tag_id = t.id
+            WHERE a.owner_group_id = ?
+            ORDER BY at.created_at DESC
+        `).bind(gid).all()
+        appTagsByGroup[gid] = atRows || []
+
+        const { results: ctRows } = await c.env.DB.prepare(`
+            SELECT t.id, t.name, t.status, t.created_at
+            FROM tags t
+            WHERE t.owner_group_id = ?
+            ORDER BY t.created_at DESC
+        `).bind(gid).all()
+        customTagsByGroup[gid] = ctRows || []
     }
 
     return c.html(<GroupAdminPage
@@ -289,6 +313,9 @@ groupAdminRouter.get('/group-admin', async (c) => {
         approvedAppsByGroup={approvedAppsByGroup}
         devStatuses={devStatuses}
         apps={[]}
+        appTagsByGroup={appTagsByGroup}
+        customTagsByGroup={customTagsByGroup}
+        availableTags={availableTags as any}
 
     />)
   } catch (e: any) {
@@ -1010,5 +1037,76 @@ groupAdminRouter.post('/group-admin/api/roles/remove', async (c) => {
     await c.env.DB.prepare('DELETE FROM service_role_master WHERE id = ?').bind(id).run()
 
     await logAudit(c, 'DELEGATED_ROLE_REMOVE', { key: 'log_role_remove', params: { id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// ============================================================
+// 委任管理: タグ申請
+// ============================================================
+
+groupAdminRouter.post('/group-admin/api/app_tags/apply', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const appId = body['app_id'] as string
+    const tagId = body['tag_id'] as string
+    if (!appId || !tagId) return c.json({ error: 'missing fields' }, 400)
+
+    const managed = await getManagedGroupIds(c, user.id)
+    const app = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(appId).first() as { owner_group_id: string | null } | null
+    if (!app || !app.owner_group_id || !managed.has(app.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+
+    // apply an existing tag to the app with pending status
+    await c.env.DB.prepare('INSERT INTO app_tags (app_id, tag_id, status, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(app_id, tag_id) DO UPDATE SET status = ?')
+        .bind(appId, tagId, 'pending', Math.floor(Date.now() / 1000), 'pending').run()
+    
+    return c.json({ success: true })
+})
+
+groupAdminRouter.post('/group-admin/api/app_tags/remove', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const appId = body['app_id'] as string
+    const tagId = body['tag_id'] as string
+    if (!appId || !tagId) return c.json({ error: 'missing fields' }, 400)
+
+    const managed = await getManagedGroupIds(c, user.id)
+    const app = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(appId).first() as { owner_group_id: string | null } | null
+    if (!app || !app.owner_group_id || !managed.has(app.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+
+    await c.env.DB.prepare('DELETE FROM app_tags WHERE app_id = ? AND tag_id = ?').bind(appId, tagId).run()
+    
+    return c.json({ success: true })
+})
+
+groupAdminRouter.post('/group-admin/api/app_tags/request_custom', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const appId = body['app_id'] as string
+    const tagName = (body['tag_name'] as string).trim()
+    if (!appId || !tagName) return c.json({ error: 'missing fields' }, 400)
+
+    const managed = await getManagedGroupIds(c, user.id)
+    const app = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(appId).first() as { owner_group_id: string | null } | null
+    if (!app || !app.owner_group_id || !managed.has(app.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+
+    // check if tag already exists
+    const existing = await c.env.DB.prepare('SELECT id FROM tags WHERE name = ?').bind(tagName).first() as { id: string } | null
+    let tagId: string
+    if (existing) {
+        tagId = existing.id
+    } else {
+        // create new tag as pending
+        tagId = crypto.randomUUID()
+        await c.env.DB.prepare('INSERT INTO tags (id, name, status, owner_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
+            .bind(tagId, tagName, 'pending', app.owner_group_id, Math.floor(Date.now() / 1000)).run()
+    }
+
+    // apply the custom tag
+    await c.env.DB.prepare('INSERT INTO app_tags (app_id, tag_id, status, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(app_id, tag_id) DO UPDATE SET status = ?')
+        .bind(appId, tagId, 'pending', Math.floor(Date.now() / 1000), 'pending').run()
+    
     return c.json({ success: true })
 })

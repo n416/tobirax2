@@ -30,6 +30,9 @@ export const groupAdminClientScript = '(' + function() {
       var servicesByGroup = null;
       var appsByGroup = null;
       var approvedAppsByGroup = null;
+      var appTagsByGroup = null;
+      var customTagsByGroup = null;
+      var availableTags = [];
       var currentTab = 'members';
       var currentGroupId = '';
 
@@ -63,6 +66,13 @@ export const groupAdminClientScript = '(' + function() {
         if (svd) servicesByGroup = JSON.parse(svd.textContent);
         if (apd) appsByGroup = JSON.parse(apd.textContent);
         if (aapd) approvedAppsByGroup = JSON.parse(aapd.textContent);
+
+        var atd = document.getElementById('ga-app-tags-data');
+        var ctd2 = document.getElementById('ga-custom-tags-data');
+        var avt = document.getElementById('ga-available-tags-data');
+        if (atd) appTagsByGroup = JSON.parse(atd.textContent);
+        if (ctd2) customTagsByGroup = JSON.parse(ctd2.textContent);
+        if (avt) availableTags = JSON.parse(avt.textContent);
 
         var savedGroupId = null;
         try { savedGroupId = localStorage.getItem('ga_current_group_id'); } catch(e){}
@@ -1148,12 +1158,24 @@ export const groupAdminClientScript = '(' + function() {
           if (a.status === 'rejected' && a.reason) {
              reasonInfo = '<div style="margin-top:0.4rem; padding:0.5rem; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.75rem; color:#b91c1c;"><strong>却下事由:</strong> ' + a.reason.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br/>') + '<br/><span style="color:#ef4444; font-weight:bold;">※ 編集して保存すると自動的に再申請されます。</span></div>';
           }
+
+          var aTags = appTagsByGroup && appTagsByGroup[currentGroupId] ? appTagsByGroup[currentGroupId].filter(function(t){ return t.app_id === a.id; }) : [];
+          var tagsHtml = aTags.map(function(t) {
+            var color = t.status === 'active' ? '#047857' : (t.status === 'rejected' ? '#b91c1c' : '#c2410c');
+            var bg = t.status === 'active' ? '#d1fae5' : (t.status === 'rejected' ? '#fef2f2' : '#fff7ed');
+            var label = t.tag_name;
+            if (t.status !== 'active') label += ' (' + (t.status === 'pending' ? '申請中' : '却下') + ')';
+            return '<span style="display:inline-block; margin-right:0.25rem; font-size:0.75rem; padding:2px 8px; border-radius:999px; background:'+bg+'; color:'+color+'; border:1px solid '+(t.status==='active'?'#a7f3d0':(t.status==='rejected'?'#fecaca':'#fed7aa'))+';">' + label + '</span>';
+          }).join('');
+          var tagsDisplay = '<div style="margin-top:0.35rem;">' + (tagsHtml || '<span style="font-size:0.75rem; color:#94a3b8;">タグなし</span>') + '</div>';
+
           return '<tr>'
-            + '<td><strong>' + a.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + a.id + '</div>' + reasonInfo + '</td>'
+            + '<td><strong>' + a.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + a.id + '</div>' + tagsDisplay + reasonInfo + '</td>'
             + '<td>' + statusBadge(a.status) + '</td>'
             + '<td style="text-align:right; white-space:nowrap;">'
-            +   '<button type="button" title="' + (a.status === 'active' ? '詳細' : '編集') + '" onclick="openAppEditModal(\'' + dataAttr + '\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\'#f1f5f9\';this.style.color=\'#4f46e5\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">' + (a.status === 'active' ? 'visibility' : 'edit') + '</span></button>'
-            +   (a.status !== 'active' ? '<button type="button" title="削除" onclick="removeApp(\'' + a.id + '\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '')
+            +   '<button type="button" title="タグ管理" onclick="openAppTagsModal(&quot;' + a.id + '&quot;, &quot;' + encodeURIComponent(a.name) + '&quot;)" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=&quot;#f1f5f9&quot;;this.style.color=&quot;#4f46e5&quot;;" onmouseout="this.style.background=&quot;transparent&quot;;this.style.color=&quot;#94a3b8&quot;;"><span class="material-symbols-outlined" style="font-size:18px;">local_offer</span></button>'
+            +   '<button type="button" title="' + (a.status === 'active' ? '詳細' : '編集') + '" onclick="openAppEditModal(&quot;' + dataAttr + '&quot;)" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=&quot;#f1f5f9&quot;;this.style.color=&quot;#4f46e5&quot;;" onmouseout="this.style.background=&quot;transparent&quot;;this.style.color=&quot;#94a3b8&quot;;"><span class="material-symbols-outlined" style="font-size:18px;">' + (a.status === 'active' ? 'visibility' : 'edit') + '</span></button>'
+            +   (a.status !== 'active' ? '<button type="button" title="削除" onclick="removeApp(&quot;' + a.id + '&quot;)" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=&quot;#fef2f2&quot;;this.style.color=&quot;#ef4444&quot;;" onmouseout="this.style.background=&quot;transparent&quot;;this.style.color=&quot;#94a3b8&quot;;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '')
             + '</td>'
             + '</tr>';
         }).join('');
@@ -1224,6 +1246,91 @@ export const groupAdminClientScript = '(' + function() {
             .then(function(){ window.location.reload(); })
             .catch(function(e){ console.error('Error: ' + e.message); });
         });
+      };
+
+      var currentAppTagsAppId = null;
+
+      window.openAppTagsModal = function(appId, appName) {
+        currentAppTagsAppId = appId;
+        var m = document.getElementById('manage-app-tags-modal');
+        var nameEl = document.getElementById('mat-app-name');
+        if (nameEl) nameEl.textContent = decodeURIComponent(appName);
+
+        var appliedTagsEl = document.getElementById('mat-applied-tags');
+        var availableTagsEl = document.getElementById('mat-available-tags');
+
+        var aTags = appTagsByGroup && appTagsByGroup[currentGroupId] ? appTagsByGroup[currentGroupId].filter(function(t){ return t.app_id === appId; }) : [];
+        if (appliedTagsEl) {
+          if (aTags.length === 0) {
+            appliedTagsEl.innerHTML = '<span style="color:#94a3b8; font-size:0.85rem; width:100%; text-align:center; padding: 0.5rem 0;">適用されているタグはありません</span>';
+          } else {
+            appliedTagsEl.innerHTML = aTags.map(function(t) {
+              var color = t.status === 'active' ? '#047857' : (t.status === 'rejected' ? '#b91c1c' : '#c2410c');
+              var bg = t.status === 'active' ? '#d1fae5' : (t.status === 'rejected' ? '#fef2f2' : '#fff7ed');
+              var label = t.tag_name;
+              if (t.status !== 'active') label += ' (' + (t.status === 'pending' ? '申請中' : '却下') + ')';
+              return '<span style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.8rem; padding:4px 8px 4px 10px; border-radius:999px; background:'+bg+'; color:'+color+'; border:1px solid '+(t.status==='active'?'#a7f3d0':(t.status==='rejected'?'#fecaca':'#fed7aa'))+';">' + label
+                + '<button type="button" title="外す" onclick="removeAppTag(&quot;' + appId + '&quot;, &quot;' + t.tag_id + '&quot;)" style="background:none;border:none;color:'+color+';cursor:pointer;padding:0 2px;line-height:1;font-size:1.1rem;opacity:0.7;" onmouseover="this.style.opacity=1;" onmouseout="this.style.opacity=0.7;">×</button>'
+                + '</span>';
+            }).join('');
+          }
+        }
+
+        if (availableTagsEl) {
+          var optionsHtml = '<option value="">追加するタグを選択...</option>';
+          var avail = availableTags || [];
+          // 既に適用中のものは除外
+          avail.forEach(function(t) {
+            var applied = aTags.some(function(at) { return at.tag_id === t.id; });
+            if (!applied) {
+              optionsHtml += '<option value="' + t.id + '">' + t.name + '</option>';
+            }
+          });
+          availableTagsEl.innerHTML = optionsHtml;
+        }
+
+        var customNameEl = document.getElementById('mat-custom-tag-name');
+        if (customNameEl) customNameEl.value = '';
+
+        if (m) m.showModal();
+      };
+
+      window.applyAppTag = function() {
+        if (!currentAppTagsAppId) return;
+        var tagId = document.getElementById('mat-available-tags').value;
+        if (!tagId) return;
+        fetch('/group-admin/api/app_tags/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app_id: currentAppTagsAppId, tag_id: tagId })
+        })
+        .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        .then(function() { window.location.reload(); })
+        .catch(function(e) { console.error('Error:', e.message); });
+      };
+
+      window.removeAppTag = function(appId, tagId) {
+        if (!confirm('このタグをアプリから外しますか？')) return;
+        fetch('/group-admin/api/app_tags/remove', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app_id: appId, tag_id: tagId })
+        })
+        .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        .then(function() { window.location.reload(); })
+        .catch(function(e) { console.error('Error:', e.message); });
+      };
+
+      window.requestCustomTag = function() {
+        if (!currentAppTagsAppId) return;
+        var nameEl = document.getElementById('mat-custom-tag-name');
+        var name = nameEl ? nameEl.value.trim() : '';
+        if (!name) return;
+        fetch('/group-admin/api/app_tags/request_custom', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app_id: currentAppTagsAppId, tag_name: name })
+        })
+        .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        .then(function() { window.location.reload(); })
+        .catch(function(e) { console.error('Error:', e.message); });
       };
 
 

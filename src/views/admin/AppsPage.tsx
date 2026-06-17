@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
-import { appsClientScript } from '../scripts/appsClient'
+import { getAppsClientScript } from '../scripts/appsClient'
 import { listGrid, listCard, itemTitle, itemSub, actionBtn, deleteBtn } from '../styles/appsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
@@ -18,24 +18,14 @@ interface RegToken {
 interface Props {
   t: typeof dict.en
   userEmail: string
-  apps: App[]
+  apps: (App & { tags?: any[] })[]
+  availableTags?: any[]
   siteName: string
   appConfig: SystemConfig
 }
 
 export const AppsPage = (props: Props) => {
   const t = props.t
-  ;
-
-  
-  
-  
-
-  
-  
-  
-  
-  
 
   return Layout({
     t: t,
@@ -124,6 +114,14 @@ export const AppsPage = (props: Props) => {
       <form id="approve-app-form" method="POST" action="/admin/apps/approve">
         <input type="hidden" name="id" value="" />
       </form>
+      <form id="add-app-tag-form" method="POST" action="/admin/tags/app/add">
+        <input type="hidden" name="app_id" value="" />
+        <input type="hidden" name="tag_id" value="" />
+      </form>
+      <form id="remove-app-tag-form" method="POST" action="/admin/tags/app/remove">
+        <input type="hidden" name="app_id" value="" />
+        <input type="hidden" name="tag_id" value="" />
+      </form>
 
       <div class="${listGrid}">
         ${props.apps.map(app => html`
@@ -162,6 +160,27 @@ export const AppsPage = (props: Props) => {
                     <a href="${app.base_url}" target="_blank" style="text-decoration:none; color:inherit; display:inline-flex; align-items:center; gap:0.2rem;" onclick="event.stopPropagation()">
                         ${app.base_url} <span class="material-symbols-outlined" style="font-size: 14px;">open_in_new</span>
                     </a>
+                </div>
+
+                <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.5rem; align-items:center;">
+                    ${(app.tags || []).map((at: any) => html`
+                        <span style="display:inline-flex; align-items:center; gap:0.2rem; background:#f1f5f9; border:1px solid #e2e8f0; padding:2px 6px; border-radius:12px; font-size:0.75rem; color:#475569;">
+                            <span class="material-symbols-outlined" style="font-size:12px;">label</span>
+                            ${at.tag_name}
+                            ${at.app_tag_status === 'pending' ? html`<span style="color:#c2410c; margin-left:4px;">(申請中)</span>` : ''}
+                            <button type="button" onclick="event.stopPropagation(); if(confirm('タグを外しますか？')) { document.getElementById('remove-app-tag-form').querySelector('input[name=app_id]').value='${app.id}'; document.getElementById('remove-app-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-app-tag-form').submit(); }" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; display:flex; align-items:center; padding:0; margin-left:4px;" title="タグを外す"><span class="material-symbols-outlined" style="font-size:14px;">close</span></button>
+                        </span>
+                    `)}
+                    ${(props.availableTags && props.availableTags.length > 0) ? html`
+                        <div style="display:inline-flex; align-items:center; gap:0.2rem;">
+                            <select onchange="if(this.value) { event.stopPropagation(); document.getElementById('add-app-tag-form').querySelector('input[name=app_id]').value='${app.id}'; document.getElementById('add-app-tag-form').querySelector('input[name=tag_id]').value=this.value; document.getElementById('add-app-tag-form').submit(); }" onclick="event.stopPropagation()" style="font-size:0.75rem; padding:2px 4px; border:1px dashed #cbd5e1; border-radius:12px; background:transparent; color:#64748b; outline:none; cursor:pointer;">
+                                <option value="">+ タグ追加</option>
+                                ${(props.availableTags || []).filter(t => !(app.tags||[]).find((at:any) => at.tag_id === t.id)).map(t => html`
+                                    <option value="${t.id}">${t.name}</option>
+                                `)}
+                            </select>
+                        </div>
+                    ` : ''}
                 </div>
             </div>
             
@@ -296,7 +315,7 @@ export const AppsPage = (props: Props) => {
 
       <script>
       window.__name = function(f) { return f; };
-          ${raw(appsClientScript)}
+          ${raw(getAppsClientScript(t))}
       ${raw(RejectReasonModalScript)}
       </script>
     `

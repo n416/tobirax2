@@ -57,6 +57,29 @@ CREATE TABLE IF NOT EXISTS apps (
     owner_group_id TEXT REFERENCES groups(id)
 );
 
+-- タグ管理
+CREATE TABLE IF NOT EXISTS tags (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    -- 'active': 利用可能, 'pending': 申請待ち(システム管理者の承認待ち), 'rejected': 却下
+    status TEXT DEFAULT 'active',
+    -- 申請したグループ（NULLの場合はシステム管理者が作成）
+    owner_group_id TEXT REFERENCES groups(id),
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_id TEXT NOT NULL REFERENCES apps(id),
+    tag_id TEXT NOT NULL REFERENCES tags(id),
+    -- 'active': 紐付け済み, 'pending': 申請待ち, 'rejected': 却下
+    status TEXT DEFAULT 'active',
+    -- 申請したグループ（NULLの場合はシステム管理者が紐付け）
+    requesting_group_id TEXT REFERENCES groups(id),
+    created_at INTEGER NOT NULL,
+    UNIQUE(app_id, tag_id)
+);
+
 CREATE TABLE IF NOT EXISTS groups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
