@@ -3,7 +3,7 @@ import type { Env, User, App, Session } from '../types';
 import { Layout } from '../views/admin/Layout';
 import { GroupAdminPage } from '../views/GroupAdminPage';
 import { dict } from '../i18n';
-import { generateToken, hashPassword } from '../utils/auth';
+import { generateToken, hashPassword, verifyPassword } from '../utils/auth';
 import {
   getLang,
   getSystemConfig,
@@ -13,10 +13,15 @@ import {
   logAudit,
   getEntitlements,
   getManagedGroupIds,
+  getBillingGroupIds,
+  billingGateBlocks,
   createAssignment,
   deleteServiceCascade,
   ensureGroupProvider
 } from '../index';
+
+// 決裁権者の sudo 昇格の有効期間(秒)。利用枠の予算操作はこの間だけ再入力なしで行える。
+const BILLING_ELEVATION_TTL = 900
 
 export const groupAdminRouter = new Hono<{ Bindings: Env }>();
 
@@ -29,9 +34,12 @@ groupAdminRouter.get('/group-admin', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const now = Math.floor(Date.now() / 1000)
 
-    // 管理できるグループ = 自分が group_admin のグループ + その子孫(サブツリー)。
+    // 管理できるグループ = 自分が group_admin/billing_admin のグループ + その子孫(サブツリー)。
     // 親グループの管理者は配下支店も管理対象に含む(委任構造はツリーで降りる)。
     const managedIds = await getManagedGroupIds(c, user.id)
+    // 決済権者(billing_admin)としての権限。利用枠タブの表示可否に使う(=どこかのグループで決済権者か)。
+    const billingIds = await getBillingGroupIds(c, user.id)
+    const isBillingAdmin = billingIds.size > 0
 
     const { results: allGroups } = await c.env.DB.prepare('SELECT id, name, parent_id FROM groups').all()
     const groupMap = new Map((allGroups as any[]).map(g => [g.id, g]))
@@ -73,12 +81,21 @@ groupAdminRouter.get('/group-admin', async (c) => {
             profileName={user.name} profilePicture={user.picture}
             managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
             grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}}
-            
+            isBillingAdmin={isBillingAdmin} childrenByGroup={{}}
             servicesByGroup={{}} appsByGroup={{}} approvedAppsByGroup={{}} devStatuses={{}} apps={[]} />)
 
     }
 
     const groupIds = managedGroups.map((g: any) => g.id as string)
+
+    // 各グループの「直接の子グループ」(管理サブツリー内)。利用枠の分配先セレクトと
+    //   「子グループへ配分済みの枠」テーブルの両方で使う。childrenByGroup[親id] = [{id, name}]。
+    const childrenByGroup: Record<string, { id: string; name: string }[]> = {}
+    for (const g of managedGroups as any[]) {
+        if (!g.parent_id) continue
+        if (!childrenByGroup[g.parent_id]) childrenByGroup[g.parent_id] = []
+        childrenByGroup[g.parent_id].push({ id: g.id, name: g.original_name })
+    }
 
     // 全ユーザー（メンバー追加候補）
     const { results: allUsers } = await c.env.DB.prepare('SELECT id, email, name FROM users ORDER BY email').all()
@@ -240,6 +257,8 @@ groupAdminRouter.get('/group-admin', async (c) => {
         availableContracts={availableContracts as any}
         facilities={facilities as any}
         rolesByService={rolesByService}
+        isBillingAdmin={isBillingAdmin}
+        childrenByGroup={childrenByGroup}
         servicesByGroup={servicesByGroup}
         appsByGroup={appsByGroup}
         
@@ -265,7 +284,8 @@ groupAdminRouter.post('/group-admin/api/membership/add', async (c) => {
     const body = await c.req.json()
     const groupId = body['group_id'] as string
     const userIds = (body['user_ids'] as string[]) || []
-    const role = body['role'] === 'group_admin' ? 'group_admin' : 'member'
+    // 役割は member / group_admin(運用担当) / billing_admin(決済権者) の3種。
+    const role = (body['role'] === 'group_admin' || body['role'] === 'billing_admin') ? body['role'] : 'member'
     const validFrom = Number(body['valid_from'])
     const validTo = Number(body['valid_to'])
     if (!groupId || userIds.length === 0) return c.json({ error: 'group_id and user_ids required' }, 400)
@@ -332,9 +352,11 @@ groupAdminRouter.post('/group-admin/api/assignment/remove', async (c) => {
     return c.json({ success: true })
 })
 
-// 委任: ゲート② 利用枠の開放/取消。組織管理者が自組織の契約を配下グループへ配る。
-//   開放先グループ・契約の顧客組織のいずれも自分の管理サブツリー内であることを要求する
-//   (= 自分が管理する組織の契約のみ、自分の配下ノードへ配布できる)。
+// 委任: ゲート② 利用枠の開放/取消。利用枠(Grant)の分配は予算と直結するため、決済権者
+//   (billing_admin)のみが操作できる(getBillingGroupIds で権限チェック)。
+//   開放先グループ・契約の顧客組織のいずれも自分の決済サブツリー内であることを要求する。
+//   契約の顧客組織(customer_group_id)が「ルート枠」。それ以外への開放は子枠の切り出しとみなし、
+//   seat_limit を必須化したうえで「親の枠 - 兄弟への配分」を超えないことを検証する。
 groupAdminRouter.post('/group-admin/api/grant/add', async (c) => {
     const user = await getUser(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
@@ -346,12 +368,53 @@ groupAdminRouter.post('/group-admin/api/grant/add', async (c) => {
     const validFrom = Number(body['valid_from'])
     const validTo = Number(body['valid_to'])
     if (!groupId || !contractId) return c.json({ error: 'missing fields' }, 400)
-    const managed = await getManagedGroupIds(c, user.id)
-    if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
-    // 契約から service_id を引きつつ、契約の顧客組織も自分の管理下か検証する。
+    const billing = await getBillingGroupIds(c, user.id)
+    if (!billing.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    // 予算ドメインの基点 = 操作中のグループ(context)。自グループへの開放は context=自身、
+    //   子への分配は context=親(=操作中グループ)。この context の決裁権者パスワードで sudo する。
+    const contextGroupId = (body['context_group_id'] as string) || groupId
+    if (!billing.has(contextGroupId)) return c.json({ error: 'Forbidden' }, 403)
+    // target は context 自身か、その直接の子であること(自グループの予算ドメイン内)。
+    if (groupId !== contextGroupId) {
+        const tg = await c.env.DB.prepare('SELECT parent_id FROM groups WHERE id = ?').bind(groupId).first() as { parent_id: string | null } | null
+        if (!tg || tg.parent_id !== contextGroupId) return c.json({ error: 'Forbidden' }, 403)
+    }
+    // sudo(opt-in): context グループに決裁権者パスワードが設定されている場合のみ昇格を要求する。
+    //   未設定なら従来どおりノーゲートで通す。(クライアントは needs_elevation を受けて昇格モーダルを出す)
+    if (await billingGateBlocks(c, user.id, contextGroupId)) return c.json({ error: 'needs_elevation' }, 403)
+    // 契約から service_id を引きつつ、契約の顧客組織も自分の決済サブツリー内か検証する。
     const ct = await c.env.DB.prepare('SELECT service_id, customer_group_id FROM service_contracts WHERE id = ?').bind(contractId).first() as { service_id: string; customer_group_id: string } | null
     if (!ct) return c.json({ error: 'contract not found' }, 404)
-    if (!managed.has(ct.customer_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    if (!billing.has(ct.customer_group_id)) return c.json({ error: 'Forbidden' }, 403)
+
+    // 子枠の切り出し判定: 開放先が契約の顧客組織(=ルート枠)でなければ、親の枠を分け与える子枠。
+    const isSubGrant = groupId !== ct.customer_group_id
+    if (isSubGrant) {
+        // 子グループへ配るときは上限枠数(seat_limit)を必須とする(null/不正は不可)。
+        if (seatLimit == null || !Number.isFinite(seatLimit) || seatLimit < 0) {
+            return c.json({ error: 'seat_required' }, 400)
+        }
+        // 直接の親グループ(parent_id)の同一サービスの Grant を引き、親の枠を超えないか検証する。
+        const grp = await c.env.DB.prepare('SELECT parent_id FROM groups WHERE id = ?').bind(groupId).first() as { parent_id: string | null } | null
+        const parentId = grp?.parent_id || null
+        if (parentId) {
+            const parentGrant = await c.env.DB.prepare('SELECT seat_limit FROM group_service_grants WHERE group_id = ? AND service_id = ?')
+                .bind(parentId, ct.service_id).first() as { seat_limit: number | null } | null
+            // 親が枠上限を持つ場合のみオーバー検証(親が無制限なら上限なし)。
+            if (parentGrant && parentGrant.seat_limit != null) {
+                // 親の残り枠 = 親の seat_limit - 今回付与する分を除いた他兄弟グループへの配分合計。
+                const sib = await c.env.DB.prepare(`
+                    SELECT COALESCE(SUM(seat_limit), 0) AS s
+                    FROM group_service_grants
+                    WHERE service_id = ? AND group_id != ?
+                      AND group_id IN (SELECT id FROM groups WHERE parent_id = ?)
+                `).bind(ct.service_id, groupId, parentId).first() as { s: number } | null
+                const remaining = parentGrant.seat_limit - (sib?.s || 0)
+                if (seatLimit > remaining) return c.json({ error: 'over_budget' }, 400)
+            }
+        }
+    }
+
     // UNIQUE(group_id, service_id) で upsert(契約・席数・期間を更新)。
     await c.env.DB.prepare(`
         INSERT INTO group_service_grants (group_id, service_id, contract_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?)
@@ -363,14 +426,79 @@ groupAdminRouter.post('/group-admin/api/grant/add', async (c) => {
 groupAdminRouter.post('/group-admin/api/grant/remove', async (c) => {
     const user = await getUser(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
-    const id = (await c.req.json())['id']
+    const body = await c.req.json()
+    const id = body['id']
     const row = await c.env.DB.prepare('SELECT group_id FROM group_service_grants WHERE id = ?').bind(id).first() as { group_id: string } | null
     if (!row) return c.json({ error: 'Not found' }, 404)
-    const managed = await getManagedGroupIds(c, user.id)
-    if (!managed.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
+    // 利用枠の取消も決済権者のみ + 予算ドメイン(context)での sudo を必須にする。
+    const billing = await getBillingGroupIds(c, user.id)
+    if (!billing.has(row.group_id)) return c.json({ error: 'Forbidden' }, 403)
+    // context = 操作中グループ。取消対象は context 自身の枠か、その直接の子の枠であること。
+    const contextGroupId = (body['context_group_id'] as string) || row.group_id
+    if (!billing.has(contextGroupId)) return c.json({ error: 'Forbidden' }, 403)
+    if (row.group_id !== contextGroupId) {
+        const tg = await c.env.DB.prepare('SELECT parent_id FROM groups WHERE id = ?').bind(row.group_id).first() as { parent_id: string | null } | null
+        if (!tg || tg.parent_id !== contextGroupId) return c.json({ error: 'Forbidden' }, 403)
+    }
+    if (await billingGateBlocks(c, user.id, contextGroupId)) return c.json({ error: 'needs_elevation' }, 403)
     await c.env.DB.prepare('DELETE FROM group_service_grants WHERE id = ?').bind(id).run()
     await logAudit(c, 'DELEGATED_GRANT_REMOVE', { key: 'log_grant_delete', params: { id, admin: user.email } })
     return c.json({ success: true })
+})
+
+// 決裁権者の sudo 昇格。グループの決裁権者パスワードを検証し、短命の昇格を付与する。
+//   利用枠の予算操作(開放・分配・取消)の直前にクライアントから呼ばれる。
+groupAdminRouter.post('/group-admin/api/billing/elevate', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const password = (body['password'] as string) || ''
+    if (!groupId || !password) return c.json({ error: 'missing fields' }, 400)
+    const billing = await getBillingGroupIds(c, user.id)
+    if (!billing.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    const grp = await c.env.DB.prepare('SELECT billing_password_hash FROM groups WHERE id = ?').bind(groupId).first() as { billing_password_hash: string | null } | null
+    if (!grp) return c.json({ error: 'Not found' }, 404)
+    // 未設定 → 運営に初期設定を依頼する必要がある(本人は初期設定できない=second factor を担保)。
+    if (!grp.billing_password_hash) return c.json({ error: 'no_password' }, 409)
+    if (!await verifyPassword(password, grp.billing_password_hash)) return c.json({ error: 'bad_password' }, 401)
+    const now = Math.floor(Date.now() / 1000)
+    const expiresAt = now + BILLING_ELEVATION_TTL
+    await c.env.DB.prepare(`
+        INSERT INTO billing_elevations (user_id, group_id, expires_at) VALUES (?, ?, ?)
+        ON CONFLICT(user_id, group_id) DO UPDATE SET expires_at = excluded.expires_at
+    `).bind(user.id, groupId, expiresAt).run()
+    await logAudit(c, 'BILLING_ELEVATE', { key: 'log_billing_elevate', params: { group: groupId, admin: user.email } })
+    return c.json({ success: true, expires_at: expiresAt })
+})
+
+// 決裁権者によるパスワードの変更/解除。現パスワードを知っている本人だけが操作できる。
+//   (初期設定は運営のみ=未設定からの設定はここでは不可。) new_password が空なら「解除」=
+//   ゲートを無効化してパスワード無し(ノーゲート)に戻す。変更/解除後は既存昇格を全失効。
+//   ※小規模組織向け: 本人が現パスワードを使って自分でゲートを外せるようにする。
+groupAdminRouter.post('/group-admin/api/billing/rotate', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const currentPassword = (body['current_password'] as string) || ''
+    const newPassword = (body['new_password'] as string) || ''
+    if (!groupId) return c.json({ error: 'missing fields' }, 400)
+    const billing = await getBillingGroupIds(c, user.id)
+    if (!billing.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    const grp = await c.env.DB.prepare('SELECT billing_password_hash FROM groups WHERE id = ?').bind(groupId).first() as { billing_password_hash: string | null } | null
+    if (!grp) return c.json({ error: 'Not found' }, 404)
+    if (!grp.billing_password_hash) return c.json({ error: 'no_password' }, 409)
+    if (!await verifyPassword(currentPassword, grp.billing_password_hash)) return c.json({ error: 'bad_password' }, 401)
+    // new_password 空 = 解除(NULL に戻す=ノーゲート)。それ以外 = 新パスワードに変更。
+    const cleared = newPassword === ''
+    const newHash = cleared ? null : await hashPassword(newPassword)
+    await c.env.DB.prepare('UPDATE groups SET billing_password_hash = ? WHERE id = ?').bind(newHash, groupId).run()
+    // 変更/解除後は安全側に倒し、このグループの全昇格を失効させる(全員入れ直し)。
+    await c.env.DB.prepare('DELETE FROM billing_elevations WHERE group_id = ?').bind(groupId).run()
+    await logAudit(c, cleared ? 'BILLING_PASSWORD_CLEAR' : 'BILLING_ROTATE',
+        { key: cleared ? 'log_billing_pw_clear' : 'log_billing_rotate', params: { group: groupId, admin: user.email } })
+    return c.json({ success: true, cleared })
 })
 
 // ============================================================

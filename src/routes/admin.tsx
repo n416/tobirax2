@@ -478,6 +478,7 @@ adminRouter.post('/admin/am/groups', async (c) => {
     return c.redirect('/admin/am/groups')
 })
 // グループの親(parent_id)を変更=ツリー上の移動。自己親・循環参照を弾く。
+//   親が実際に変わったら、移動サブツリーの利用枠(Sub-Grant)を強制没収する(下記参照)。
 adminRouter.post('/admin/am/groups/parent', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
@@ -486,10 +487,13 @@ adminRouter.post('/admin/am/groups/parent', async (c) => {
     let parentId = (body['parent_id'] as string) || null
     if (parentId === '') parentId = null
     if (parentId && parentId === id) return c.json({ error: 'self' }, 400)
+    // 現在のツリーを一括取得(循環チェック + 移動サブツリーの算出に使う)。
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+    const parentOf = new Map<string, string | null>((allGroups as any[]).map(r => [r.id, r.parent_id]))
+    if (!parentOf.has(id)) return c.json({ error: 'Not found' }, 404)
+    const oldParentId = parentOf.get(id) ?? null
     if (parentId) {
         // 親候補から祖先を辿り、自分(id)に到達したら循環なので拒否。
-        const { results } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all() as any
-        const parentOf = new Map<string, string | null>((results as any[]).map(r => [r.id, r.parent_id]))
         let cur: string | null = parentId
         let guard = 0
         while (cur && guard++ < 10000) {
@@ -498,22 +502,82 @@ adminRouter.post('/admin/am/groups/parent', async (c) => {
         }
     }
     await c.env.DB.prepare('UPDATE groups SET parent_id = ? WHERE id = ?').bind(parentId, id).run()
-    return c.json({ success: true })
+
+    // 【組織移動時の予算整合】親が実際に変わったら、移動したサブツリー(自身+子孫)が保持する
+    //   利用枠(Sub-Grant)を強制的に没収する。「親grant − 子grant」の実効上限計算は"今の"
+    //   ツリー構造を前提とするため、付け替え時に枠を残すと矛盾が起きる:
+    //     ・元の親で子へ配った枠が浮き、残高が錬金術的に復活する
+    //     ・新しい親に枠を持つ子が降ってきて残高が減るとばっちり
+    //     ・移動先で旧組織の契約(別世界)を消費し続ける
+    //   割当(service_user_assignments)は保護して残す。利用枠がゼロになるので一時的に
+    //   利用は停止するが、新しい親の決済権者が枠を配り直せば既存割当はそのまま再点灯する。
+    let revoked = 0
+    if (oldParentId !== parentId) {
+        // 子→親の隣接から、移動した id を根とするサブツリー(id + 子孫)を集める。
+        // (移動で変わるのは id の親リンクのみ。id 配下の親子関係は不変なので移動前の
+        //  スナップショットでサブツリーを正しく算出できる。)
+        const childrenMap = new Map<string, string[]>()
+        for (const g of allGroups as any[]) {
+            if (!g.parent_id) continue
+            if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
+            childrenMap.get(g.parent_id)!.push(g.id)
+        }
+        const subtree: string[] = []
+        const seen = new Set<string>()
+        const stack = [id]
+        while (stack.length) {
+            const cur = stack.pop()!
+            if (seen.has(cur)) continue
+            seen.add(cur)
+            subtree.push(cur)
+            for (const ch of childrenMap.get(cur) || []) stack.push(ch)
+        }
+        const placeholders = subtree.map(() => '?').join(',')
+        const res = await c.env.DB.prepare(`DELETE FROM group_service_grants WHERE group_id IN (${placeholders})`).bind(...subtree).run()
+        revoked = (res as any)?.meta?.changes ?? 0
+    }
+
+    const details = JSON.stringify({ key: 'log_group_parent_changed', params: { id, parent: parentId || '(root)', revoked, admin: user.email } })
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_PARENT_CHANGED', details).run()
+    return c.json({ success: true, revoked })
 })
 adminRouter.post('/admin/am/groups/delete', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const body = await c.req.parseBody()
     const id = body['id'] as string
+
+    // 【組織削除時の予算整合】削除対象グループ自身と、親を失ってルートに昇格する(parent_id=NULL)
+    //   全ての子孫グループの利用枠(Sub-Grant)を強制的に没収する。
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+    const childrenMap = new Map<string, string[]>()
+    for (const g of allGroups as any[]) {
+        if (!g.parent_id) continue
+        if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
+        childrenMap.get(g.parent_id)!.push(g.id)
+    }
+    const subtree: string[] = []
+    const seen = new Set<string>()
+    const stack = [id]
+    while (stack.length) {
+        const cur = stack.pop()!
+        if (seen.has(cur)) continue
+        seen.add(cur)
+        subtree.push(cur)
+        for (const ch of childrenMap.get(cur) || []) stack.push(ch)
+    }
+    const placeholders = subtree.map(() => '?').join(',')
+
     // グループ削除に伴い、新旧両モデルの関連レコードを掃除する。
     await c.env.DB.batch([
+        c.env.DB.prepare(`DELETE FROM group_service_grants WHERE group_id IN (${placeholders})`).bind(...subtree),
         c.env.DB.prepare('DELETE FROM group_memberships WHERE group_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM group_permissions WHERE group_id = ?').bind(id),
         c.env.DB.prepare('UPDATE users SET group_id = NULL WHERE group_id = ?').bind(id),
         c.env.DB.prepare('UPDATE groups SET parent_id = NULL WHERE parent_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(id)
     ])
-    const details = JSON.stringify({ key: 'log_group_deleted', params: { id: id, admin: user.email } });
+    const details = JSON.stringify({ key: 'log_group_deleted', params: { id: id, admin: user.email, revoked_subtree_size: subtree.length } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_DELETED', details).run()
     return c.redirect('/admin/am/groups')
 })
@@ -533,7 +597,8 @@ adminRouter.post('/admin/api/am/membership/add', async (c) => {
     const body = await c.req.json()
     const groupId = body['group_id'] as string
     const userIds = (body['user_ids'] as string[]) || []
-    const role = body['role'] === 'group_admin' ? 'group_admin' : 'member'
+    // 役割は member / group_admin(運用担当) / billing_admin(決済権者) の3種。
+    const role = (body['role'] === 'group_admin' || body['role'] === 'billing_admin') ? body['role'] : 'member'
     const validFrom = Number(body['valid_from'])
     const validTo = Number(body['valid_to'])
     if (!groupId || userIds.length === 0) return c.json({ error: 'group_id and user_ids required' }, 400)
@@ -557,6 +622,36 @@ adminRouter.post('/admin/api/am/membership/remove', async (c) => {
     const details = JSON.stringify({ key: 'log_membership_remove', params: { id: id, admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_REMOVE', details).run()
     return c.json({ success: true })
+})
+
+// 【決裁権者パスワードの初期設定/リセット】運営のみ。決裁権者(billing_admin)の sudo の起点。
+//   本人(役割保持者)に初期設定させると second factor の意味が無くなるため、運営が設定して
+//   対象者にオフラインで渡す、という権限分離にする。状態取得(設定済みか)もここで返す。
+adminRouter.get('/admin/api/am/billing-password/:id', async (c) => {
+    if (!await getAdmin(c)) return c.json({ error: 'Unauthorized' }, 401)
+    const groupId = c.req.param('id')
+    const grp = await c.env.DB.prepare('SELECT billing_password_hash FROM groups WHERE id = ?').bind(groupId).first() as { billing_password_hash: string | null } | null
+    if (!grp) return c.json({ error: 'Not found' }, 404)
+    return c.json({ has_password: !!grp.billing_password_hash })
+})
+adminRouter.post('/admin/api/am/billing-password', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['group_id'] as string
+    const password = ((body['password'] as string) ?? '').trim()
+    if (!groupId) return c.json({ error: 'group_id required' }, 400)
+    const grp = await c.env.DB.prepare('SELECT id FROM groups WHERE id = ?').bind(groupId).first()
+    if (!grp) return c.json({ error: 'Not found' }, 404)
+    // 空文字 = 解除(NULL に戻す)。それ以外 = bcrypt ハッシュで設定。
+    const hash = password === '' ? null : await hashPassword(password)
+    await c.env.DB.prepare('UPDATE groups SET billing_password_hash = ? WHERE id = ?').bind(hash, groupId).run()
+    // パスワード変更/解除に伴い、このグループの既存昇格(sudo)を全失効させる。
+    await c.env.DB.prepare('DELETE FROM billing_elevations WHERE group_id = ?').bind(groupId).run()
+    const ev = password === '' ? 'BILLING_PASSWORD_CLEAR' : 'BILLING_PASSWORD_SET'
+    const details = JSON.stringify({ key: password === '' ? 'log_billing_pw_clear' : 'log_billing_pw_set', params: { group: groupId, admin: user.email } });
+    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind(ev, details).run()
+    return c.json({ success: true, has_password: password !== '' })
 })
 
 // ============================================================

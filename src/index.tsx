@@ -170,13 +170,15 @@ export async function getUser(c: any) {
     return await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
 }
 
-// ユーザー取得 + group_admin 判定をまとめて返す。ユーザー向け画面で共通利用。
+// ユーザー取得 + 委任管理ポータルへの導線判定をまとめて返す。ユーザー向け画面で共通利用。
+//   group_admin(運用担当)だけでなく billing_admin(決済権者)もポータルを使うため、
+//   どちらかのロールを持てばナビにポータルリンクを出す。
 async function getUserCtx(c: any): Promise<{ user: User; isGroupAdmin: boolean } | null> {
     const user = await getUser(c)
     if (!user) return null
     const now = Math.floor(Date.now() / 1000)
     const ga = await c.env.DB.prepare(
-        `SELECT 1 FROM group_memberships WHERE user_id = ? AND role = 'group_admin' AND valid_from <= ? AND valid_to >= ? LIMIT 1`
+        `SELECT 1 FROM group_memberships WHERE user_id = ? AND role IN ('group_admin', 'billing_admin') AND valid_from <= ? AND valid_to >= ? LIMIT 1`
     ).bind(user.id, now, now).first()
     return { user, isGroupAdmin: !!ga }
 }
@@ -188,8 +190,10 @@ async function getUserCtx(c: any): Promise<{ user: User; isGroupAdmin: boolean }
 //   委任系の全エンドポイントはこの集合で「操作対象グループが配下か」を必ず検証する。
 export async function getManagedGroupIds(c: any, userId: string): Promise<Set<string>> {
     const now = Math.floor(Date.now() / 1000)
+    // 運用担当(group_admin)に加え、決済権者(billing_admin)も割当画面を操作できる。
+    // どちらのロールも自分のグループ + その子孫(サブツリー)を管理対象に持つ。
     const { results: adminRows } = await c.env.DB.prepare(
-        `SELECT group_id FROM group_memberships WHERE user_id = ? AND role = 'group_admin' AND valid_from <= ? AND valid_to >= ?`
+        `SELECT group_id FROM group_memberships WHERE user_id = ? AND role IN ('group_admin', 'billing_admin') AND valid_from <= ? AND valid_to >= ?`
     ).bind(userId, now, now).all()
     const roots = (adminRows as any[]).map(r => r.group_id as string)
     const managed = new Set<string>()
@@ -210,6 +214,56 @@ export async function getManagedGroupIds(c: any, userId: string): Promise<Set<st
         for (const child of childrenMap.get(id) || []) stack.push(child)
     }
     return managed
+}
+
+// 【決済権限の認可プリミティブ】ユーザーが「決済権者(billing_admin)」として利用枠を
+//   操作できるグループID集合を返す。= 自分が有効な billing_admin として所属するグループ
+//   + その子孫(サブツリー)すべて。利用枠(Grant)の分配・移動は予算と直結するため、
+//   運用担当(group_admin)とは別ロールで守る。getManagedGroupIds と同じツリー走査だが
+//   ロール条件のみ 'billing_admin' に絞る。
+export async function getBillingGroupIds(c: any, userId: string): Promise<Set<string>> {
+    const now = Math.floor(Date.now() / 1000)
+    const { results: adminRows } = await c.env.DB.prepare(
+        `SELECT group_id FROM group_memberships WHERE user_id = ? AND role = 'billing_admin' AND valid_from <= ? AND valid_to >= ?`
+    ).bind(userId, now, now).all()
+    const roots = (adminRows as any[]).map(r => r.group_id as string)
+    const managed = new Set<string>()
+    if (roots.length === 0) return managed
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+    const childrenMap = new Map<string, string[]>()
+    for (const g of allGroups as any[]) {
+        if (!g.parent_id) continue
+        if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
+        childrenMap.get(g.parent_id)!.push(g.id)
+    }
+    const stack = [...roots]
+    while (stack.length) {
+        const id = stack.pop()!
+        if (managed.has(id)) continue   // 循環/重複ガード
+        managed.add(id)
+        for (const child of childrenMap.get(id) || []) stack.push(child)
+    }
+    return managed
+}
+
+// 決裁権者(billing_admin)の sudo 昇格が now 時点で有効かを返す。
+//   利用枠の予算操作(開放・分配・取消)の直前ゲートに使う。ロール(getBillingGroupIds)に加え、
+//   グループの決裁権者パスワードで得た短命の昇格を必須にすることで「役割を配っただけで即sudo」を防ぐ。
+export async function isBillingElevated(c: any, userId: string, groupId: string): Promise<boolean> {
+    const now = Math.floor(Date.now() / 1000)
+    const row = await c.env.DB.prepare('SELECT 1 FROM billing_elevations WHERE user_id = ? AND group_id = ? AND expires_at > ?')
+        .bind(userId, groupId, now).first()
+    return !!row
+}
+
+// 予算操作の sudo ゲートが「今この操作を遮るべきか」を返す(opt-in 方式)。
+//   context グループに決裁権者パスワードが設定されている場合のみ昇格を要求する。
+//   未設定のグループは従来どおりノーゲートで通す(true を返さない)。
+export async function billingGateBlocks(c: any, userId: string, groupId: string): Promise<boolean> {
+    const grp = await c.env.DB.prepare('SELECT billing_password_hash FROM groups WHERE id = ?')
+        .bind(groupId).first() as { billing_password_hash: string | null } | null
+    if (!grp || !grp.billing_password_hash) return false   // 未設定 → ゲートなし
+    return !(await isBillingElevated(c, userId, groupId))   // 設定済み → 昇格していなければ遮断
 }
 
 // 利用者割当(ゲート③)の中核ロジック: ゲート②(利用枠)確認 + 席数上限チェック + upsert。
@@ -236,10 +290,19 @@ export async function createAssignment(c: any, p: { userId: string; groupId: str
     const isNewSeat = (existing?.c || 0) === 0
     if (isNewSeat && grant && !isSelfOwned) {
         // 支店別サブ枠(grant.seat_limit)。
+        //   実効上限 = 自グループの枠 - 直接の子グループへ配った同一サービスの枠の合計。
+        //   子へ配った分は子が消費する前提なので、親が自グループで使える枠から差し引く
+        //   (「親の grant - 子の grant」)。子枠は配布時に seat_limit 必須なので SUM で集計できる。
         if (grant.seat_limit != null) {
             const usedG = await c.env.DB.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM service_user_assignments WHERE group_id = ? AND service_id = ?')
                 .bind(p.groupId, p.serviceId).first() as { c: number } | null
-            if ((usedG?.c || 0) >= grant.seat_limit) return 'seat'
+            const childSum = await c.env.DB.prepare(`
+                SELECT COALESCE(SUM(gsg.seat_limit), 0) AS s
+                FROM groups ch
+                JOIN group_service_grants gsg ON gsg.group_id = ch.id AND gsg.service_id = ?
+                WHERE ch.parent_id = ?`).bind(p.serviceId, p.groupId).first() as { s: number } | null
+            const effectiveLimit = grant.seat_limit - (childSum?.s || 0)
+            if ((usedG?.c || 0) >= effectiveLimit) return 'seat'
         }
         // 契約の総枠(contract.seat_limit)。同一契約に紐づく全利用枠の利用者数で判定。
         const contract = await c.env.DB.prepare('SELECT seat_limit FROM service_contracts WHERE id = ?').bind(grant.contract_id).first() as { seat_limit: number | null } | null
@@ -287,7 +350,8 @@ export async function getEntitlements(c: any, userId: string, serviceId: string)
         JOIN group_memberships m
             ON m.user_id = a.user_id AND m.group_id = a.group_id
            AND m.valid_from <= ? AND m.valid_to >= ?
-        JOIN group_service_grants gr
+        JOIN services s ON s.id = a.service_id
+        LEFT JOIN group_service_grants gr
             ON gr.group_id = a.group_id AND gr.service_id = a.service_id
            AND gr.valid_from <= ? AND gr.valid_to >= ?
         JOIN groups g              ON g.id = a.group_id
@@ -295,6 +359,7 @@ export async function getEntitlements(c: any, userId: string, serviceId: string)
         JOIN service_role_master rm ON rm.id = a.service_role_id
         WHERE a.user_id = ? AND a.service_id = ?
           AND a.valid_from <= ? AND a.valid_to >= ?
+          AND (gr.id IS NOT NULL OR (s.owner_group_id = a.group_id AND s.status = 'active'))
         ORDER BY g.name, f.structure_no
     `).bind(now, now, now, now, userId, serviceId, now, now).all()
     return (results as any[]).map(r => ({

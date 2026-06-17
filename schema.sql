@@ -62,7 +62,18 @@ CREATE TABLE IF NOT EXISTS groups (
     name TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     -- アカウントマネージャ: 親子階層(最上位は NULL)。groups(id) を参照。
-    parent_id TEXT
+    parent_id TEXT,
+    -- 決裁権者(billing_admin)の sudo パスワード(bcrypt)。NULL=未設定。利用枠操作の昇格に使う。
+    billing_password_hash TEXT
+);
+
+-- 【決裁権者の昇格(sudo)状態】利用枠の開放・分配・取消の直前にグループの決裁権者パスワードで
+-- 昇格し、expires_at までは再入力なしで予算操作できる。(user, group) 単位。
+CREATE TABLE IF NOT EXISTS billing_elevations (
+    user_id    TEXT NOT NULL,
+    group_id   TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, group_id)
 );
 
 CREATE TABLE IF NOT EXISTS permissions (

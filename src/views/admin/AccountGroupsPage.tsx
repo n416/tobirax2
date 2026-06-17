@@ -136,12 +136,15 @@ export const AccountGroupsPage = (props: Props) => {
             window.loadMembers(id);
             window.loadFacilities(id);
             window.loadGrants(id);
+            window.loadBillingPassword(id);
             if(window.switchTab) window.switchTab('members');
         };
         window.closeGroupModal = function() { if(gModal) gModal.close(); window.resetAddButton(); };
 
         window.saveParent = function() {
             var pid = tsControlParentEdit ? tsControlParentEdit.getValue() : (document.getElementById('m-parent') ? document.getElementById('m-parent').value : '');
+            // 移動するとサブツリーの利用枠は強制没収される。誤操作で予算を消さないよう確認する。
+            if (!confirm(i18n.moveWarn || 'Moving this group revokes all license grants held by it and its descendants. They must be re-distributed from the new parent. Continue?')) return;
             fetch('/admin/am/groups/parent', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: currentGroupId, parent_id: pid }) })
             .then(function(r) { if(!r.ok) { return r.json().catch(function(){return {};}).then(function(e){ throw new Error(e.error || 'err'); }); } return r.json(); })
             .then(function() { window.location.reload(); })
@@ -149,6 +152,40 @@ export const AccountGroupsPage = (props: Props) => {
                 if (e.message === 'cycle' || e.message === 'self') { alert(i18n.alertCycle || 'Cannot set this parent.'); }
                 else { alert('Error: ' + e.message); }
             });
+        };
+
+        // 決裁権者パスワード(sudo)の状態表示と設定/解除。設定済みかどうかだけを取得する。
+        window.loadBillingPassword = function(id) {
+            var statusEl = document.getElementById('bp-status');
+            var input = document.getElementById('bp-input');
+            if (input) input.value = '';
+            if (statusEl) { statusEl.textContent = '...'; statusEl.style.color = '#94a3b8'; }
+            fetch('/admin/api/am/billing-password/' + encodeURIComponent(id))
+                .then(function(r){ return r.json(); })
+                .then(function(d){
+                    if (!statusEl) return;
+                    if (d.has_password) { statusEl.textContent = (i18n.bpSet || 'Set'); statusEl.style.color = '#16a34a'; }
+                    else { statusEl.textContent = (i18n.bpUnset || 'Not set'); statusEl.style.color = '#b45309'; }
+                    var clr = document.getElementById('bp-clear-btn');
+                    if (clr) clr.style.display = d.has_password ? '' : 'none';
+                })
+                .catch(function(){ if (statusEl) statusEl.textContent = '-'; });
+        };
+        window.saveBillingPassword = function() {
+            var input = document.getElementById('bp-input');
+            var pw = input ? input.value : '';
+            if (!pw) { alert(i18n.bpEmpty || 'Enter a password.'); return; }
+            fetch('/admin/api/am/billing-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ group_id: currentGroupId, password: pw }) })
+            .then(function(r){ if(!r.ok) throw new Error('err'); return r.json(); })
+            .then(function(){ window.loadBillingPassword(currentGroupId); alert(i18n.bpSaved || 'Saved.'); })
+            .catch(function(e){ alert('Error: ' + e.message); });
+        };
+        window.clearBillingPassword = function() {
+            if (!confirm(i18n.bpConfirmClear || 'Clear the billing password? Billing admins will lose budget access until a new one is set.')) return;
+            fetch('/admin/api/am/billing-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ group_id: currentGroupId, password: '' }) })
+            .then(function(r){ if(!r.ok) throw new Error('err'); return r.json(); })
+            .then(function(){ window.loadBillingPassword(currentGroupId); })
+            .catch(function(e){ alert('Error: ' + e.message); });
         };
 
         window.resetAddButton = function() {
@@ -221,14 +258,15 @@ export const AccountGroupsPage = (props: Props) => {
                 titleWrap.appendChild(title);
 
                 var isAdmin = m.role === 'group_admin';
+                var isBilling = m.role === 'billing_admin';
                 var badge = document.createElement('span');
-                badge.textContent = isAdmin ? (i18n.roleAdmin || 'Group Admin') : (i18n.roleMember || 'Member');
+                badge.textContent = isBilling ? (i18n.roleBilling || 'Billing Admin') : (isAdmin ? (i18n.roleAdmin || 'Group Admin') : (i18n.roleMember || 'Member'));
                 badge.style.fontSize = '0.72rem';
                 badge.style.fontWeight = '700';
                 badge.style.padding = '2px 8px';
                 badge.style.borderRadius = '999px';
-                badge.style.color = isAdmin ? '#9a3412' : '#475569';
-                badge.style.background = isAdmin ? '#ffedd5' : '#f1f5f9';
+                badge.style.color = isBilling ? '#5b21b6' : (isAdmin ? '#9a3412' : '#475569');
+                badge.style.background = isBilling ? '#ede9fe' : (isAdmin ? '#ffedd5' : '#f1f5f9');
                 titleWrap.appendChild(badge);
                 left.appendChild(titleWrap);
 
@@ -717,6 +755,19 @@ export const AccountGroupsPage = (props: Props) => {
                     </div>
                  </div>
 
+                 <div style="margin-bottom: 2rem; padding:1rem; background:#faf5ff; border:1px solid #e9d5ff; border-radius:8px;">
+                    <label class="${formLabel}" style="display:flex; align-items:center; gap:0.4rem;">
+                        <span class="material-symbols-outlined" style="font-size:18px; color:#7c3aed;">key</span>${t.am_billing_pw_label}
+                        <span style="font-weight:700; margin-left:0.25rem;" id="bp-status">-</span>
+                    </label>
+                    <div style="font-size:0.8rem; color:#64748b; margin:0.25rem 0 0.6rem;">${t.am_billing_pw_hint}</div>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <input type="password" id="bp-input" autocomplete="new-password" placeholder="${t.am_billing_pw_placeholder}" style="flex-grow:1; padding:0.5rem 0.75rem; border:1px solid #cbd5e1; border-radius:8px;" />
+                        ${Button({ onclick: "saveBillingPassword()", style: "width:auto; white-space:nowrap; flex-shrink:0;", children: t.save })}
+                        <button type="button" id="bp-clear-btn" onclick="clearBillingPassword()" style="display:none; width:auto; white-space:nowrap; flex-shrink:0; background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:8px; padding:0.5rem 0.85rem; cursor:pointer; font-weight:600;">${t.am_billing_pw_clear}</button>
+                    </div>
+                 </div>
+
                  <div class="${tabContainer}">
                      <button type="button" id="btn-tab-members" class="${tabBtn} active" onclick="switchTab('members')">${t.am_header_members}</button>
                      <button type="button" id="btn-tab-facilities" class="${tabBtn}" onclick="switchTab('facilities')">${t.am_section_facilities || '施設'}</button>
@@ -740,6 +791,7 @@ export const AccountGroupsPage = (props: Props) => {
                              <select id="m-role">
                                 <option value="member">${t.am_role_member}</option>
                                 <option value="group_admin">${t.am_role_group_admin}</option>
+                                <option value="billing_admin">${t.am_role_billing_admin}</option>
                              </select>
                            </div>
                         </div>
@@ -879,7 +931,14 @@ export const AccountGroupsPage = (props: Props) => {
             data-term-forever="${t.btn_term_forever}"
             data-no-members="${t.am_no_members}"
             data-role-admin="${t.am_role_group_admin}"
+            data-role-billing="${t.am_role_billing_admin}"
             data-role-member="${t.am_role_member}"
+            data-move-warn="${t.am_move_group_warn}"
+            data-bp-set="${t.am_billing_pw_set}"
+            data-bp-unset="${t.am_billing_pw_unset}"
+            data-bp-empty="${t.am_billing_pw_empty}"
+            data-bp-saved="${t.am_billing_pw_saved}"
+            data-bp-confirm-clear="${t.am_billing_pw_confirm_clear}"
             data-alert-select-user="${t.am_alert_select_user}"
             data-btn-add="${t.am_add_member}"
             data-btn-change="${t.btn_change}"

@@ -18,7 +18,7 @@ interface GroupMember {
   user_id: string
   email: string
   name: string | null
-  role: 'group_admin' | 'member'
+  role: 'group_admin' | 'billing_admin' | 'member'
   valid_from: number
   valid_to: number
 }
@@ -64,6 +64,10 @@ interface Props {
   // 利用枠(ゲート②)用
   grantsDetailByGroup: Record<string, { id: number; service_id: string; service_name: string; contract_id: string; seat_limit: number | null; valid_from: number; valid_to: number }[]>
   availableContracts: { id: string; service_id: string; customer_group_id: string; seat_limit: number | null; service_name: string; group_name: string | null }[]
+  // 決済権者(billing_admin)か。利用枠タブの表示可否を制御する。
+  isBillingAdmin: boolean
+  // 各グループの直接の子グループ(管理サブツリー内)。子枠の分配先・配分済み一覧に使う。
+  childrenByGroup: Record<string, { id: string; name: string }[]>
   // セルフサービス(アプリ申請 / 自グループのサービス作成)用
   servicesByGroup: Record<string, { id: string; name: string; status: string; apps: { id: string; name: string }[] }[]>
   appsByGroup: Record<string, { id: string; name: string; base_url: string; status: string }[]>
@@ -93,6 +97,8 @@ export const GroupAdminPage = (props: Props) => {
   const rolesByServiceJson = JSON.stringify(props.rolesByService)
   const grantsDetailByGroupJson = JSON.stringify(props.grantsDetailByGroup)
   const availableContractsJson = JSON.stringify(props.availableContracts)
+  const childrenByGroupJson = JSON.stringify(props.childrenByGroup)
+  const isBillingAdmin = props.isBillingAdmin
   const servicesByGroupJson = JSON.stringify(props.servicesByGroup)
   const appsByGroupJson = JSON.stringify(props.appsByGroup)
   const approvedAppsByGroupJson = JSON.stringify(props.approvedAppsByGroup)
@@ -274,6 +280,8 @@ export const GroupAdminPage = (props: Props) => {
       var rolesByService = null;
       var grantsDetailByGroup = null;
       var availableContracts = null;
+      var childrenByGroup = null;
+      var isBillingAdmin = ${isBillingAdmin ? 'true' : 'false'};
       var servicesByGroup = null;
       var appsByGroup = null;
       var approvedAppsByGroup = null;
@@ -302,6 +310,8 @@ export const GroupAdminPage = (props: Props) => {
         var ctd = document.getElementById('ga-contracts-data');
         if (grd) grantsDetailByGroup = JSON.parse(grd.textContent);
         if (ctd) availableContracts = JSON.parse(ctd.textContent);
+        var chd = document.getElementById('ga-children-data');
+        if (chd) childrenByGroup = JSON.parse(chd.textContent);
         var svd = document.getElementById('ga-services-data');
         var apd = document.getElementById('ga-apps-data');
         var aapd = document.getElementById('ga-approved-apps-data');
@@ -367,6 +377,8 @@ export const GroupAdminPage = (props: Props) => {
       };
 
       window.switchTab = function(tab) {
+        // 利用枠タブは決済権者のみ。非表示時に保存タブが 'grants' でもメンバータブへ退避する。
+        if (tab === 'grants' && !isBillingAdmin) tab = 'members';
         currentTab = tab;
         try { localStorage.setItem('ga_current_tab', tab); } catch(e){}
         ['members', 'assignments', 'grants', 'access', 'apps'].forEach(function(t) {
@@ -545,7 +557,11 @@ export const GroupAdminPage = (props: Props) => {
         }
         el.innerHTML = list.map(function(m) {
           var isAdmin = m.role === 'group_admin';
-          var badgeHtml = '<span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + (isAdmin ? '#9a3412' : '#475569') + '; background:' + (isAdmin ? '#ffedd5' : '#f1f5f9') + ';">' + (isAdmin ? (window.i18n.roleAdmin || 'グループ管理者') : (window.i18n.roleMember || 'メンバー')) + '</span>';
+          var isBilling = m.role === 'billing_admin';
+          var badgeColor = isBilling ? '#5b21b6' : (isAdmin ? '#9a3412' : '#475569');
+          var badgeBg = isBilling ? '#ede9fe' : (isAdmin ? '#ffedd5' : '#f1f5f9');
+          var badgeLabel = isBilling ? (window.i18n.roleBilling || '決済権者') : (isAdmin ? (window.i18n.roleAdmin || 'グループ管理者') : (window.i18n.roleMember || 'メンバー'));
+          var badgeHtml = '<span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + badgeColor + '; background:' + badgeBg + ';">' + badgeLabel + '</span>';
           var displayName = m.name || m.email;
           var subEmail = m.name ? ('<div style="font-size:0.8rem; color:#94a3b8;">' + m.email + '</div>') : '';
           return '<tr>'
@@ -555,6 +571,18 @@ export const GroupAdminPage = (props: Props) => {
             + '<td style="text-align:right;"><button type="button" onclick="removeMember(' + m.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">person_remove</span></button></td>'
             + '</tr>';
         }).join('');
+      }
+
+      // 指定グループが「直接の子グループ」へ配分した同一サービスの席数合計。
+      //   実効上限(自グループで使える枠)= 親の枠 - この合計、の計算に使う(createAssignment と一致)。
+      function childDistributedSeats(groupId, serviceId) {
+        var kids = (childrenByGroup && childrenByGroup[groupId]) ? childrenByGroup[groupId] : [];
+        var sum = 0;
+        kids.forEach(function(ch) {
+          var cg = (grantsDetailByGroup && grantsDetailByGroup[ch.id]) ? grantsDetailByGroup[ch.id] : [];
+          cg.forEach(function(g) { if (g.service_id === serviceId && g.seat_limit != null) sum += g.seat_limit; });
+        });
+        return sum;
       }
 
       function renderAssignments() {
@@ -577,10 +605,13 @@ export const GroupAdminPage = (props: Props) => {
                 }
               });
               var usedCount = Object.keys(usedUsers).length;
-              var limitStr = (g.seat_limit == null) ? '無制限' : g.seat_limit;
-              var isFull = (g.seat_limit != null && usedCount >= g.seat_limit);
-              var remainingStr = (g.seat_limit == null) ? '上限なし' : ('残り ' + (g.seat_limit - usedCount) + ' 枠');
-              var barPercent = (g.seat_limit == null || g.seat_limit === 0) ? 0 : Math.min(100, Math.round((usedCount / g.seat_limit) * 100));
+              // 実効上限 = 自グループの枠 - 子グループへ配分した同一サービスの枠。
+              var childSeats = childDistributedSeats(currentGroupId, g.service_id);
+              var effLimit = (g.seat_limit == null) ? null : Math.max(0, g.seat_limit - childSeats);
+              var limitStr = (effLimit == null) ? '無制限' : effLimit;
+              var isFull = (effLimit != null && usedCount >= effLimit);
+              var remainingStr = (effLimit == null) ? '上限なし' : ('残り ' + (effLimit - usedCount) + ' 枠');
+              var barPercent = (effLimit == null || effLimit === 0) ? 0 : Math.min(100, Math.round((usedCount / effLimit) * 100));
               var barColor = isFull ? '#ef4444' : '#10b981';
               htmlStr += '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
                 + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.5rem; display:flex; justify-content:space-between;">'
@@ -786,45 +817,90 @@ export const GroupAdminPage = (props: Props) => {
           .catch(function(e){ console.error('Error: ' + e.message); });
       };
 
-      // ===== ゲート② 利用枠の開放/取消(委任) =====
+      // ===== ゲート② 利用枠の開放/取消 + 子枠の分配(決済権者のみ) =====
       function renderGrants() {
-        var summaryEl = document.getElementById('grants-summary');
+        var i18n = window.i18n;
         var list = grantsDetailByGroup && currentGroupId ? (grantsDetailByGroup[currentGroupId] || []) : [];
+        var kids = (childrenByGroup && currentGroupId && childrenByGroup[currentGroupId]) ? childrenByGroup[currentGroupId] : [];
+
+        // ---- サマリー: 各親枠について [総枠] [子へ配分] [自グループで利用可能] ----
+        var summaryEl = document.getElementById('grants-summary');
         if (summaryEl) {
-          var avail = availableContracts || [];
-          var openedContractIds = {};
-          list.forEach(function(g) { if(g.contract_id) openedContractIds[g.contract_id] = true; });
-          var totalCount = avail.length;
-          var openedCount = 0;
-          avail.forEach(function(c) { if (openedContractIds[c.id]) openedCount++; });
-          var unopenedCount = totalCount - openedCount;
-          summaryEl.innerHTML = '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:200px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
-            + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.25rem;">配備済みの契約数</div>'
-            + '<div style="font-size:1.5rem; font-weight:800; color:#0f172a;">' + totalCount + ' <span style="font-size:0.9rem; font-weight:500; color:#64748b;">件</span></div>'
-            + '</div>'
-            + '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:200px; box-shadow:0 1px 2px rgba(0,0,0,0.05); border-left:4px solid #10b981;">'
-            + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.25rem;">開放済み（利用可能）</div>'
-            + '<div style="font-size:1.5rem; font-weight:800; color:#10b981;">' + openedCount + ' <span style="font-size:0.9rem; font-weight:500; color:#64748b;">件</span></div>'
-            + '</div>'
-            + '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:200px; box-shadow:0 1px 2px rgba(0,0,0,0.05); ' + (unopenedCount > 0 ? 'border-left:4px solid #f59e0b;' : '') + '">'
-            + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.25rem;">未開放（アクション待ち）</div>'
-            + '<div style="font-size:1.5rem; font-weight:800; color:' + (unopenedCount > 0 ? '#f59e0b' : '#0f172a') + ';">' + unopenedCount + ' <span style="font-size:0.9rem; font-weight:500; color:#64748b;">件</span></div>'
-            + '</div>';
+          if (list.length === 0) {
+            summaryEl.innerHTML = '';
+            summaryEl.style.display = 'none';
+          } else {
+            summaryEl.style.display = 'flex';
+            summaryEl.innerHTML = list.map(function(g) {
+              var childSeats = childDistributedSeats(currentGroupId, g.service_id);
+              var unlimited = (g.seat_limit == null);
+              var totalStr = unlimited ? (i18n.grantUnlimited || '無制限') : g.seat_limit;
+              var availNum = unlimited ? null : Math.max(0, g.seat_limit - childSeats);
+              var availStr = unlimited ? (i18n.grantUnlimited || '無制限') : availNum;
+              var over = (!unlimited && childSeats > g.seat_limit);
+              return '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:260px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
+                + '<div style="font-size:0.9rem; font-weight:700; color:#0f172a; margin-bottom:0.65rem;">' + g.service_name + '</div>'
+                + '<div style="display:flex; gap:0.75rem;">'
+                +   '<div style="flex:1;"><div style="font-size:0.7rem; color:#64748b; margin-bottom:0.15rem;">' + (i18n.grantTotal || '総枠') + '</div><div style="font-size:1.15rem; font-weight:800; color:#0f172a;">' + totalStr + '</div></div>'
+                +   '<div style="flex:1;"><div style="font-size:0.7rem; color:#64748b; margin-bottom:0.15rem;">' + (i18n.grantDistributed || '子へ配分') + '</div><div style="font-size:1.15rem; font-weight:800; color:#7c3aed;">' + childSeats + '</div></div>'
+                +   '<div style="flex:1;"><div style="font-size:0.7rem; color:#64748b; margin-bottom:0.15rem;">' + (i18n.grantAvailable || '利用可能') + '</div><div style="font-size:1.15rem; font-weight:800; color:' + (over ? '#ef4444' : '#10b981') + ';">' + availStr + '</div></div>'
+                + '</div>'
+                + '</div>';
+            }).join('');
+          }
         }
 
+        // ---- 親から受け取った自グループの枠(親枠)一覧 ----
         var el = document.getElementById('grants-table-body');
-        if (!el) return;
-        if (list.length === 0) {
-          el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noGrants || '利用枠がありません') + '</td></tr>';
+        if (el) {
+          if (list.length === 0) {
+            el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (i18n.noGrants || '利用枠がありません') + '</td></tr>';
+          } else {
+            el.innerHTML = list.map(function(g) {
+              var childSeats = childDistributedSeats(currentGroupId, g.service_id);
+              var seat;
+              if (g.seat_limit == null) {
+                seat = (i18n.seatUnlimited || '無制限');
+              } else {
+                seat = g.seat_limit + ' <span style="color:#94a3b8; font-size:0.78rem;">(' + (i18n.grantDistributed || '子へ配分') + ' ' + childSeats + ' / ' + (i18n.grantAvailable || '利用可能') + ' ' + Math.max(0, g.seat_limit - childSeats) + ')</span>';
+              }
+              return '<tr>'
+                + '<td><strong>' + g.service_name + '</strong></td>'
+                + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
+                + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(g.valid_from) + ' ～ ' + fmt(g.valid_to) + '</td>'
+                + '<td style="text-align:right;"><button type="button" onclick="removeGrant(' + g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
+                + '</tr>';
+            }).join('');
+          }
+        }
+
+        // ---- 子グループへ配分済みの枠 ----
+        renderChildGrants(kids);
+      }
+
+      // 直接の子グループへ配分した枠の一覧(グループ / サービス / 席数)。
+      function renderChildGrants(kids) {
+        var i18n = window.i18n;
+        var sec = document.getElementById('child-grants-section');
+        var body = document.getElementById('child-grants-table-body');
+        if (!body) return;
+        var rows = [];
+        (kids || []).forEach(function(ch) {
+          var cg = (grantsDetailByGroup && grantsDetailByGroup[ch.id]) ? grantsDetailByGroup[ch.id] : [];
+          cg.forEach(function(g) { rows.push({ child: ch, g: g }); });
+        });
+        if (sec) sec.style.display = (kids && kids.length > 0) ? '' : 'none';
+        if (rows.length === 0) {
+          body.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (i18n.noChildGrants || '子グループへ配分された枠はありません。') + '</td></tr>';
           return;
         }
-        el.innerHTML = list.map(function(g) {
-          var seat = (g.seat_limit == null) ? (window.i18n.seatUnlimited || '無制限') : g.seat_limit;
+        body.innerHTML = rows.map(function(r) {
+          var seat = (r.g.seat_limit == null) ? (i18n.seatUnlimited || '無制限') : r.g.seat_limit;
           return '<tr>'
-            + '<td><strong>' + g.service_name + '</strong></td>'
+            + '<td><span class="material-symbols-outlined" style="font-size:16px; color:#94a3b8; vertical-align:middle; margin-right:0.3rem;">subdirectory_arrow_right</span>' + r.child.name + '</td>'
+            + '<td style="font-size:0.88rem;">' + r.g.service_name + '</td>'
             + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
-            + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(g.valid_from) + ' ～ ' + fmt(g.valid_to) + '</td>'
-            + '<td style="text-align:right;"><button type="button" onclick="removeGrant(' + g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
+            + '<td style="text-align:right;"><button type="button" onclick="removeGrant(' + r.g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\\'#fef2f2\\';this.style.color=\\'#ef4444\\';" onmouseout="this.style.background=\\'transparent\\';this.style.color=\\'#94a3b8\\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
             + '</tr>';
         }).join('');
       }
@@ -832,30 +908,161 @@ export const GroupAdminPage = (props: Props) => {
       window.openGrantModal = function() {
         if (!currentGroupId) return;
         var m = document.getElementById('add-grant-modal');
-        var contracts = availableContracts || [];
-        fillSelect(document.getElementById('g-contract'), contracts.map(function(ct){ return { id: ct.id, label: ct.service_name + (ct.group_name ? ' / ' + ct.group_name : '') + (ct.seat_limit != null ? ' (' + ct.seat_limit + ')' : '') }; }), 'id', 'label', window.i18n.selectContract || '契約を選択');
+        // 対象グループ = 自グループ + 直接の子グループ。
+        var kids = (childrenByGroup && childrenByGroup[currentGroupId]) ? childrenByGroup[currentGroupId] : [];
+        var targetOpts = [{ id: currentGroupId, label: (window.i18n.grantSelf || '自グループ') }];
+        kids.forEach(function(ch){ targetOpts.push({ id: ch.id, label: ch.name }); });
+        var tgtEl = document.getElementById('g-target');
+        fillSelect(tgtEl, targetOpts, 'id', 'label', '');
+        if (tgtEl) tgtEl.value = currentGroupId;
         var seatEl = document.getElementById('g-seat'); if (seatEl) seatEl.value = '';
         var vf = document.getElementById('g-valid-from'); if (vf) vf.value = new Date().toISOString().split('T')[0];
         var vt = document.getElementById('g-valid-to'); if (vt) vt.value = '';
-        var warn = document.getElementById('g-no-contract'); if (warn) warn.style.display = contracts.length === 0 ? '' : 'none';
+        var errEl = document.getElementById('g-error'); if (errEl) errEl.style.display = 'none';
+        onGrantTargetChange();
         if (m) m.showModal();
       };
 
+      // 対象グループの切替で「契約/サービス」選択肢と席数フィールドの要否を切り替える。
+      window.onGrantTargetChange = function() {
+        var tgt = (document.getElementById('g-target') || {}).value || currentGroupId;
+        var isSelf = (tgt === currentGroupId);
+        var contractEl = document.getElementById('g-contract');
+        var warn = document.getElementById('g-no-contract');
+        if (isSelf) {
+          // 自グループ: システム管理者から配布可能な契約を開放(ルート枠)。
+          var contracts = availableContracts || [];
+          fillSelect(contractEl, contracts.map(function(ct){ return { id: ct.id, label: ct.service_name + (ct.group_name ? ' / ' + ct.group_name : '') + (ct.seat_limit != null ? ' (' + ct.seat_limit + ')' : '') }; }), 'id', 'label', window.i18n.selectContract || '契約を選択');
+          if (warn) warn.style.display = contracts.length === 0 ? '' : 'none';
+        } else {
+          // 子グループ: 親(自グループ)が保有する枠をサービス単位で分割。契約は親の枠を継承(value=契約ID)。
+          var parentGrants = (grantsDetailByGroup && grantsDetailByGroup[currentGroupId]) ? grantsDetailByGroup[currentGroupId] : [];
+          fillSelect(contractEl, parentGrants.map(function(g){
+            var childSeats = childDistributedSeats(currentGroupId, g.service_id);
+            var remain = (g.seat_limit == null) ? (window.i18n.grantUnlimited || '無制限') : Math.max(0, g.seat_limit - childSeats);
+            return { id: g.contract_id, label: g.service_name + ' (' + (window.i18n.grantAvailable || '利用可能') + ' ' + remain + ')' };
+          }), 'id', 'label', window.i18n.selectService || 'サービスを選択');
+          if (warn) warn.style.display = parentGrants.length === 0 ? '' : 'none';
+        }
+        // 席数フィールド: 子グループへ配るときのみ表示&必須。
+        var seatWrap = document.getElementById('g-seat-wrap');
+        if (seatWrap) seatWrap.style.display = isSelf ? 'none' : '';
+        var seatInput = document.getElementById('g-seat');
+        if (seatInput) { seatInput.required = !isSelf; if (isSelf) seatInput.value = ''; }
+      };
+
+      function showGrantError(msg) {
+        var errEl = document.getElementById('g-error');
+        if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
+        else console.error(msg);
+      }
+
       window.addGrant = function() {
+        var target = (document.getElementById('g-target') || {}).value || currentGroupId;
+        var isSelf = (target === currentGroupId);
         var contractId = (document.getElementById('g-contract') || {}).value;
-        var seatVal = (document.getElementById('g-seat') || {}).value;
+        var seatVal = isSelf ? '' : (((document.getElementById('g-seat') || {}).value || '') + '').trim();
         var sv = document.getElementById('g-valid-from').value;
         var ev = document.getElementById('g-valid-to').value;
-        if (!contractId) { console.error(window.i18n.selectContract || '契約を選択してください'); return; }
+        if (!contractId) { showGrantError(window.i18n.selectContract || '契約を選択してください'); return; }
+        if (!isSelf && seatVal === '') { showGrantError(window.i18n.errSeatRequired || '上限枠数を入力してください'); return; }
         var validFrom = sv ? Math.floor(new Date(sv).getTime()/1000) : Math.floor(Date.now()/1000);
         var validTo = ev ? Math.floor(new Date(ev).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
         fetch('/group-admin/api/grant/add', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: currentGroupId, contract_id: contractId, seat_limit: seatVal, valid_from: validFrom, valid_to: validTo })
+          body: JSON.stringify({ group_id: target, contract_id: contractId, seat_limit: seatVal, valid_from: validFrom, valid_to: validTo, context_group_id: currentGroupId })
         })
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })
-        .catch(function(e){ console.error('Error: ' + e.message); });
+        .catch(function(e){
+          if (e.message === 'needs_elevation') { showBillingElevation('addGrant'); return; }
+          if (e.message === 'over_budget') showGrantError(window.i18n.errOverBudget || '親の残り枠を超えています');
+          else if (e.message === 'seat_required') showGrantError(window.i18n.errSeatRequired || '上限枠数を入力してください');
+          else showGrantError('Error: ' + e.message);
+        });
+      };
+
+      var pendingBillingAction = null;
+      window.showBillingElevation = function(action) {
+        pendingBillingAction = action;
+        var p = document.getElementById('billing-elevate-pwd');
+        if (p) p.value = '';
+        var err = document.getElementById('billing-elevate-err');
+        if (err) err.style.display = 'none';
+        var m = document.getElementById('billing-elevation-modal');
+        if (m) m.showModal();
+      };
+      window.executeBillingElevation = function() {
+        var pwd = document.getElementById('billing-elevate-pwd').value;
+        var err = document.getElementById('billing-elevate-err');
+        fetch('/group-admin/api/billing/elevate', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, password: pwd })
+        })
+        .then(function(r){ if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error||'Error'); }); return r.json(); })
+        .then(function(res){
+           document.getElementById('billing-elevation-modal').close();
+           if (pendingBillingAction === 'addGrant') window.addGrant();
+           else if (pendingBillingAction === 'executeRemoveGrant') window.executeRemoveGrant();
+           pendingBillingAction = null;
+        })
+        .catch(function(e){
+           if (err) {
+             err.style.display = '';
+             if (e.message === 'bad_password') err.textContent = 'パスワードが間違っています。';
+             else if (e.message === 'no_password') err.textContent = '決裁権者パスワードが未設定です。システム管理者に依頼してください。';
+             else err.textContent = 'エラーが発生しました: ' + e.message;
+           }
+        });
+      };
+
+      // 決裁権者パスワードのローテーション(本人が現パスワードで変更)。
+      window.openBillingRotate = function() {
+        if (!currentGroupId) return;
+        var cur = document.getElementById('billing-rotate-cur'); if (cur) cur.value = '';
+        var nw = document.getElementById('billing-rotate-new'); if (nw) nw.value = '';
+        var err = document.getElementById('billing-rotate-err'); if (err) err.style.display = 'none';
+        var m = document.getElementById('billing-rotate-modal');
+        if (m) m.showModal();
+      };
+      window.executeBillingRotate = function() {
+        var cur = (document.getElementById('billing-rotate-cur') || {}).value || '';
+        var nw = (document.getElementById('billing-rotate-new') || {}).value || '';
+        var err = document.getElementById('billing-rotate-err');
+        if (!nw) { if (err) { err.style.display=''; err.textContent = window.i18n.billingNewRequired || '新しいパスワードを入力してください。'; } return; }
+        fetch('/group-admin/api/billing/rotate', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, current_password: cur, new_password: nw })
+        })
+        .then(function(r){ if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error||'Error'); }); return r.json(); })
+        .then(function(){ var m = document.getElementById('billing-rotate-modal'); if (m) m.close(); })
+        .catch(function(e){
+          if (!err) return;
+          err.style.display = '';
+          if (e.message === 'bad_password') err.textContent = window.i18n.billingBadPassword || '現在のパスワードが違います。';
+          else if (e.message === 'no_password') err.textContent = window.i18n.billingNoPassword || '決裁権者パスワードが未設定です。システム管理者に初期設定を依頼してください。';
+          else err.textContent = 'Error: ' + e.message;
+        });
+      };
+      // パスワードを解除してノーゲートに戻す(現パスワードが必要)。new_password を空で送る。
+      window.executeBillingClear = function() {
+        var cur = (document.getElementById('billing-rotate-cur') || {}).value || '';
+        var err = document.getElementById('billing-rotate-err');
+        if (!cur) { if (err) { err.style.display=''; err.textContent = window.i18n.billingCurRequired || '現在のパスワードを入力してください。'; } return; }
+        if (!confirm(window.i18n.billingClearConfirm || 'パスワードを解除して、このグループの予算操作をパスワード無し（ノーゲート）に戻しますか？')) return;
+        fetch('/group-admin/api/billing/rotate', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ group_id: currentGroupId, current_password: cur, new_password: '' })
+        })
+        .then(function(r){ if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error||'Error'); }); return r.json(); })
+        .then(function(){ var m = document.getElementById('billing-rotate-modal'); if (m) m.close(); })
+        .catch(function(e){
+          if (!err) return;
+          err.style.display = '';
+          if (e.message === 'bad_password') err.textContent = window.i18n.billingBadPassword || '現在のパスワードが違います。';
+          else if (e.message === 'no_password') err.textContent = window.i18n.billingNoPassword || '決裁権者パスワードが未設定です。システム管理者に初期設定を依頼してください。';
+          else err.textContent = 'Error: ' + e.message;
+        });
       };
 
       var removeGrantTargetId = null;
@@ -871,16 +1078,23 @@ export const GroupAdminPage = (props: Props) => {
       };
       window.executeRemoveGrant = function() {
         if (!removeGrantTargetId) return;
-        fetch('/group-admin/api/grant/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: removeGrantTargetId }) })
-          .then(function(r){ if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+        fetch('/group-admin/api/grant/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: removeGrantTargetId, context_group_id: currentGroupId }) })
+          .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
           .then(function(){
-            if (grantsDetailByGroup && currentGroupId) {
-              grantsDetailByGroup[currentGroupId] = (grantsDetailByGroup[currentGroupId] || []).filter(function(g){ return g.id !== removeGrantTargetId; });
+            // 親枠・子枠どちらの取消でも整合するよう、全グループのローカルデータから除去する。
+            if (grantsDetailByGroup) {
+              Object.keys(grantsDetailByGroup).forEach(function(gid){
+                grantsDetailByGroup[gid] = (grantsDetailByGroup[gid] || []).filter(function(g){ return g.id !== removeGrantTargetId; });
+              });
             }
             window.closeRemoveGrantModal();
             renderGrants();
+            renderAssignments();
           })
-          .catch(function(e){ console.error('Error: ' + e.message); });
+          .catch(function(e){
+            if (e.message === 'needs_elevation') { window.closeRemoveGrantModal(); showBillingElevation('executeRemoveGrant'); return; }
+            console.error('Error: ' + e.message);
+          });
       };
 
       function statusBadge(st) {
@@ -1122,9 +1336,11 @@ export const GroupAdminPage = (props: Props) => {
         <button id="tab-btn-assignments" onclick="switchTab('assignments')">
           <span class="material-symbols-outlined">assignment_ind</span>${t.ga_tab_assignments}
         </button>
+        ${isBillingAdmin ? html`
         <button id="tab-btn-grants" onclick="switchTab('grants')">
           <span class="material-symbols-outlined">card_membership</span>${t.ga_tab_grants}
         </button>
+        ` : ''}
         <button id="tab-btn-access" onclick="switchTab('access')">
           <span class="material-symbols-outlined">lock_open</span>${t.ga_tab_access}
         </button>
@@ -1187,12 +1403,16 @@ export const GroupAdminPage = (props: Props) => {
         </div>
       </div>
 
-      <!-- 利用枠タブ(ゲート②) -->
+      <!-- 利用枠タブ(ゲート②) — 決済権者のみ -->
+      ${isBillingAdmin ? html`
       <div id="tab-grants" style="display:none;">
         <div class="${infoBox}">
           <span class="material-symbols-outlined">info</span>${t.ga_desc_grants}
         </div>
-        <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:1rem;">
+          <button type="button" onclick="openBillingRotate()" style="width:auto; background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:8px; padding:0.5rem 0.85rem; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:0.4rem;">
+            <span class="material-symbols-outlined" style="font-size:18px;">key</span>${t.ga_billing_rotate}
+          </button>
           ${Button({ onclick: "openGrantModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
         </div>
         <div id="grants-summary" style="margin-bottom:1rem; display:flex; gap:1rem; flex-wrap:wrap;"></div>
@@ -1213,7 +1433,32 @@ export const GroupAdminPage = (props: Props) => {
             </table>
           </div>
         </div>
+
+        <!-- 子グループへ配分済みの枠 -->
+        <div id="child-grants-section" style="display:none; margin-top:1.5rem;">
+          <div class="${sectionTitle}" style="margin-bottom:0.75rem;">
+            <span class="material-symbols-outlined">account_tree</span>${t.ga_child_grants_title}
+          </div>
+          <div class="${card}">
+            <div class="${tableWrap}">
+              <table>
+                <thead>
+                  <tr>
+                    <th>${t.ga_grant_group}</th>
+                    <th>${t.ga_grant_service}</th>
+                    <th>${t.ga_grant_seat}</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="child-grants-table-body">
+                  <tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
+      ` : ''}
 
       <!-- アクセス権タブ -->
       <div id="tab-access" style="display:none;">
@@ -1420,6 +1665,7 @@ export const GroupAdminPage = (props: Props) => {
               <select id="m-role" class="${selectInput}">
                 <option value="member">${t.am_role_member}</option>
                 <option value="group_admin">${t.am_role_group_admin}</option>
+                <option value="billing_admin">${t.am_role_billing_admin}</option>
               </select>
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
@@ -1449,6 +1695,57 @@ export const GroupAdminPage = (props: Props) => {
           <div style="display:flex; justify-content:flex-end; gap:1rem;">
             <button type="button" onclick="closeRemoveModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
             <button type="button" onclick="executeRemove()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">person_remove</span>${t.am_btn_remove}</button>
+          </div>
+        `
+      })}
+
+      <!-- 決裁権者 昇格モーダル -->
+      ${Modal({
+        id: 'billing-elevation-modal',
+        title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined" style="color:#f59e0b;">admin_panel_settings</span>予算操作の承認</span>`,
+        closeAction: "this.closest('.custom-modal').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <div class="${infoBox}">
+              <span class="material-symbols-outlined">info</span>
+              利用枠（予算）の操作を実行するため、決裁権者パスワードを入力してください。
+            </div>
+            <div>
+              <label class="${formLabel}">決裁権者パスワード</label>
+              <input type="password" id="billing-elevate-pwd" class="${dateInput}" />
+            </div>
+            <div id="billing-elevate-err" style="display:none; color:#ef4444; font-size:0.85rem; font-weight:600;"></div>
+            <div style="margin-top:0.5rem;">
+              ${Button({ onclick: "executeBillingElevation()", children: html`<span class="material-symbols-outlined">lock_open</span> 認証して実行` })}
+            </div>
+          </div>
+        `
+      })}
+
+      <!-- 決裁権者パスワードのローテーション モーダル -->
+      ${Modal({
+        id: 'billing-rotate-modal',
+        title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined" style="color:#7c3aed;">key</span>${t.ga_billing_rotate}</span>`,
+        closeAction: "this.closest('.custom-modal').close()",
+        children: html`
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <div class="${infoBox}">
+              <span class="material-symbols-outlined">info</span>${t.ga_billing_rotate_hint}
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_billing_current_pw}</label>
+              <input type="password" id="billing-rotate-cur" class="${dateInput}" autocomplete="current-password" />
+            </div>
+            <div>
+              <label class="${formLabel}">${t.ga_billing_new_pw}</label>
+              <input type="password" id="billing-rotate-new" class="${dateInput}" autocomplete="new-password" />
+            </div>
+            <div id="billing-rotate-err" style="display:none; color:#ef4444; font-size:0.85rem; font-weight:600;"></div>
+            <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.5rem;">
+              ${Button({ onclick: "executeBillingRotate()", style: "width:auto;", children: html`<span class="material-symbols-outlined">key</span> ${t.ga_billing_rotate}` })}
+              <button type="button" onclick="executeBillingClear()" style="width:auto; background:transparent; border:1px solid #fecaca; color:#b91c1c; border-radius:8px; padding:0.5rem 0.85rem; cursor:pointer; font-weight:600;">${t.ga_billing_clear}</button>
+            </div>
+            <div style="font-size:0.78rem; color:#94a3b8;">${t.ga_billing_clear_hint}</div>
           </div>
         `
       })}
@@ -1521,11 +1818,19 @@ export const GroupAdminPage = (props: Props) => {
               <span class="material-symbols-outlined">info</span>${t.ga_no_contracts}
             </div>
             <div>
+              <label class="${formLabel}">${t.ga_grant_target}</label>
+              <select id="g-target" class="${selectInput}" onchange="onGrantTargetChange()"></select>
+            </div>
+            <div>
               <label class="${formLabel}">${t.ga_grant_contract}</label>
               <select id="g-contract" class="${selectInput}"></select>
             </div>
-            <!-- 席数上限は裏側で常に空欄(無制限)として送信する -->
-            <input type="hidden" id="g-seat" value="" />
+            <!-- 席数上限: 自グループ(ルート枠)は無制限。子グループへ配分する場合のみ表示&必須。 -->
+            <div id="g-seat-wrap" style="display:none;">
+              <label class="${formLabel}">${t.ga_grant_seat}</label>
+              <input type="number" id="g-seat" class="${dateInput}" min="0" step="1" value="" />
+              <div style="font-size:0.78rem; color:#94a3b8; margin-top:0.35rem;">${t.ga_grant_seat_hint}</div>
+            </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
               <div>
                 <label class="${formLabel}">${t.label_valid_from}</label>
@@ -1536,6 +1841,7 @@ export const GroupAdminPage = (props: Props) => {
                 <input type="date" id="g-valid-to" class="${dateInput}" />
               </div>
             </div>
+            <div id="g-error" style="display:none; color:#b91c1c; background:#fef2f2; border-radius:8px; padding:0.65rem 0.85rem; font-size:0.85rem;"></div>
             <div style="margin-top:0.5rem;">
               ${Button({ onclick: "addGrant()", children: html`<span class="material-symbols-outlined">add_card</span> ${t.ga_open_grant}` })}
             </div>
@@ -1604,6 +1910,7 @@ export const GroupAdminPage = (props: Props) => {
       <script type="application/json" id="ga-roles-data">${raw(rolesByServiceJson)}</script>
       <script type="application/json" id="ga-grants-detail-data">${raw(grantsDetailByGroupJson)}</script>
       <script type="application/json" id="ga-contracts-data">${raw(availableContractsJson)}</script>
+      <script type="application/json" id="ga-children-data">${raw(childrenByGroupJson)}</script>
       <script type="application/json" id="ga-services-data">${raw(servicesByGroupJson)}</script>
       <script type="application/json" id="ga-apps-data">${raw(appsByGroupJson)}</script>
       <script type="application/json" id="ga-approved-apps-data">${raw(approvedAppsByGroupJson)}</script>
@@ -1612,6 +1919,7 @@ export const GroupAdminPage = (props: Props) => {
         window.i18n = {
           noMembers: '${t.am_no_members}',
           roleAdmin: '${t.am_role_group_admin}',
+          roleBilling: '${t.am_role_billing_admin}',
           roleMember: '${t.am_role_member}',
           noAssignments: '${t.ga_no_assignments}',
           noAccess: '${t.ga_no_access}',
@@ -1627,6 +1935,19 @@ export const GroupAdminPage = (props: Props) => {
           noGrants: '${t.ga_no_grants}',
           selectContract: '${t.ga_select_contract}',
           seatUnlimited: '${t.am_seat_unlimited}',
+          grantSelf: '${t.ga_grant_self}',
+          grantUnlimited: '${t.ga_grant_unlimited}',
+          grantTotal: '${t.ga_grant_total}',
+          grantDistributed: '${t.ga_grant_distributed}',
+          grantAvailable: '${t.ga_grant_available}',
+          noChildGrants: '${t.ga_no_child_grants}',
+          errOverBudget: '${t.ga_err_over_budget}',
+          errSeatRequired: '${t.ga_err_seat_required}',
+          billingNewRequired: '${t.ga_billing_new_required}',
+          billingBadPassword: '${t.ga_billing_bad_password}',
+          billingNoPassword: '${t.ga_billing_no_password}',
+          billingCurRequired: '${t.ga_billing_cur_required}',
+          billingClearConfirm: '${t.ga_billing_clear_confirm}',
           svcNone: '${t.ga_svc_none}',
           svcName: '${t.ga_svc_name}',
           svcConfirmRemove: '${t.ga_svc_confirm_remove}',
