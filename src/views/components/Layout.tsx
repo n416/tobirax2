@@ -38,7 +38,29 @@ export const Layout = (props: LayoutProps) => {
           --success-border: #bbf7d0;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      /* モダンブラウザ標準のスクロールバーカスタマイズ */
+      html { 
+          scrollbar-width: thin; 
+          scrollbar-color: rgba(100, 116, 139, 0.4) transparent; 
+          overflow-x: hidden;
+      }
+      ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+          background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+          background: rgba(100, 116, 139, 0.4);
+          border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+          background: rgba(100, 116, 139, 0.6);
+      }
       body {
+          width: 100vw;
+          overflow-x: hidden;
           font-family: 'Inter', 'Noto Sans JP', sans-serif;
           min-height: 100vh;
           display: flex;
@@ -48,7 +70,11 @@ export const Layout = (props: LayoutProps) => {
           background-size: 200% 200%;
           animation: gradient-animation 15s ease infinite;
           color: var(--text-main);
-          padding: ${alignTop ? '2.5rem 1rem' : '1rem'};
+          padding-top: ${alignTop ? '2.5rem' : '1rem'};
+          padding-bottom: ${alignTop ? '2.5rem' : '1rem'};
+          padding-left: 1rem;
+          /* スクロールバー幅(8px)が重なる分をあらかじめ右側の余白として確保 */
+          padding-right: 1.5rem;
       }
       @keyframes gradient-animation {
           0% { background-position: 0% 50%; }
@@ -61,6 +87,15 @@ export const Layout = (props: LayoutProps) => {
           font-size: 20px;
           vertical-align: text-bottom;
           line-height: 1;
+          /* paddingが追加されてもアイコンの描画領域(width:1.25em)が潰されないようにする */
+          box-sizing: content-box;
+          /* アイコンの欠けを防ぎつつ、読み込み前の文字によるレイアウト崩れを防ぐ */
+          display: inline-block;
+          width: 1.25em;
+          text-align: center;
+          white-space: nowrap;
+          word-wrap: normal;
+          direction: ltr;
       }
     </style>
   `
@@ -112,6 +147,7 @@ export const Layout = (props: LayoutProps) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="view-transition" content="same-origin" />
       <title>${props.title} - ${siteName}</title>
       <link rel="icon" href="data:,">
       <link rel="preconnect" href="https://fonts.googleapis.com">

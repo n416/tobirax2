@@ -156,7 +156,6 @@ export const GroupAdminPage = (props: Props) => {
       & .material-symbols-outlined { font-size: 19px; }
     }
     & button:hover { background: rgba(255,255,255,0.7) !important; color: var(--primary); }
-    & button.active { background: #fff !important; color: var(--primary); box-shadow: 0 2px 6px -2px rgba(0,0,0,0.1) !important; }
     input:not([type="checkbox"]):not([type="radio"]):not([role="combobox"]), select:not(.tomselected) { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; background: #fff; transition: all 0.2s; outline: none; }
     input:not([type="checkbox"]):not([type="radio"]):not([role="combobox"]):focus, select:not(.tomselected):focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
   `
@@ -275,7 +274,31 @@ export const GroupAdminPage = (props: Props) => {
     &:hover { background: #fef2f2 !important; color: #ef4444 !important; }
   `
 
+  const tabStyles = raw(`
+    .tab-content { display: none; }
+    html[data-active-tab="members"] #tab-members,
+    html[data-active-tab="assignments"] #tab-assignments,
+    html[data-active-tab="grants"] #tab-grants,
+    html[data-active-tab="access"] #tab-access,
+    html[data-active-tab="apps"] #tab-apps { display: block; }
+    html[data-active-tab="members"] #tab-btn-members,
+    html[data-active-tab="assignments"] #tab-btn-assignments,
+    html[data-active-tab="grants"] #tab-btn-grants,
+    html[data-active-tab="access"] #tab-btn-access,
+    html[data-active-tab="apps"] #tab-btn-apps {
+      background: #fff !important; color: var(--primary) !important; box-shadow: 0 2px 6px -2px rgba(0,0,0,0.1) !important;
+    }
+  `);
+
   const scriptContent = raw(`
+    (function() {
+      var tab = 'members';
+      try {
+        var savedTab = localStorage.getItem('ga_current_tab');
+        if (savedTab) tab = savedTab;
+      } catch(e){}
+      document.documentElement.setAttribute('data-active-tab', tab);
+    })();
     (function() {
       var membersByGroup = null;
       var assignsByGroup = null;
@@ -407,18 +430,7 @@ export const GroupAdminPage = (props: Props) => {
         if (tab === 'grants' && !isBillingAdmin) tab = 'members';
         currentTab = tab;
         try { localStorage.setItem('ga_current_tab', tab); } catch(e){}
-        ['members', 'assignments', 'grants', 'access', 'apps'].forEach(function(t) {
-          var btn = document.getElementById('tab-btn-' + t);
-          var pane = document.getElementById('tab-' + t);
-          if (btn) {
-            if (t === tab) {
-              btn.classList.add('active');
-            } else {
-              btn.classList.remove('active');
-            }
-          }
-          if (pane) pane.style.display = t === tab ? '' : 'none';
-        });
+        document.documentElement.setAttribute('data-active-tab', tab);
       };
 
       function renderAll() {
@@ -1333,7 +1345,9 @@ export const GroupAdminPage = (props: Props) => {
         });
       };
 
+
     })();
+
   `)
 
   if (groups.length === 0) {
@@ -1396,7 +1410,7 @@ export const GroupAdminPage = (props: Props) => {
       `}
 
       <div class="${tabBar}">
-        <button id="tab-btn-members" class="active" onclick="switchTab('members')">
+        <button id="tab-btn-members" onclick="switchTab('members')">
           <span class="material-symbols-outlined">group</span>${t.ga_tab_members}
         </button>
         <button id="tab-btn-assignments" onclick="switchTab('assignments')">
@@ -1416,7 +1430,7 @@ export const GroupAdminPage = (props: Props) => {
       </div>
 
       <!-- メンバータブ -->
-      <div id="tab-members">
+      <div id="tab-members" class="tab-content">
         <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
           ${Button({ onclick: "openAddModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">person_add</span> ${t.am_add_member}` })}
         </div>
@@ -1440,7 +1454,7 @@ export const GroupAdminPage = (props: Props) => {
       </div>
 
       <!-- 割当タブ -->
-      <div id="tab-assignments" style="display:none;">
+      <div id="tab-assignments" class="tab-content">
         <div class="${infoBox}">
           <span class="material-symbols-outlined">info</span>${t.ga_desc_assignments}
         </div>
@@ -1479,7 +1493,7 @@ export const GroupAdminPage = (props: Props) => {
 
       <!-- 利用枠タブ(ゲート②) — 決済権者のみ -->
       ${isBillingAdmin ? html`
-      <div id="tab-grants" style="display:none;">
+      <div id="tab-grants" class="tab-content">
         <div class="${infoBox}">
           <span class="material-symbols-outlined">info</span>${t.ga_desc_grants}
         </div>
@@ -1561,7 +1575,7 @@ export const GroupAdminPage = (props: Props) => {
       ` : ''}
 
       <!-- アクセス権タブ -->
-      <div id="tab-access" style="display:none;">
+      <div id="tab-access" class="tab-content">
         <div class="${infoBox}">
           <span class="material-symbols-outlined">info</span>
           ${t.ga_access_readonly}
@@ -1586,7 +1600,7 @@ export const GroupAdminPage = (props: Props) => {
       </div>
 
       <!-- アプリ／サービス タブ(セルフサービス) -->
-      <div id="tab-apps" style="display:none;">
+      <div id="tab-apps" class="tab-content">
 
         <!-- 開発者申請前の表示 -->
         <div id="dev-not-approved" style="display:none; margin-bottom:1.5rem;">
@@ -2040,6 +2054,9 @@ export const GroupAdminPage = (props: Props) => {
           svcConfirmRemoveApp: '${t.ga_svc_confirm_remove_app}',
         };
       </script>
+      <style>
+      ${tabStyles}
+      </style>
       <script>
       ${scriptContent}
       </script>
