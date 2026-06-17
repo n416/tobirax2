@@ -1,5 +1,7 @@
 import { html, raw } from 'hono/html'
 import { css, keyframes } from 'hono/css'
+import { groupsClientScript } from '../scripts/groupsClient'
+import { blinkActive, listGrid, listCard, itemTitle, actionBtn, deleteBtn, grantFormCard, formLabel, dateInput, quickBtnGroup, pageWrapper } from '../styles/groupsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
 import { Group, App, SystemConfig } from '../../types'
@@ -20,372 +22,27 @@ export const GroupsPage = (props: Props) => {
   const t = props.t
   const allAppsJson = JSON.stringify(props.apps.map(a => ({value: a.id, text: a.name})));
 
-  const scriptContent = raw(`
-    (function() {
-        var i18nEl = document.getElementById('i18n-data');
-        var i18n = i18nEl ? i18nEl.dataset : {};
-        var ALL_APPS = [];
-        try {
-            var appDataEl = document.getElementById('app-data');
-            if(appDataEl) ALL_APPS = JSON.parse(appDataEl.textContent);
-        } catch(e) { console.error(e); }
-        var tsControl = null;
-        var currentGroupId = '';
-        var currentGroupPermissions = [];
-        document.addEventListener('DOMContentLoaded', function() {
-            if (typeof TomSelect !== 'undefined') {
-                tsControl = new TomSelect('#g-perm-app-id', { 
-                    controlInput: '<input type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />',
-                    plugins: ['remove_button'], 
-                    create: false, 
-                    maxItems: null, 
-                    placeholder: i18n.placeholderSelect || 'Select...',
-                    render: {
-                        option: function(data, escape) { return '<div>' + escape(data.text) + '</div>'; },
-                        item: function(data, escape) { return '<div>' + escape(data.text) + '</div>'; },
-                        no_results: function(data, escape) {
-                            return '<div class="no-results">' + (i18n.textNoResults || 'No results found') + '</div>';
-                        }
-                    }
-                });
-            }
-        });
-        var gModal = document.getElementById('group-modal');
-        window.openGroupModal = function(id, name) {
-            currentGroupId = id;
-            var titleEl = document.getElementById('modal-group-name');
-            if(titleEl) titleEl.innerText = name;
-            if(gModal) {
-                gModal.showModal();
-                setTimeout(function() { var closeBtn = document.getElementById('modal-close-btn'); if(closeBtn) closeBtn.focus(); }, 50);
-            }
-            if (tsControl) tsControl.clear();
-            var validFrom = document.getElementById('g-perm-valid-from');
-            if(validFrom) validFrom.value = new Date().toISOString().split('T')[0];
-            var validTo = document.getElementById('g-perm-valid-to');
-            if(validTo) validTo.value = '';
-            window.resetGrantButton();
-            window.loadGroupPerms(id);
-        };
-        window.closeGroupModal = function() { if(gModal) gModal.close(); window.resetGrantButton(); };
-        window.resetGrantButton = function() {
-            var btn = document.getElementById('btn-grant-perm');
-            if(btn) { btn.innerHTML = '<span class="material-symbols-outlined">add</span> <span>' + (i18n.btnGrant || 'Grant') + '</span>'; }
-            var card = document.getElementById('grant-form-card');
-            if(card) { card.classList.remove('blink-active'); }
-            if(tsControl) { tsControl.clear(); tsControl.refreshOptions(); }
-        };
-        window.highlightGrantForm = function() {
-            var btn = document.getElementById('btn-grant-perm');
-            if(btn) { 
-                btn.innerHTML = '<span class="material-symbols-outlined">edit</span> <span>' + (i18n.btnChange || 'Change') + '</span>'; 
-                btn.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
-            }
-            var card = document.getElementById('grant-form-card');
-            if(card) { 
-                card.classList.remove('blink-active'); 
-                void card.offsetWidth;
-                card.classList.add('blink-active'); 
-            }
-        };
-        window.editGroupPerm = function(appId, startTs, endTs) {
-            if (tsControl) { tsControl.setValue([appId]); }
-            var validFrom = document.getElementById('g-perm-valid-from');
-            if(validFrom) validFrom.value = new Date(startTs * 1000).toISOString().split('T')[0];
-            var validTo = document.getElementById('g-perm-valid-to');
-            if(validTo) { 
-                var isForever = endTs > 2000000000; 
-                validTo.value = isForever ? '' : new Date(endTs * 1000).toISOString().split('T')[0]; 
-            }
-            window.highlightGrantForm();
-        };
-        window.loadGroupPerms = function(id) {
-            fetch('/admin/api/group-details/' + id + '?t=' + new Date().getTime())
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    window.renderGroupPerms(data.permissions);
-                    currentGroupPermissions = data.permissions;
-                })
-                .catch(function(e) { console.error(e); });
-        };
-        window.renderGroupPerms = function(list) {
-            var container = document.getElementById('modal-g-perm-list');
-            if(!container) return;
-            container.innerHTML = '';
-            if (!list || list.length === 0) {
-                var empty = document.createElement('div');
-                empty.style.textAlign = 'center';
-                empty.style.padding = '2rem';
-                empty.style.color = '#94a3b8';
-                empty.textContent = '(権限なし)';
-                container.appendChild(empty);
-                return;
-            }
-            list.forEach(function(p) {
-                var item = document.createElement('div');
-                item.style.padding = '0.75rem 0';
-                item.style.borderBottom = '1px solid #f1f5f9';
-                
-                var row = document.createElement('div');
-                row.style.display = 'flex';
-                row.style.justifyContent = 'space-between';
-                row.style.alignItems = 'center';
-                
-                var left = document.createElement('div');
-                left.style.display = 'flex';
-                left.style.flexDirection = 'column';
-                left.style.gap = '0.2rem';
-                
-                var title = document.createElement('div');
-                title.className = 'item-title';
-                title.innerText = p.app_name || 'Unknown';
-                left.appendChild(title);
-                
-                var meta = document.createElement('div');
-                meta.className = 'item-sub';
-                var dateStrStart = new Date(p.valid_from * 1000).toLocaleDateString();
-                var dateStrEnd = new Date(p.valid_to * 1000).toLocaleDateString();
-                var isForever = p.valid_to > 2000000000;
-                meta.innerHTML = '<div style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:16px; margin-right:4px;">date_range</span> ' + dateStrStart + ' ～ ' + (isForever ? (i18n.termForever || 'Forever') : dateStrEnd) + '</div>';
-                left.appendChild(meta);
-                
-                row.appendChild(left);
-                
-                var right = document.createElement('div');
-                right.style.display = 'flex';
-                right.style.gap = '0.5rem';
-                right.style.alignItems = 'center';
-                
-                var btnEdit = document.createElement('button');
-                btnEdit.className = 'action-btn';
-                btnEdit.innerHTML = '<span class="material-symbols-outlined">edit</span>';
-                btnEdit.onclick = function() { window.editGroupPerm(p.app_id, p.valid_from, p.valid_to); };
-                right.appendChild(btnEdit);
+  ;
 
-                var btnRevoke = document.createElement('button');
-                btnRevoke.className = 'action-btn delete';
-                btnRevoke.innerHTML = '<span class="material-symbols-outlined">delete</span>';
-                btnRevoke.onclick = function() { window.revokeGroupPerm(p.id); };
-                right.appendChild(btnRevoke);
-                
-                row.appendChild(right);
-                item.appendChild(row);
-                container.appendChild(item);
-            });
-        };
-        window.grantGroupPermission = function() {
-            var dateVal = document.getElementById('g-perm-valid-to').value;
-            var startVal = document.getElementById('g-perm-valid-from').value;
-            var dateStrStart = new Date(startVal).toLocaleDateString();
-            var dateStrEnd = dateVal ? new Date(dateVal).toLocaleDateString() : (i18n.termForever || 'Forever');
-            var appIds = [];
-            if (tsControl) { appIds = tsControl.getValue(); if (!Array.isArray(appIds)) appIds = [appIds]; } 
-            else { var appSelect = document.getElementById('g-perm-app-id'); if (appSelect.value) appIds = [appSelect.value]; }
-            appIds = appIds.filter(function(id) { return id !== ''; });
-            if(appIds.length === 0) { alert(i18n.alertSelectApp || 'Select at least one App'); return; }
-            var warningMessages = [];
-            appIds.forEach(function(id) {
-                var existing = currentGroupPermissions.find(function(p) { return p.app_id === id; });
-                if (existing) {
-                    var exStart = new Date(existing.valid_from * 1000).toLocaleDateString();
-                    var isForever = existing.valid_to > 2000000000;
-                    var exEnd = isForever ? (i18n.termForever || 'Forever') : new Date(existing.valid_to * 1000).toLocaleDateString();
-                    warningMessages.push('・' + existing.app_name + ' (' + exStart + ' ～ ' + exEnd + ')');
-                }
-            });
-            
-            var validTo = dateVal ? Math.floor(new Date(dateVal).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
-            var validFrom = startVal ? Math.floor(new Date(startVal).getTime()/1000) : Math.floor(Date.now()/1000);
-            
-            var doGrant = function() {
-                fetch('/admin/api/group/permission/grant', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ group_id: currentGroupId, app_ids: appIds, valid_from: validFrom, valid_to: validTo }) })
-                .then(function() { window.loadGroupPerms(currentGroupId); if(tsControl) tsControl.clear(); })
-                .catch(function(e) { console.error(e); alert('Error: ' + e); });
-            };
-
-            if (warningMessages.length > 0) {
-                var msgTemplate = i18n.msgOverwriteConfirm || 'Overwrite?\\\\n{list}';
-                var listStr = warningMessages.join('\\\\n');
-                var msg = msgTemplate.replace('{start}', dateStrStart).replace('{end}', dateStrEnd).replace('{list}', listStr);
-                
-                var om = document.getElementById('overwrite-confirm-modal');
-                if(om) {
-                    document.getElementById('overwrite-msg-text').innerText = msg;
-                    window._executeOverwrite = function() {
-                        om.close();
-                        doGrant();
-                    };
-                    om.showModal();
-                    return;
-                }
-            }
-            doGrant();
-        };
-
-        var revokeTargetId = null;
-        window.revokeGroupPerm = function(pid) {
-            revokeTargetId = pid;
-            var errEl = document.getElementById('revoke-error-msg');
-            if(errEl) errEl.style.display = 'none';
-            var rm = document.getElementById('revoke-confirm-modal');
-            if(rm) {
-                rm.showModal();
-                setTimeout(function() { var closeBtn = document.getElementById('revoke-close-btn'); if(closeBtn) closeBtn.focus(); }, 50);
-            }
-        };
-        window.closeRevokeModal = function() {
-            var rm = document.getElementById('revoke-confirm-modal');
-            if(rm) rm.close();
-            revokeTargetId = null;
-        };
-        window.executeRevoke = function() {
-            if(!revokeTargetId) return;
-            var errEl = document.getElementById('revoke-error-msg');
-            if(errEl) errEl.style.display = 'none';
-            
-            fetch('/admin/api/group/permission/revoke', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: revokeTargetId}) })
-            .then(function(r) { 
-                if(!r.ok) {
-                    return r.json().catch(function(){ return {}; }).then(function(err) { throw new Error(err.error || 'Server error ' + r.status); });
-                }
-                return r.json(); 
-            })
-            .then(function() { 
-                window.closeRevokeModal();
-                window.loadGroupPerms(currentGroupId); 
-            })
-            .catch(function(e) {
-                console.error('Revoke error:', e);
-                if(errEl) {
-                    var tmpl = i18n.alertError || 'Error: {message}';
-                    errEl.textContent = tmpl.replace('{message}', e.message);
-                    errEl.style.display = 'block';
-                } else {
-                    alert('Error: ' + e.message);
-                }
-            });
-        };
-
-        var deleteTargetId = null;
-        window.deleteGroup = function(gid, e) {
-            if(e) e.stopPropagation();
-            deleteTargetId = gid;
-            var dm = document.getElementById('delete-confirm-modal');
-            if(dm) dm.showModal();
-        };
-        window.closeDeleteModal = function() {
-            var dm = document.getElementById('delete-confirm-modal');
-            if(dm) dm.close();
-            deleteTargetId = null;
-        };
-        window.executeDelete = function() {
-            if(!deleteTargetId) return;
-            var form = document.getElementById('delete-group-form');
-            if (!form) return;
-            var input = form.querySelector('input[name="id"]');
-            if(input) input.value = deleteTargetId;
-            form.submit();
-        };
-
-        window.calcGroupDate = function(targetId, offset, unit) {
-            var d = new Date();
-            if (unit === 'forever') { var el = document.getElementById(targetId); if(el) el.value = ''; return; }
-            if (unit === 'year') { d.setFullYear(d.getFullYear() + offset); } else if (unit === 'month') { d.setMonth(d.getMonth() + offset); } else if (unit === 'day') { d.setDate(d.getDate() + offset); }
-            var el = document.getElementById(targetId); if(el) el.value = d.toISOString().split('T')[0];
-        };
-    })();
-  `);
-
-  const blinkActive = keyframes`
-        0% { border-color: #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-        50% { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.2); }
-        100% { border-color: #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-  `
-
-  const listGrid = css`display: flex; flex-direction: column; gap: 1rem;`
   
-  const listCard = css`
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 1.2rem 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    transition: all 0.2s ease;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    cursor: pointer;
-    &:hover {
-        outline: 1px solid var(--primary);
-    }
-  `
 
-  const itemTitle = css`font-weight: 600; font-size: 1rem; color: #1e293b; margin-bottom: 0.2rem;`
-  const actionBtn = css`
-    background: transparent !important; 
-    border: none !important; 
-    color: #94a3b8 !important; 
-    cursor: pointer !important; 
-    padding: 8px !important; 
-    border-radius: 50% !important; 
-    transition: all 0.2s !important;
-    box-shadow: none !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 36px !important;
-    height: 36px !important;
-    flex-shrink: 0 !important;
-    &:hover { background: #f1f5f9 !important; color: var(--text-main) !important; }
-  `
-  const deleteBtn = css`${actionBtn} &:hover { background: #fef2f2 !important; color: #ef4444 !important; }`
-
-  const grantFormCard = css`
-    background: #ffffff;
-    padding: 2rem;
-    border-radius: 16px;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    margin-bottom: 2rem;
-    transition: border-color 0.3s ease, box-shadow 0.3s ease;
-    &.blink-active {
-        animation: ${blinkActive} 1s ease-in-out 3;
-    }
-  `
   
-  const formLabel = css`
-    display: block;
-    font-weight: 700;
-    font-size: 0.95rem;
-    color: #1e293b;
-    margin-bottom: 0.5rem;
-  `
+  
+  
 
-  const dateInput = css`
-    width: 100%;
-    padding: 0.8rem 1rem;
-    background: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    font-size: 1rem;
-    color: #334155;
-    transition: all 0.2s;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    &:focus {
-        border-color: var(--primary);
-        outline: none;
-        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-    }
-  `
+  
+  
+  
 
-  const quickBtnGroup = css`
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.75rem;
-    margin-top: 0.75rem;
-  `
+  
+  
+  
 
-  const pageWrapper = css``
+  
+
+  
+
+  
 
   return Layout({
     t: t,
@@ -565,7 +222,8 @@ export const GroupsPage = (props: Props) => {
           <script type="application/json" id="app-data">${raw(allAppsJson)}</script>
 
           <script>
-          ${scriptContent}
+          window.__name = function(f) { return f; };
+          ${raw(groupsClientScript)}
           </script>
       </div>
     `

@@ -1,3 +1,4 @@
+import { accountDevelopersClientScript } from '../scripts/accountDevelopersClient';
 import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 import { dict } from '../../i18n'
@@ -57,38 +58,7 @@ export const AccountDevelopersPage = (props: Props) => {
     width: 34px !important; height: 34px !important; flex-shrink: 0 !important;
   `
 
-  const scriptContent = `
-    var targetId = null;
-
-    function approveRequest(id) {
-      fetch('/group-admin/api/roles/approve', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ application_id: id })
-      }).then(res => {
-        if (!res.ok) throw new Error('Error ' + res.status);
-        window.location.reload();
-      }).catch(err => console.error(err.message));
-    }
-
-    function openRejectModal(id) {
-      targetId = id;
-      document.getElementById('reject-reason').value = '';
-      document.getElementById('reject-error').style.display = 'none';
-      document.getElementById('reject-modal').showModal();
-    }
-    function closeRejectModal() { document.getElementById('reject-modal').close(); }
-    function executeReject() {
-      var reason = document.getElementById('reject-reason').value.trim();
-      if (!reason) { document.getElementById('reject-error').style.display = 'block'; return; }
-      fetch('/group-admin/api/roles/reject', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ application_id: targetId, admin_reason: reason })
-      }).then(res => {
-        if (!res.ok) throw new Error('Error ' + res.status);
-        window.location.reload();
-      }).catch(err => console.error(err.message));
-    }
-  `
+  
 
   function statusBadge(st: string) {
     const map: any = {
@@ -206,7 +176,10 @@ export const AccountDevelopersPage = (props: Props) => {
         `
       })}
 
-      <script>${raw(scriptContent)}</script>
+      <script>
+          window.__name = function(f) { return f; };
+          ${raw(accountDevelopersClientScript)}
+      </script>
     `
   })
 }

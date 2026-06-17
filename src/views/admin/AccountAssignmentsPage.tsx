@@ -1,3 +1,4 @@
+import { accountAssignmentsClientScript } from '../scripts/accountAssignmentsClient';
 import { html, raw } from 'hono/html'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
@@ -43,36 +44,7 @@ export const AccountAssignmentsPage = (props: Props) => {
     : props.error === 'seat' ? t.am_alert_seat_exceeded
     : props.error === 'no_role' ? t.am_alert_no_role : ''
 
-  const script = raw(`
-    (function() {
-      var ROLES = ${rolesJson};
-      var FAC_USE = ${facUseJson};
-      var i18nNoRole = ${JSON.stringify(t.am_alert_no_role)};
-      function refreshRoles() {
-        var svc = document.getElementById('a-service');
-        var fac = document.getElementById('a-facility');
-        var role = document.getElementById('a-role');
-        if (!svc || !fac || !role) return;
-        var use = FAC_USE[fac.value] || null;
-        var matched = ROLES.filter(function(r){ return r.service_id === svc.value && (r.facility_type == null || r.facility_type === use); });
-        role.innerHTML = '';
-        if (matched.length === 0) {
-          var o = document.createElement('option'); o.value=''; o.textContent = i18nNoRole; o.disabled = true; o.selected = true;
-          role.appendChild(o);
-          return;
-        }
-        matched.forEach(function(r){ var o = document.createElement('option'); o.value = r.id; o.textContent = r.role_name; role.appendChild(o); });
-      }
-      window.amRefreshRoles = refreshRoles;
-      document.addEventListener('DOMContentLoaded', function(){
-        var svc = document.getElementById('a-service');
-        var fac = document.getElementById('a-facility');
-        if (svc) svc.addEventListener('change', refreshRoles);
-        if (fac) fac.addEventListener('change', refreshRoles);
-        refreshRoles();
-      });
-    })();
-  `)
+  
 
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-assignments',
@@ -187,13 +159,20 @@ export const AccountAssignmentsPage = (props: Props) => {
               <div><label class="${amFormLabel}">${t.label_valid_from}</label>
                 <input type="date" name="valid_from" value="${todayStr()}" required /></div>
               <div><label class="${amFormLabel}">${t.label_valid_to}</label>
+
                 <input type="date" name="valid_to" value="${plusYearStr(1)}" required /></div>
             </div>
             <div style="margin-top:1rem;">${Button({ type: 'submit', children: t.save })}</div>
           </form>`,
       })}
 
-      <script>${script}</script>
+      <script type="application/json" id="roles-json">${raw(rolesJson)}</script>
+      <script type="application/json" id="facuse-json">${raw(facUseJson)}</script>
+      <script type="application/json" id="i18n-no-role">${raw(JSON.stringify(t.am_alert_no_role))}</script>
+      <script>
+          window.__name = function(f) { return f; };
+          ${raw(accountAssignmentsClientScript)}
+      </script>
     `,
   })
 }

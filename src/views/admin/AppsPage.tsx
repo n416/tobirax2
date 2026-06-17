@@ -1,5 +1,7 @@
 import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
+import { appsClientScript } from '../scripts/appsClient'
+import { listGrid, listCard, itemTitle, itemSub, actionBtn, deleteBtn } from '../styles/appsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
 import { App, SystemConfig } from '../../types'
@@ -23,220 +25,17 @@ interface Props {
 
 export const AppsPage = (props: Props) => {
   const t = props.t
-  const scriptContent = raw(`
-        (function() {
-            // 画像プレビュー機能
-            window.handleIconPreview = function(input, previewId) {
-                if (input.files && input.files[0]) {
-                    var reader = new FileReader();
-                    reader.onload = function(e) {
-                        var div = document.getElementById(previewId);
-                        var img = div ? div.querySelector('img') : null;
-                        if(img) {
-                            img.src = e.target.result;
-                            div.style.display = 'block';
-                        }
-                    };
-                    reader.readAsDataURL(input.files[0]);
-                }
-            };
-    
-            var editModal = document.getElementById('edit-app-modal');
-            
-            // 編集モーダルを開く関数
-            window.openEditAppModal = function(btn) {
-                if(!editModal) return;
-                var form = editModal.querySelector('form');
-                
-                // 基本データ
-                form.querySelector('input[name="id"]').value = btn.dataset.id;
-                form.querySelector('input[name="name"]').value = btn.dataset.name;
-                form.querySelector('input[name="base_url"]').value = btn.dataset.url;
-                
-                // 説明文
-                var descEl = form.querySelector('textarea[name="description"]');
-                if(descEl) descEl.value = btn.dataset.desc || '';
+  ;
 
-                // Redirect URIs (OIDC)
-                var ruEl = form.querySelector('textarea[name="redirect_uris"]');
-                if(ruEl) ruEl.value = btn.dataset.redirectUris || '';
-
-                // Back-Channel Logout URI (OIDC)
-                var bclEl = form.querySelector('input[name="backchannel_logout_uri"]');
-                if(bclEl) bclEl.value = btn.dataset.backchannelLogoutUri || '';
-
-                // アイコン関連
-                var iconEl = form.querySelector('input[name="icon_url"]');
-                var iconUrl = btn.dataset.icon || '';
-                if(iconEl) iconEl.value = iconUrl;
-                
-                // プレビュー表示制御
-                var previewDiv = document.getElementById('edit-icon-preview');
-                var previewImg = previewDiv ? previewDiv.querySelector('img') : null;
-                if(previewDiv && previewImg) {
-                    if(iconUrl && iconUrl !== 'null' && iconUrl !== 'undefined') {
-                        previewImg.src = iconUrl;
-                        previewDiv.style.display = 'block';
-                    } else {
-                        previewImg.src = '';
-                        previewDiv.style.display = 'none';
-                    }
-                }
-                
-                // ファイル入力はリセット
-                var fileInput = form.querySelector('input[name="icon_file"]');
-                if(fileInput) fileInput.value = '';
-
-                // Client Secret (OIDC)
-                var secEl = document.getElementById('edit-secret');
-                var noteEl = document.getElementById('edit-secret-note');
-                var sec = btn.dataset.secret || '';
-                if(secEl) secEl.value = sec || '${t.secret_public_placeholder}';
-                if(noteEl) noteEl.innerText = sec
-                    ? '${t.note_confidential}'
-                    : '${t.note_public}';
-
-                editModal.showModal();
-                setTimeout(function() {
-            // 画像プレビュー機能
-            window.handleIconPreview = function(input, previewId) {
-                if (input.files && input.files[0]) {
-                    var reader = new FileReader();
-                    reader.onload = function(e) {
-                        var div = document.getElementById(previewId);
-                        var img = div ? div.querySelector('img') : null;
-                        if(img) {
-                            img.src = e.target.result;
-                            div.style.display = 'block';
-                        }
-                    };
-                    reader.readAsDataURL(input.files[0]);
-                }
-            };
-    
-                    var closeBtn = document.getElementById('edit-close-btn');
-                    if(closeBtn) closeBtn.focus();
-                }, 50);
-            };
-            
-            window.closeEditAppModal = function() {
-                if(editModal) editModal.close();
-            };
-            // Toggle App Status
-            var toggleTargetId = null;
-            var toggleTargetStatus = null;
-            window.toggleAppStatus = function(id, nextStatus, name) {
-                toggleTargetId = id;
-                toggleTargetStatus = nextStatus;
-                var tm = document.getElementById('toggle-confirm-modal');
-                if(tm) {
-                    var msgEl = document.getElementById('toggle-msg-text');
-                    var tmpl = i18n.confirmChangeStatus || 'Change status?';
-                    if(msgEl) msgEl.innerText = tmpl.replace('{name}', name);
-                    tm.showModal();
-                }
-            };
-            window.closeToggleModal = function() {
-                var tm = document.getElementById('toggle-confirm-modal');
-                if(tm) tm.close();
-                toggleTargetId = null;
-                toggleTargetStatus = null;
-            };
-            window.executeToggle = function() {
-                if(!toggleTargetId) return;
-                var form = document.getElementById('toggle-app-form');
-                if(form) {
-                    form.querySelector('input[name="id"]').value = toggleTargetId;
-                    form.querySelector('input[name="status"]').value = toggleTargetStatus;
-                    form.submit();
-                }
-            };
-
-            // Delete App
-            var deleteTargetId = null;
-            window.deleteApp = function(id) {
-                deleteTargetId = id;
-                var dm = document.getElementById('delete-confirm-modal');
-                if(dm) dm.showModal();
-            };
-            window.closeDeleteModal = function() {
-                var dm = document.getElementById('delete-confirm-modal');
-                if(dm) dm.close();
-                deleteTargetId = null;
-            };
-            window.executeDelete = function() {
-                if(!deleteTargetId) return;
-                var form = document.getElementById('delete-app-form');
-                if(form) {
-                    form.querySelector('input[name="id"]').value = deleteTargetId;
-                    form.submit();
-                }
-            };
-
-            // Approve / Reject app registration request (pending -> active / rejected)
-            var i18nEl = document.getElementById('i18n-data');
-            window.approveApp = function(id) {
-                if (!confirm((i18nEl && i18nEl.dataset.confirmApprove) || 'Approve?')) return;
-                var f = document.getElementById('approve-app-form');
-                if (f) { f.querySelector('input[name="id"]').value = id; f.submit(); }
-            };
-            // rejectApp は RejectReasonModal に置き換えました
-
-            // Client secret: regenerate / clear (make public)
-            window.appSecretAction = function(action) {
-                if(!editModal) return;
-                var id = editModal.querySelector('input[name="id"]').value;
-                if(!id) return;
-                if(action === 'clear' && !confirm('${t.confirm_make_public}')) return;
-                var f = document.getElementById('secret-app-form');
-                if(f) {
-                    f.querySelector('input[name="id"]').value = id;
-                    f.querySelector('input[name="action"]').value = action;
-                    f.submit();
-                }
-            };
-        })();
-  `);
-
-  const listGrid = css`display: flex; flex-direction: column; gap: 1rem;`
   
-  const listCard = css`
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 1.2rem 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    transition: all 0.2s ease;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    cursor: pointer;
-    &:hover {
-        outline: 1px solid var(--primary);
-    }
-  `
-
-  const itemTitle = css`font-weight: 600; font-size: 1rem; color: #1e293b; margin-bottom: 0.2rem;`
-  const itemSub = css`font-size: 0.85rem; color: #64748b; display: flex; align-items: center; gap: 0.4rem;`
   
-  const actionBtn = css`
-    background: transparent !important; 
-    border: none !important; 
-    color: #94a3b8 !important; 
-    cursor: pointer !important; 
-    padding: 8px !important; 
-    border-radius: 50% !important; 
-    transition: all 0.2s !important;
-    box-shadow: none !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 36px !important;
-    height: 36px !important;
-    flex-shrink: 0 !important;
-    &:hover { background: #f1f5f9 !important; color: var(--text-main) !important; }
-  `
-  const deleteBtn = css`${actionBtn} &:hover { background: #fef2f2 !important; color: #ef4444 !important; }`
+  
+
+  
+  
+  
+  
+  
 
   return Layout({
     t: t,
@@ -496,7 +295,8 @@ export const AppsPage = (props: Props) => {
       ></div>
 
       <script>
-      ${scriptContent}
+      window.__name = function(f) { return f; };
+          ${raw(appsClientScript)}
       ${raw(RejectReasonModalScript)}
       </script>
     `
