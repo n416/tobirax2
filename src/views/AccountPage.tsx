@@ -1,10 +1,26 @@
-import { html } from 'hono/html'
+import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 import { dict } from '../i18n'
 import { Layout } from './components/Layout'
 import { UserTopbar } from './components/UserTopbar'
 import { Modal } from './components/Modal'
 import { Button } from './components/Button'
+
+interface RoleAppState {
+  status: string
+  admin_reason: string | null
+}
+
+interface MyMembership {
+  group_id: string
+  group_name: string
+  is_group_admin: boolean
+  is_billing_admin: boolean
+  is_developer: boolean
+  app_group_admin: RoleAppState | null
+  app_billing_admin: RoleAppState | null
+  app_developer: RoleAppState | null
+}
 
 interface Props {
   t: typeof dict.en
@@ -16,6 +32,7 @@ interface Props {
   profilePicture?: string | null
   message?: string
   isGroupAdmin?: boolean
+  myMemberships?: MyMembership[]
 }
 
 // プロフィール編集 + セキュリティ(2段階認証 / パスワード変更)の専用画面。
@@ -103,6 +120,49 @@ export const AccountPage = (props: Props) => {
   `
 
   const initial = (props.profileName || props.userEmail || '?').trim().charAt(0).toUpperCase()
+
+  // 1ロール分の行。保持済み/申請中/申請可能(却下なら再申請)を出し分ける。
+  const roleRow = (groupId: string, roleType: string, label: string, held: boolean, app: RoleAppState | null) => {
+    let right
+    if (held) {
+      right = html`<span style="font-size:0.78rem; font-weight:700; color:#16a34a; background:#f0fdf4; padding:3px 10px; border-radius:999px;">${t.ud_role_granted}</span>`
+    } else if (app && app.status === 'pending') {
+      right = html`<span style="font-size:0.78rem; font-weight:700; color:#c2410c; background:#fff7ed; padding:3px 10px; border-radius:999px;">${t.ud_role_pending}</span>`
+    } else {
+      const rejected = !!(app && app.status === 'rejected')
+      right = html`
+        ${rejected ? html`<span title="${app!.admin_reason || ''}" style="font-size:0.75rem; color:#b91c1c; margin-right:0.5rem; cursor:help;">${t.ud_role_rejected}</span>` : ''}
+        <button type="button" onclick="openApplyModal('${groupId}','${roleType}','${label}')" style="font-size:0.82rem; font-weight:700; color:var(--primary); background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; padding:0.35rem 0.85rem; cursor:pointer;">${rejected ? t.ud_role_reapply : t.ud_role_apply}</button>
+      `
+    }
+    return html`<div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.35rem 0;">
+      <span style="font-size:0.92rem; color:var(--text-main);">${label}</span>
+      <span style="display:flex; align-items:center;">${right}</span>
+    </div>`
+  }
+
+  const applyScript = `
+    var applyGroupId = null, applyRoleType = null;
+    function openApplyModal(gid, rt, label) {
+      applyGroupId = gid; applyRoleType = rt;
+      var lblEl = document.getElementById('apply-role-label'); if (lblEl) lblEl.textContent = label;
+      var ta = document.getElementById('apply-reason'); if (ta) ta.value = '';
+      var err = document.getElementById('apply-error'); if (err) err.style.display = 'none';
+      var m = document.getElementById('apply-modal'); if (m) m.showModal();
+    }
+    function closeApplyModal() { var m = document.getElementById('apply-modal'); if (m) m.close(); }
+    function submitApply() {
+      var reason = (document.getElementById('apply-reason').value || '').trim();
+      var err = document.getElementById('apply-error');
+      if (!reason) { if (err) { err.style.display='block'; } return; }
+      fetch('/group-admin/api/roles/apply', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ group_id: applyGroupId, role_type: applyRoleType, reason: reason })
+      }).then(function(r){ if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error||('Error '+r.status)); }); return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(e){ if (err) { err.style.display='block'; err.textContent = e.message; } });
+    }
+  `
 
   return Layout({
     title: t.account_settings,
@@ -212,6 +272,50 @@ export const AccountPage = (props: Props) => {
             </form>
           `
         })}
+
+        <!-- 権限・ロール -->
+        ${(props.myMemberships && props.myMemberships.length > 0) ? html`
+        <section class="${card}">
+          <div class="${cardHead}">
+            <span class="material-symbols-outlined">corporate_fare</span>
+            <div>
+              <h2>${t.ud_roles_header}</h2>
+              <p>${t.ud_roles_desc}</p>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:1rem;">
+            ${props.myMemberships.map(m => html`
+              <div style="background:var(--bg-card, #f8fafc); border:1px solid #e2e8f0; border-radius:12px; padding:1.25rem;">
+                <div style="font-weight:700; color:var(--text-main); margin-bottom:0.85rem; display:flex; align-items:center; gap:0.4rem;">
+                  <span class="material-symbols-outlined" style="font-size:18px; color:#64748b;">corporate_fare</span>${m.group_name}
+                </div>
+                <div style="display:flex; flex-direction:column; gap:0.35rem;">
+                  ${roleRow(m.group_id, 'group_admin', t.am_role_group_admin, m.is_group_admin, m.app_group_admin)}
+                  ${roleRow(m.group_id, 'billing_admin', t.am_role_billing_admin, m.is_billing_admin, m.app_billing_admin)}
+                  ${roleRow(m.group_id, 'developer', t.am_role_developer, m.is_developer, m.app_developer)}
+                </div>
+              </div>
+            `)}
+          </div>
+        </section>
+
+        ${Modal({
+          id: 'apply-modal',
+          title: html`${t.ud_apply_title} <span id="apply-role-label" style="color:var(--primary);"></span>`,
+          closeAction: 'closeApplyModal()',
+          children: html`
+            <p style="font-size:0.88rem; color:var(--text-sub); line-height:1.5; margin-bottom:1rem;">${t.ud_apply_desc}</p>
+            <textarea id="apply-reason" style="width:100%; min-height:100px; padding:0.75rem; border:1px solid #cbd5e1; border-radius:8px; font-size:0.95rem; color:#334155; box-sizing:border-box;" placeholder="${t.ud_apply_reason_ph}"></textarea>
+            <div id="apply-error" style="color:#ef4444; font-size:0.85rem; margin-top:0.5rem; display:none;">${t.ud_apply_required}</div>
+            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.25rem;">
+              <button type="button" onclick="closeApplyModal()" style="background:transparent; color:#64748b; border:1px solid #cbd5e1; border-radius:8px; padding:0.5rem 1rem; font-weight:600; cursor:pointer;">${t.cancel}</button>
+              <button type="button" onclick="submitApply()" style="background:var(--primary); color:white; border:none; border-radius:8px; padding:0.5rem 1.25rem; font-weight:700; cursor:pointer;">${t.ud_apply_submit}</button>
+            </div>
+          `
+        })}
+        <script>${raw(applyScript)}</script>
+        ` : ''}
     `
   })
 }

@@ -463,31 +463,7 @@ app.get('/', async (c) => {
           ((up.valid_from <= ? AND up.valid_to >= ?) OR (up.id IS NULL AND gp.valid_from <= ? AND gp.valid_to >= ?))
       `).bind(user.id, user.group_id || null, now, now, now, now).all()
 
-        // 権限申請セクション用: 自分が有効に所属するグループと現在のロールフラグ、
-        //   および保留中/却下の申請状態を渡す。
-        const { results: memberships } = await c.env.DB.prepare(`
-            SELECT m.group_id, g.name AS group_name, m.is_group_admin, m.is_billing_admin, m.is_developer
-            FROM group_memberships m JOIN groups g ON g.id = m.group_id
-            WHERE m.user_id = ? AND m.valid_from <= ? AND m.valid_to >= ?
-            ORDER BY g.name
-        `).bind(user.id, now, now).all()
-        const { results: myApps } = await c.env.DB.prepare(
-            "SELECT group_id, role_type, status, admin_reason FROM role_applications WHERE user_id = ? AND status IN ('pending','rejected')"
-        ).bind(user.id).all()
-        const appMap: Record<string, { status: string; admin_reason: string | null }> = {}
-        for (const a of (myApps as any[])) appMap[a.group_id + '|' + a.role_type] = { status: a.status, admin_reason: a.admin_reason }
-        const myMemberships = (memberships as any[]).map(m => ({
-            group_id: m.group_id,
-            group_name: m.group_name,
-            is_group_admin: !!m.is_group_admin,
-            is_billing_admin: !!m.is_billing_admin,
-            is_developer: !!m.is_developer,
-            app_group_admin: appMap[m.group_id + '|group_admin'] || null,
-            app_billing_admin: appMap[m.group_id + '|billing_admin'] || null,
-            app_developer: appMap[m.group_id + '|developer'] || null,
-        }))
-
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} myMemberships={myMemberships} />)
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
     } catch (e: any) {
         return c.json({ error: e.message, stack: e.stack }, 500)
     }
@@ -510,7 +486,31 @@ app.get('/account', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const msgKey = c.req.query('msg')
     const message = msgKey && (t as any)[msgKey] ? (t as any)[msgKey] : undefined
-    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} isGroupAdmin={isGroupAdmin} />)
+
+    const now = Math.floor(Date.now() / 1000)
+    const { results: memberships } = await c.env.DB.prepare(`
+        SELECT m.group_id, g.name AS group_name, m.is_group_admin, m.is_billing_admin, m.is_developer
+        FROM group_memberships m JOIN groups g ON g.id = m.group_id
+        WHERE m.user_id = ? AND m.valid_from <= ? AND m.valid_to >= ?
+        ORDER BY g.name
+    `).bind(user.id, now, now).all()
+    const { results: myApps } = await c.env.DB.prepare(
+        "SELECT group_id, role_type, status, admin_reason FROM role_applications WHERE user_id = ? AND status IN ('pending','rejected')"
+    ).bind(user.id).all()
+    const appMap: Record<string, { status: string; admin_reason: string | null }> = {}
+    for (const a of (myApps as any[])) appMap[a.group_id + '|' + a.role_type] = { status: a.status, admin_reason: a.admin_reason }
+    const myMemberships = (memberships as any[]).map(m => ({
+        group_id: m.group_id,
+        group_name: m.group_name,
+        is_group_admin: !!m.is_group_admin,
+        is_billing_admin: !!m.is_billing_admin,
+        is_developer: !!m.is_developer,
+        app_group_admin: appMap[m.group_id + '|group_admin'] || null,
+        app_billing_admin: appMap[m.group_id + '|billing_admin'] || null,
+        app_developer: appMap[m.group_id + '|developer'] || null,
+    }))
+
+    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} isGroupAdmin={isGroupAdmin} myMemberships={myMemberships} />)
 })
 
 app.get('/login', async (c) => {
