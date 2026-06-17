@@ -120,16 +120,31 @@ export async function checkPermission(c: any, userId: string, appId: string): Pr
     const userPerm = await c.env.DB.prepare('SELECT * FROM permissions WHERE user_id = ? AND app_id = ?')
         .bind(userId, appId).first() as Permission | null
 
-    if (userPerm) {
-        if (userPerm.valid_from <= now && userPerm.valid_to >= now) return { allowed: true }
-        else return { allowed: false, reason: 'User permission expired/invalid' }
-    }
+    if (userPerm && userPerm.valid_from <= now && userPerm.valid_to >= now) return { allowed: true }
 
     const user = await c.env.DB.prepare('SELECT group_id FROM users WHERE id = ?').bind(userId).first() as User | null
     if (user && user.group_id) {
         const groupPerm = await c.env.DB.prepare('SELECT * FROM group_permissions WHERE group_id = ? AND app_id = ?')
             .bind(user.group_id, appId).first() as Permission | null
         if (groupPerm && groupPerm.valid_from <= now && groupPerm.valid_to >= now) return { allowed: true }
+    }
+
+    // サービス経由のエンタイトルメント(Account Manager 連携)
+    const { results: serviceRows } = await c.env.DB.prepare(`
+        SELECT a.service_id
+        FROM service_user_assignments a
+        JOIN group_memberships m ON m.user_id = a.user_id AND m.group_id = a.group_id AND m.valid_from <= ? AND m.valid_to >= ?
+        JOIN services s ON s.id = a.service_id
+        JOIN service_apps sa ON sa.service_id = s.id AND sa.app_id = ?
+        LEFT JOIN group_service_grants gr ON gr.group_id = a.group_id AND gr.service_id = a.service_id AND gr.valid_from <= ? AND gr.valid_to >= ?
+        WHERE a.user_id = ?
+          AND a.valid_from <= ? AND a.valid_to >= ?
+          AND (gr.id IS NOT NULL OR (s.owner_group_id = a.group_id AND s.status = 'active'))
+        LIMIT 1
+    `).bind(now, now, appId, now, now, userId, now, now).all()
+
+    if (serviceRows && serviceRows.length > 0) {
+        return { allowed: true }
     }
 
     return { allowed: false, reason: 'No permission found' }
@@ -470,16 +485,75 @@ app.get('/', async (c) => {
         const siteName = getLocalizedValue(c, config.appName)
 
         const now = Math.floor(Date.now() / 1000)
-        const { results: apps } = await c.env.DB.prepare(`
+        
+        // 1. 直接割り当てられた単体アプリ (従来の権限)
+        const { results: standaloneApps } = await c.env.DB.prepare(`
         SELECT DISTINCT a.* FROM apps a
         LEFT JOIN permissions up ON a.id = up.app_id AND up.user_id = ?
         LEFT JOIN group_permissions gp ON a.id = gp.app_id AND gp.group_id = ?
         WHERE
           (a.status IS NULL OR a.status = 'active') AND
           ((up.valid_from <= ? AND up.valid_to >= ?) OR (up.id IS NULL AND gp.valid_from <= ? AND gp.valid_to >= ?))
-      `).bind(user.id, user.group_id || null, now, now, now, now).all()
+        `).bind(user.id, user.group_id || null, now, now, now, now).all()
 
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={apps as any} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
+        // 2. サービスに割り当てられたアプリ (ドリルダウン用)
+        // ユーザーが有効な割当を持つサービスとそのサービス内のアプリを取得
+        const { results: serviceAppsRows } = await c.env.DB.prepare(`
+            SELECT DISTINCT s.id AS service_id, s.name AS service_name, 
+                   a.id AS app_id, a.name AS app_name, a.icon_url, a.description, a.base_url
+            FROM service_user_assignments sua
+            JOIN group_memberships m ON m.user_id = sua.user_id AND m.group_id = sua.group_id AND m.valid_from <= ? AND m.valid_to >= ?
+            JOIN services s ON s.id = sua.service_id
+            JOIN service_apps sa ON sa.service_id = s.id
+            JOIN apps a ON a.id = sa.app_id
+            LEFT JOIN group_service_grants gr ON gr.group_id = sua.group_id AND gr.service_id = sua.service_id AND gr.valid_from <= ? AND gr.valid_to >= ?
+            WHERE sua.user_id = ?
+              AND sua.valid_from <= ? AND sua.valid_to >= ?
+              AND (gr.id IS NOT NULL OR (s.owner_group_id = sua.group_id AND s.status = 'active'))
+              AND (a.status IS NULL OR a.status = 'active')
+            ORDER BY s.name, a.name
+        `).bind(now, now, now, now, user.id, now, now).all()
+
+        const servicesMap = new Map<string, any>()
+        for (const row of serviceAppsRows as any[]) {
+            if (!servicesMap.has(row.service_id)) {
+                servicesMap.set(row.service_id, { id: row.service_id, name: row.service_name, apps: [], tags: [] })
+            }
+            servicesMap.get(row.service_id).apps.push({
+                id: row.app_id,
+                name: row.app_name,
+                icon_url: row.icon_url,
+                description: row.description,
+                base_url: row.base_url
+            })
+        }
+        const entitledServices = Array.from(servicesMap.values())
+
+        const serviceIds = Array.from(servicesMap.keys())
+        const allTagsMap = new Map<string, {id: string, name: string}>()
+        if (serviceIds.length > 0) {
+            const placeholders = serviceIds.map(() => '?').join(',')
+            const { results: tagRows } = await c.env.DB.prepare(`
+                SELECT st.service_id, t.id, t.name
+                FROM service_tags st
+                JOIN tags t ON st.tag_id = t.id
+                WHERE st.service_id IN (${placeholders}) AND t.status = 'active'
+            `).bind(...serviceIds).all()
+
+            for (const row of tagRows as any[]) {
+                const s = servicesMap.get(row.service_id)
+                if (s) {
+                    // Prevent duplicate tags if any
+                    if (!s.tags.find((t: any) => t.id === row.id)) {
+                        s.tags.push({ id: row.id, name: row.name })
+                    }
+                }
+                allTagsMap.set(row.id, { id: row.id, name: row.name })
+            }
+        }
+        const availableServiceTags = Array.from(allTagsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={standaloneApps as any} services={entitledServices} availableServiceTags={availableServiceTags} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
     } catch (e: any) {
         return c.json({ error: e.message, stack: e.stack }, 500)
     }

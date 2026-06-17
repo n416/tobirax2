@@ -60,18 +60,8 @@ adminRouter.get('/admin/apps', async (c) => {
         ORDER BY (a.status = 'pending') DESC, a.created_at DESC
     `).all()
     const tagsResult = await c.env.DB.prepare("SELECT * FROM tags WHERE status = 'active' ORDER BY name").all()
-    const appTagsResult = await c.env.DB.prepare(`
-        SELECT at.app_id, t.id as tag_id, t.name as tag_name, at.status as app_tag_status
-        FROM app_tags at
-        JOIN tags t ON at.tag_id = t.id
-    `).all()
-    const appTags = appTagsResult.results
-    const appsWithTags = results.map((app: any) => ({
-        ...app,
-        tags: appTags.filter((at: any) => at.app_id === app.id)
-    }))
 
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={appsWithTags as any} availableTags={tagsResult.results as any} siteName={siteName} appConfig={config} />)
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} availableTags={tagsResult.results as any} siteName={siteName} appConfig={config} />)
 })
 
 adminRouter.get('/admin/tags', async (c) => {
@@ -82,32 +72,32 @@ adminRouter.get('/admin/tags', async (c) => {
 
     const tags = await c.env.DB.prepare(`
         SELECT t.*, g.name as owner_group_name,
-               (SELECT COUNT(*) FROM app_tags at WHERE at.tag_id = t.id AND at.status = 'active') as app_count
+               (SELECT COUNT(*) FROM service_tags st WHERE st.tag_id = t.id AND st.status = 'active') as service_count
         FROM tags t
         LEFT JOIN groups g ON t.owner_group_id = g.id
         ORDER BY (t.status = 'pending') DESC, t.created_at DESC
     `).all()
     
-    // Also fetch pending app_tag requests
-    const pendingAppTags = await c.env.DB.prepare(`
-        SELECT at.id, at.app_id, a.name as app_name, t.name as tag_name, g.name as requesting_group_name, at.created_at
-        FROM app_tags at
-        JOIN apps a ON at.app_id = a.id
-        JOIN tags t ON at.tag_id = t.id
-        LEFT JOIN groups g ON at.requesting_group_id = g.id
-        WHERE at.status = 'pending'
-        ORDER BY at.created_at DESC
+    // Also fetch pending service_tag requests
+    const pendingServiceTags = await c.env.DB.prepare(`
+        SELECT st.id, st.service_id, s.name as service_name, t.name as tag_name, g.name as requesting_group_name, st.created_at
+        FROM service_tags st
+        JOIN services s ON st.service_id = s.id
+        JOIN tags t ON st.tag_id = t.id
+        LEFT JOIN groups g ON st.requesting_group_id = g.id
+        WHERE st.status = 'pending'
+        ORDER BY st.created_at DESC
     `).all()
 
-    const allApps = await c.env.DB.prepare(`SELECT id, name FROM apps WHERE status = 'active' ORDER BY name`).all()
-    const appTagsMap = await c.env.DB.prepare(`
-        SELECT at.id, at.tag_id, at.app_id, a.name as app_name, at.status
-        FROM app_tags at
-        JOIN apps a ON at.app_id = a.id
-        ORDER BY a.name
+    const allServices = await c.env.DB.prepare(`SELECT id, name FROM services WHERE status = 'active' ORDER BY name`).all()
+    const serviceTagsMap = await c.env.DB.prepare(`
+        SELECT st.id, st.tag_id, st.service_id, s.name as service_name, st.status
+        FROM service_tags st
+        JOIN services s ON st.service_id = s.id
+        ORDER BY s.name
     `).all()
 
-    return c.html(<TagsPage t={getLang(c)} userEmail={user.email} tags={tags.results as any} pendingAppTags={pendingAppTags.results as any} allApps={allApps.results as any} appTagsMap={appTagsMap.results as any} siteName={siteName} appConfig={config} />)
+    return c.html(<TagsPage t={getLang(c)} userEmail={user.email} tags={tags.results as any} pendingServiceTags={pendingServiceTags.results as any} allServices={allServices.results as any} serviceTagsMap={serviceTagsMap.results as any} siteName={siteName} appConfig={config} />)
 })
 
 adminRouter.post('/admin/tags/create', async (c) => {
@@ -146,51 +136,51 @@ adminRouter.post('/admin/tags/delete', async (c) => {
     if (!user) return c.redirect('/login')
     const id = (await c.req.parseBody())['id'] as string
     await c.env.DB.batch([
-        c.env.DB.prepare('DELETE FROM app_tags WHERE tag_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM service_tags WHERE tag_id = ?').bind(id),
         c.env.DB.prepare('DELETE FROM tags WHERE id = ?').bind(id)
     ])
     return c.redirect('/admin/tags')
 })
 
-adminRouter.post('/admin/tags/app/approve', async (c) => {
+adminRouter.post('/admin/tags/service/approve', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const id = (await c.req.parseBody())['id'] as string
-    await c.env.DB.prepare("UPDATE app_tags SET status = 'active' WHERE id = ?").bind(id).run()
+    await c.env.DB.prepare("UPDATE service_tags SET status = 'active' WHERE id = ?").bind(id).run()
     return c.redirect('/admin/tags')
 })
 
-adminRouter.post('/admin/tags/app/reject', async (c) => {
+adminRouter.post('/admin/tags/service/reject', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const id = (await c.req.parseBody())['id'] as string
-    await c.env.DB.prepare("UPDATE app_tags SET status = 'rejected' WHERE id = ?").bind(id).run()
+    await c.env.DB.prepare("UPDATE service_tags SET status = 'rejected' WHERE id = ?").bind(id).run()
     return c.redirect('/admin/tags')
 })
 
-adminRouter.post('/admin/tags/app/add', async (c) => {
+adminRouter.post('/admin/tags/service/add', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const body = await c.req.parseBody()
-    const appId = body['app_id'] as string
+    const serviceId = body['service_id'] as string
     const tagId = body['tag_id'] as string
     const now = Math.floor(Date.now() / 1000)
     try {
-        await c.env.DB.prepare("INSERT INTO app_tags (app_id, tag_id, status, requesting_group_id, created_at) VALUES (?, ?, 'active', NULL, ?)")
-            .bind(appId, tagId, now).run()
+        await c.env.DB.prepare("INSERT INTO service_tags (service_id, tag_id, status, requesting_group_id, created_at) VALUES (?, ?, 'active', NULL, ?)")
+            .bind(serviceId, tagId, now).run()
     } catch (e: any) {}
-    const ref = c.req.header('referer') || '/admin/apps'
+    const ref = c.req.header('referer') || '/admin/services'
     return c.redirect(ref)
 })
 
-adminRouter.post('/admin/tags/app/remove', async (c) => {
+adminRouter.post('/admin/tags/service/remove', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const body = await c.req.parseBody()
-    const appId = body['app_id'] as string
+    const serviceId = body['service_id'] as string
     const tagId = body['tag_id'] as string
-    await c.env.DB.prepare("DELETE FROM app_tags WHERE app_id = ? AND tag_id = ?").bind(appId, tagId).run()
-    const ref = c.req.header('referer') || '/admin/apps'
+    await c.env.DB.prepare("DELETE FROM service_tags WHERE service_id = ? AND tag_id = ?").bind(serviceId, tagId).run()
+    const ref = c.req.header('referer') || '/admin/services'
     return c.redirect(ref)
 })
 

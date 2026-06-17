@@ -350,15 +350,15 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
         `
       })}
 
-      <!-- アプリタグ管理モーダル -->
+      <!-- サービスタグ管理モーダル -->
       ${Modal({
-        id: 'manage-app-tags-modal',
-        title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">local_offer</span> タグ管理 - <span id="mat-app-name"></span></span>`,
+        id: 'manage-tags-modal',
+        title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">local_offer</span> タグ管理 - <span id="mt-service-name"></span></span>`,
         closeAction: "this.closest('.custom-modal').close()",
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <!-- 現在適用されているタグ -->
-            <div id="mat-applied-tags" style="display:flex; flex-wrap:wrap; gap:0.5rem; padding: 0.75rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; min-height: 50px;">
+            <div id="mt-applied-tags" style="display:flex; flex-wrap:wrap; gap:0.5rem; padding: 0.75rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; min-height: 50px;">
             </div>
 
             <hr style="border:none; border-top:1px solid #cbd5e1; margin: 0.5rem 0;" />
@@ -366,9 +366,9 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
             <!-- システム管理者定義タグの適用 -->
             <div style="font-weight: 600; color: var(--text-main); font-size: 0.95rem;">利用可能なタグ</div>
             <div style="display:flex; gap:0.5rem;">
-              <select id="mat-available-tags" class="${selectInput}" style="flex:1;">
+              <select id="mt-available-tags" class="${selectInput}" style="flex:1;">
               </select>
-              ${Button({ onclick: "applyAppTag()", children: html`<span class="material-symbols-outlined">add</span> 適用`, style: "width:auto;" })}
+              ${Button({ onclick: "applyServiceTag()", children: html`<span class="material-symbols-outlined">add</span> 適用`, style: "width:auto;" })}
             </div>
 
             <div style="margin: 0.5rem 0; font-size:0.85rem; color:#64748b; text-align:center;">または</div>
@@ -376,7 +376,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
             <!-- 独自タグの申請 -->
             <div style="font-weight: 600; color: var(--text-main); font-size: 0.95rem;">独自タグの申請</div>
             <div style="display:flex; gap:0.5rem;">
-              <input type="text" id="mat-custom-tag-name" class="${dateInput}" placeholder="タグ名" style="flex:1;" />
+              <input type="text" id="mt-custom-tag-name" class="${dateInput}" placeholder="タグ名" style="flex:1;" />
               ${Button({ onclick: "requestCustomTag()", children: html`<span class="material-symbols-outlined">send</span> 申請`, style: "width:auto;" })}
             </div>
             <div style="font-size:0.78rem; color:#94a3b8; margin-top:-0.5rem;">※独自タグはシステム管理者の承認が必要です。</div>

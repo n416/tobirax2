@@ -49,8 +49,6 @@ CREATE TABLE IF NOT EXISTS apps (
     -- OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント。値があれば /oidc/logout が
     -- 署名付き logout_token をここへ POST し、RP 側も自身のセッションを破棄できる。
     backchannel_logout_uri TEXT,
-    -- アカウントマネージャ: エンタイトルメント取得先となる対象サービス
-    service_id TEXT REFERENCES services(id),
     -- セルフサービス: このアプリ(クライアント)を申請/所有するグループ。NULL = 運営者が
     -- 直接作った従来のグローバルアプリ。group_admin は自分の管理サブツリーが owner の
     -- アプリだけを操作でき、status='pending' のアプリは運営者の承諾(=status='active')を待つ。
@@ -68,16 +66,16 @@ CREATE TABLE IF NOT EXISTS tags (
     created_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS app_tags (
+CREATE TABLE IF NOT EXISTS service_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    app_id TEXT NOT NULL REFERENCES apps(id),
+    service_id TEXT NOT NULL REFERENCES services(id),
     tag_id TEXT NOT NULL REFERENCES tags(id),
     -- 'active': 紐付け済み, 'pending': 申請待ち, 'rejected': 却下
     status TEXT DEFAULT 'active',
     -- 申請したグループ（NULLの場合はシステム管理者が紐付け）
     requesting_group_id TEXT REFERENCES groups(id),
     created_at INTEGER NOT NULL,
-    UNIQUE(app_id, tag_id)
+    UNIQUE(service_id, tag_id)
 );
 
 CREATE TABLE IF NOT EXISTS groups (

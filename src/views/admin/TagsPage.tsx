@@ -10,9 +10,9 @@ interface Props {
   t: typeof dict.en
   userEmail: string
   tags: any[]
-  pendingAppTags: any[]
-  allApps: any[]
-  appTagsMap: any[]
+  pendingServiceTags: any[]
+  allServices: any[]
+  serviceTagsMap: any[]
   siteName: string
   appConfig: SystemConfig
 }
@@ -84,34 +84,34 @@ export const TagsPage = (props: Props) => {
       <form id="delete-tag-form" method="POST" action="/admin/tags/delete">
         <input type="hidden" name="id" value="" />
       </form>
-      <form id="approve-app-tag-form" method="POST" action="/admin/tags/app/approve">
+      <form id="approve-service-tag-form" method="POST" action="/admin/tags/service/approve">
         <input type="hidden" name="id" value="" />
       </form>
-      <form id="reject-app-tag-form" method="POST" action="/admin/tags/app/reject">
+      <form id="reject-service-tag-form" method="POST" action="/admin/tags/service/reject">
         <input type="hidden" name="id" value="" />
       </form>
-      <form id="add-app-tag-form" method="POST" action="/admin/tags/app/add">
+      <form id="add-service-tag-form" method="POST" action="/admin/tags/service/add">
         <input type="hidden" name="tag_id" value="" />
-        <input type="hidden" name="app_id" value="" />
+        <input type="hidden" name="service_id" value="" />
       </form>
-      <form id="remove-app-tag-form" method="POST" action="/admin/tags/app/remove">
-        <input type="hidden" name="app_id" value="" />
+      <form id="remove-service-tag-form" method="POST" action="/admin/tags/service/remove">
+        <input type="hidden" name="service_id" value="" />
         <input type="hidden" name="tag_id" value="" />
       </form>
 
-      ${props.pendingAppTags.length > 0 ? html`
-          <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.25rem;">アプリへのタグ付け申請 (承認待ち)</h3>
+      ${props.pendingServiceTags.length > 0 ? html`
+          <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.25rem;">サービスへのタグ付け申請 (承認待ち)</h3>
           <div class="${listGrid}" style="margin-bottom: 2rem;">
-            ${props.pendingAppTags.map((at: any) => html`
+            ${props.pendingServiceTags.map((at: any) => html`
               <div class="${listCard}">
                 <div style="font-weight: 600; color: #1e293b;">タグ: ${at.tag_name}</div>
-                <div style="font-size: 0.85rem; color: #475569;">アプリ: ${at.app_name}</div>
+                <div style="font-size: 0.85rem; color: #475569;">サービス: ${at.service_name}</div>
                 <div style="font-size: 0.85rem; color: #475569;">申請元グループ: ${at.requesting_group_name || '-'}</div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
-                    <button type="button" onclick="document.getElementById('approve-app-tag-form').querySelector('input[name=id]').value='${at.id}'; document.getElementById('approve-app-tag-form').submit();" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                    <button type="button" onclick="document.getElementById('approve-service-tag-form').querySelector('input[name=id]').value='${at.id}'; document.getElementById('approve-service-tag-form').submit();" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                         ${t.btn_approve || 'Approve'}
                     </button>
-                    <button type="button" onclick="document.getElementById('reject-app-tag-form').querySelector('input[name=id]').value='${at.id}'; document.getElementById('reject-app-tag-form').submit();" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                    <button type="button" onclick="document.getElementById('reject-service-tag-form').querySelector('input[name=id]').value='${at.id}'; document.getElementById('reject-service-tag-form').submit();" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                         ${t.btn_reject || 'Reject'}
                     </button>
                 </div>
@@ -131,7 +131,7 @@ export const TagsPage = (props: Props) => {
                         ${tag.name}
                     </div>
                     ${tag.owner_group_name ? html`<div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">申請元: ${tag.owner_group_name}</div>` : ''}
-                    <div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">紐付け先アプリ数: ${tag.app_count}</div>
+                    <div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">紐付け先サービス数: ${tag.app_count}</div>
                 </div>
                 <div>
                     ${tag.status === 'pending'
@@ -160,30 +160,30 @@ export const TagsPage = (props: Props) => {
             
             ${tag.status === 'active' ? html`
             <details style="margin-top: 0.5rem; border-top: 1px dashed #cbd5e1; padding-top: 0.5rem;">
-                <summary style="font-size: 0.85rem; color: #4f46e5; cursor: pointer; font-weight: 600;">紐付けアプリ管理</summary>
+                <summary style="font-size: 0.85rem; color: #4f46e5; cursor: pointer; font-weight: 600;">紐付けサービス管理</summary>
                 <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
-                    <!-- 適用済みのアプリ一覧 -->
+                    <!-- 適用済みのサービス一覧 -->
                     <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
-                    ${props.appTagsMap.filter((at:any) => at.tag_id === tag.id).length === 0 ? html`<span style="font-size:0.75rem; color:#94a3b8;">紐付けされているアプリはありません</span>` : ''}
-                    ${props.appTagsMap.filter((at:any) => at.tag_id === tag.id).map((at:any) => html`
+                    ${props.serviceTagsMap.filter((at:any) => at.tag_id === tag.id).length === 0 ? html`<span style="font-size:0.75rem; color:#94a3b8;">紐付けされているサービスはありません</span>` : ''}
+                    ${props.serviceTagsMap.filter((at:any) => at.tag_id === tag.id).map((at:any) => html`
                         <span style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.75rem; padding:2px 6px; border-radius:999px; background:${at.status === 'active' ? '#f1f5f9' : '#fff7ed'}; color:#334155; border:1px solid #cbd5e1;">
-                            ${at.app_name} ${at.status === 'pending' ? '(申請中)' : ''}
-                            <button type="button" onclick="if(confirm('このアプリからタグを外しますか？')) { document.getElementById('remove-app-tag-form').querySelector('input[name=app_id]').value='${at.app_id}'; document.getElementById('remove-app-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-app-tag-form').submit(); }" style="background:none; border:none; color:#94a3b8; cursor:pointer; padding:0; font-size:1rem; line-height:1;">×</button>
+                            ${at.service_name} ${at.status === 'pending' ? '(申請中)' : ''}
+                            <button type="button" onclick="if(confirm('このサービスからタグを外しますか？')) { document.getElementById('remove-service-tag-form').querySelector('input[name=service_id]').value='${at.service_id}'; document.getElementById('remove-service-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-service-tag-form').submit(); }" style="background:none; border:none; color:#94a3b8; cursor:pointer; padding:0; font-size:1rem; line-height:1;">×</button>
                         </span>
                     `)}
                     </div>
                     
-                    <!-- アプリの追加 -->
+                    <!-- サービスの追加 -->
                     <div style="display:flex; gap:0.25rem; margin-top: 0.25rem;">
-                        <select id="sel-app-${tag.id}" style="flex:1; padding:0.25rem; font-size:0.8rem; border-radius:4px; border:1px solid #cbd5e1;">
-                            <option value="">アプリを選択して追加...</option>
-                            ${props.allApps.map((a:any) => {
-                                const isLinked = props.appTagsMap.some((at:any) => at.tag_id === tag.id && at.app_id === a.id);
+                        <select id="sel-service-${tag.id}" style="flex:1; padding:0.25rem; font-size:0.8rem; border-radius:4px; border:1px solid #cbd5e1;">
+                            <option value="">サービスを選択して追加...</option>
+                            ${props.allServices.map((a:any) => {
+                                const isLinked = props.serviceTagsMap.some((at:any) => at.tag_id === tag.id && at.service_id === a.id);
                                 if (isLinked) return '';
                                 return html`<option value="${a.id}">${a.name}</option>`
                             })}
                         </select>
-                        <button type="button" onclick="const appVal = document.getElementById('sel-app-${tag.id}').value; if(appVal){ document.getElementById('add-app-tag-form').querySelector('input[name=tag_id]').value='${tag.id}'; document.getElementById('add-app-tag-form').querySelector('input[name=app_id]').value=appVal; document.getElementById('add-app-tag-form').submit(); }" style="background:#4f46e5; color:white; border:none; border-radius:4px; padding:0 0.5rem; font-size:0.8rem; cursor:pointer;">追加</button>
+                        <button type="button" onclick="const srvVal = document.getElementById('sel-service-${tag.id}').value; if(srvVal){ document.getElementById('add-service-tag-form').querySelector('input[name=tag_id]').value='${tag.id}'; document.getElementById('add-service-tag-form').querySelector('input[name=service_id]').value=srvVal; document.getElementById('add-service-tag-form').submit(); }" style="background:#4f46e5; color:white; border:none; border-radius:4px; padding:0 0.5rem; font-size:0.8rem; cursor:pointer;">追加</button>
                     </div>
                 </div>
             </details>

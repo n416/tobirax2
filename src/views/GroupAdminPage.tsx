@@ -84,7 +84,7 @@ interface Props {
   approvedAppsByGroup: Record<string, { id: string; name: string }[]>
   devStatuses?: Record<string, { status: string; reason: string | null; admin_reason?: string | null }>
   apps: App[]
-  appTagsByGroup: Record<string, any[]>
+  serviceTagsByGroup: Record<string, any[]>
   customTagsByGroup: Record<string, any[]>
   availableTags: any[]
 }
@@ -115,7 +115,7 @@ export const GroupAdminPage = (props: Props) => {
   const appsByGroupJson = JSON.stringify(props.appsByGroup)
   const approvedAppsByGroupJson = JSON.stringify(props.approvedAppsByGroup)
   const devStatusesJson = JSON.stringify(props.devStatuses || {})
-  const appTagsByGroupJson = JSON.stringify(props.appTagsByGroup || {})
+  const serviceTagsByGroupJson = JSON.stringify(props.serviceTagsByGroup || {})
   const customTagsByGroupJson = JSON.stringify(props.customTagsByGroup || {})
   const availableTagsJson = JSON.stringify(props.availableTags || [])
 
@@ -513,7 +513,7 @@ export const GroupAdminPage = (props: Props) => {
       <script type="application/json" id="ga-apps-data">${raw(appsByGroupJson)}</script>
       <script type="application/json" id="ga-approved-apps-data">${raw(approvedAppsByGroupJson)}</script>
       <script type="application/json" id="ga-dev-status-data">${raw(devStatusesJson)}</script>
-      <script type="application/json" id="ga-app-tags-data">${raw(appTagsByGroupJson)}</script>
+      <script type="application/json" id="ga-service-tags-data">${raw(serviceTagsByGroupJson)}</script>
       <script type="application/json" id="ga-custom-tags-data">${raw(customTagsByGroupJson)}</script>
       <script type="application/json" id="ga-available-tags-data">${raw(availableTagsJson)}</script>
       <script>

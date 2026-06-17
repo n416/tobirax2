@@ -136,7 +136,7 @@ VALUES
   ('tag-beta', 'ベータ版', 'active', NULL, 1700000000),
   ('tag-dev', '開発部門推奨', 'active', 'g-middle', 1700000000);
 
-INSERT INTO app_tags (app_id, tag_id, status, requesting_group_id, created_at)
+INSERT INTO service_tags (service_id, tag_id, status, requesting_group_id, created_at)
 VALUES 
-  ('app-user-reg', 'tag-official', 'active', NULL, 1700000000),
-  ('app-wiki', 'tag-dev', 'active', 'g-middle', 1700000000);
+  ('svc-portal', 'tag-official', 'active', NULL, 1700000000),
+  ('svc-portal', 'tag-dev', 'active', 'g-middle', 1700000000);
