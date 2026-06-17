@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "demo:setup": "npx tsx scripts/setup-demo.ts",
+    "db:clear": "npx tsx scripts/clear-db.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

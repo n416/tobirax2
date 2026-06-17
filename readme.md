@@ -61,18 +61,15 @@ resolved at `/userinfo`.
 
 ## 🛠️ Quick Start (local)
 
+To easily set up a local testing environment populated with rich demo data (including hierarchical groups, apps, and services), use the demo setup script.
+
 ```bash
 npm install
-
-# 1. Create the local D1 schema
-npx wrangler d1 execute tobira-mock-db --local --file ./schema.sql
-
-# 2. Create an admin user (choose [1] Local at the prompt)
-npx tsx scripts/manage-admin.ts create admin@example.com mypassword
-
-# 3. Run
-npm run dev   # -> http://localhost:8787/login
+npm run demo:setup  # Resets local DB and inserts demo data
+npm run dev         # -> http://localhost:8787/login
 ```
+
+> **Note**: For details on the demo environment, including the list of pre-configured demo accounts and how to run the demo OIDC client, please see **[DEMO_ja.md](DEMO_ja.md)** (in Japanese).
 
 In local dev the signing-key encryption falls back to a fixed insecure KEK, so no
 secrets are required to get started.
@@ -120,9 +117,7 @@ shown in the edit modal. For a SPA / native client, open the edit modal and clic
 Grant the user (or their group) permission to the app, or `/authorize` returns
 `access_denied`.
 
-A complete, runnable OIDC client (Cloudflare Workers, no SDK) lives in
-[`examples/cf-demo`](examples/cf-demo) — it performs the Authorization Code flow
-and verifies the `id_token` against this IdP's JWKS.
+For instructions on running a complete OIDC client example (Cloudflare Workers, no SDK) to test the flow against this IdP, please refer to **[DEMO_ja.md](DEMO_ja.md)**.
 
 ---
 

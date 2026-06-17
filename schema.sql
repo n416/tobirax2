@@ -190,11 +190,32 @@ CREATE TABLE IF NOT EXISTS group_memberships (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    TEXT NOT NULL REFERENCES users(id),
     group_id   TEXT NOT NULL REFERENCES groups(id),
-    role       TEXT NOT NULL DEFAULT 'member',   -- 'group_admin' / 'member'(グループの権限)
+    role       TEXT NOT NULL DEFAULT 'member',
     valid_from INTEGER NOT NULL,
     valid_to   INTEGER NOT NULL,
+    developer_status TEXT NOT NULL DEFAULT 'none',
+    developer_reason TEXT,
+    is_group_admin INTEGER NOT NULL DEFAULT 0,
+    is_billing_admin INTEGER NOT NULL DEFAULT 0,
+    is_developer INTEGER NOT NULL DEFAULT 0,
     UNIQUE(user_id, group_id)
 );
+
+-- 【権限申請フロー】メンバーが不足している権限を申請する
+CREATE TABLE IF NOT EXISTS role_applications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT NOT NULL REFERENCES users(id),
+    group_id    TEXT NOT NULL REFERENCES groups(id),
+    role_type   TEXT NOT NULL,                       -- 'group_admin' / 'billing_admin' / 'developer'
+    status      TEXT NOT NULL DEFAULT 'pending',     -- 'pending' / 'approved' / 'rejected'
+    reason      TEXT,                                -- 申請理由
+    admin_reason TEXT,                               -- 承認/却下理由
+    approver_id TEXT,                                -- 処理したユーザー
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_role_applications_group_status ON role_applications(group_id, status);
+CREATE INDEX IF NOT EXISTS idx_role_applications_user ON role_applications(user_id);
 
 -- 【グループ開発者申請】グループ管琁E老EE開発者権限の申請状態
 CREATE TABLE IF NOT EXISTS group_developer_applications (

@@ -62,18 +62,15 @@
 
 ## 🛠️ クイックスタート（ローカル）
 
+デモ環境の構築や、豊富なデモデータ（階層グループやサービス・アプリ等）を用いたテストを行うには、一発構築スクリプトを利用します。
+
 ```bash
 npm install
-
-# 1. ローカル D1 にスキーマを作成
-npx wrangler d1 execute tobira-mock-db --local --file ./schema.sql
-
-# 2. 管理者を作成（プロンプトで [1] Local を選択）
-npx tsx scripts/manage-admin.ts create admin@example.com mypassword
-
-# 3. 起動
-npm run dev   # -> http://localhost:8787/login
+npm run demo:setup  # DB初期化とデモデータ投入
+npm run dev         # -> http://localhost:8787/login
 ```
+
+> **注意**: デモ用のアカウント一覧や詳細な検証方法、およびデモアプリ（OIDC クライアント）の実行手順については、[DEMO_ja.md](DEMO_ja.md) を参照してください。
 
 ローカル開発では署名鍵の暗号化が固定の（安全でない）KEKにフォールバックするため、
 シークレット無しでもすぐ動かせます。
@@ -121,9 +118,7 @@ npm run deploy
 ユーザー（またはそのグループ）にアプリへの権限を付与してください。さもないと
 `/authorize` は `access_denied` を返します。
 
-SDK を使わない完全動作する OIDC クライアント例（Cloudflare Workers 製）が
-[`examples/cf-demo`](examples/cf-demo) にあります。Authorization Code フローを実行し、
-この IdP の JWKS で `id_token` を検証します。
+SDK を使わない完全動作する OIDC クライアント例（Cloudflare Workers 製）による動作確認手順は、[DEMO_ja.md](DEMO_ja.md) に記載されています。
 
 ---
 
