@@ -232,6 +232,7 @@ export const AccountGroupsPage = (props: Props) => {
 
                  <div id="tab-facilities" style="display:none;">
                      <div class="${addFormCard}">
+                        <div style="font-weight:bold; margin-bottom:1rem; color:#475569;">新規施設の登録</div>
                         <div style="margin-bottom: 1.5rem;">
                            <label class="${formLabel}">構造物番号/施設名 (Structure No. / Name)</label>
                            <input type="text" id="f-structure-no" class="${dateInput}" placeholder="F-12345" />
@@ -240,7 +241,27 @@ export const AccountGroupsPage = (props: Props) => {
                            <label class="${formLabel}">用途 (Use)</label>
                            <input type="text" id="f-building-use" class="${dateInput}" placeholder="Office" />
                         </div>
-                        ${Button({ onclick: "addFacility()", children: html`<span class="material-symbols-outlined">add_business</span> <span>追加</span>` })}
+                        ${Button({ onclick: "addFacility()", children: html`<span class="material-symbols-outlined">add_business</span> <span>新規追加</span>` })}
+
+                        <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e2e8f0;" />
+
+                        <div style="font-weight:bold; margin-bottom:1rem; color:#475569;">既存施設の管轄移動</div>
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">移動元のグループ (Source Group)</label>
+                           <div class="${tomSelectWrapper} searchable" style="margin-bottom:0;">
+                             <select id="f-move-source-group" class="tom-select" placeholder="グループを選択...">
+                                <option value=""></option>
+                                ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+                             </select>
+                           </div>
+                        </div>
+                        <div style="margin-bottom: 1.5rem;">
+                           <label class="${formLabel}">移動する施設 (Select Facility)</label>
+                           <select id="f-move-id" class="tom-select" placeholder="施設を選択...">
+                              <option value=""></option>
+                           </select>
+                        </div>
+                        ${Button({ onclick: "moveFacility()", children: html`<span class="material-symbols-outlined">drive_file_move</span> <span>このグループへ移動</span>` })}
                      </div>
 
                      <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">${t.am_section_facilities || '施設一覧'}</h4>

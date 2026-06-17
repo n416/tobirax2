@@ -102,7 +102,15 @@ groupAdminRouter.get('/group-admin', async (c) => {
     }
 
     // 全ユーザー（メンバー追加候補）
-    const { results: allUsers } = await c.env.DB.prepare('SELECT id, email, name FROM users ORDER BY email').all()
+    // 個人情報保護のため、自身が管理権限を持つグループ（およびその配下）に既に所属しているユーザーのみを選択可能とする。
+    const groupIdsStr = groupIds.length > 0 ? groupIds.map(() => '?').join(',') : "''";
+    const { results: allUsers } = await c.env.DB.prepare(`
+        SELECT DISTINCT u.id, u.email, u.name 
+        FROM users u
+        JOIN group_memberships m ON u.id = m.user_id
+        WHERE m.group_id IN (${groupIdsStr})
+        ORDER BY u.email
+    `).bind(...groupIds).all()
 
     // グループ別メンバー一覧
     const membersByGroup: Record<string, any[]> = {}
@@ -184,7 +192,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
     }
     const { results: allFacilities } = await c.env.DB.prepare('SELECT id, structure_no, building_use, managing_group_id FROM facilities').all()
     const facilities = (allFacilities as any[]).filter(f => managedIds.has(f.managing_group_id))
-    const { results: allRoles } = await c.env.DB.prepare('SELECT id, service_id, facility_type, role_name FROM service_role_master ORDER BY role_name').all()
+    const { results: allRoles } = await c.env.DB.prepare('SELECT id, service_id, facility_type, role_code, role_name FROM service_role_master ORDER BY role_name').all()
     const rolesByService: Record<string, any[]> = {}
     for (const r of allRoles as any[]) {
         if (!rolesByService[r.service_id]) rolesByService[r.service_id] = []
@@ -383,11 +391,11 @@ groupAdminRouter.post('/group-admin/api/assignment/add', async (c) => {
     const groupId = body['group_id'] as string
     const userId = body['user_id'] as string
     const serviceId = body['service_id'] as string
-    const facilityId = body['facility_id'] as string
-    const roleId = Number(body['service_role_id'])
+    const facilityId = body['facility_id'] ? (body['facility_id'] as string) : null
+    const roleId = body['service_role_id'] != null && body['service_role_id'] !== '' ? Number(body['service_role_id']) : null
     const validFrom = Number(body['valid_from'])
     const validTo = Number(body['valid_to'])
-    if (!userId || !groupId || !serviceId || !facilityId || !roleId) return c.json({ error: 'missing fields' }, 400)
+    if (!userId || !groupId || !serviceId) return c.json({ error: 'missing fields' }, 400)
     const managed = await getManagedGroupIds(c, user.id)
     if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
     const res = await createAssignment(c, { userId, groupId, serviceId, facilityId, roleId, validFrom, validTo })
@@ -436,10 +444,16 @@ groupAdminRouter.post('/group-admin/api/grant/add', async (c) => {
         const tg = await c.env.DB.prepare('SELECT parent_id FROM groups WHERE id = ?').bind(groupId).first() as { parent_id: string | null } | null
         if (!tg || tg.parent_id !== contextGroupId) return c.json({ error: 'Forbidden' }, 403)
     }
-    // 契約から service_id を引きつつ、契約の顧客組織も自分の決済サブツリー内か検証する。
+    // 契約から service_id と customer_group_id を引く。
     const ct = await c.env.DB.prepare('SELECT service_id, customer_group_id, seat_limit FROM service_contracts WHERE id = ?').bind(contractId).first() as { service_id: string; customer_group_id: string; seat_limit: number | null } | null
     if (!ct) return c.json({ error: 'contract not found' }, 404)
-    if (!billing.has(ct.customer_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    
+    // ルート枠の開放の場合のみ、顧客組織の決済権限を要求する。
+    // 子枠の場合は上で contextGroupId の決済権限を検証済み。
+    const isRootGrant = (groupId === ct.customer_group_id);
+    if (isRootGrant && !billing.has(ct.customer_group_id)) {
+        return c.json({ error: 'Forbidden' }, 403)
+    }
 
     // ルート・子枠に関わらず、上限枠数(seat_limit)を必須とする(null/不正は不可)。
     if (seatLimit == null || !Number.isFinite(seatLimit) || seatLimit < 0) {
@@ -541,8 +555,7 @@ groupAdminRouter.post('/group-admin/api/service/create', async (c) => {
     // サービスは承認待ち(pending)で作成。承認済みアプリを組み込んでから運営者が承認する。
     await c.env.DB.prepare("INSERT INTO services (id, provider_id, name, created_at, owner_group_id, status) VALUES (?, ?, ?, ?, ?, 'pending')")
         .bind(id, providerId, name, Math.floor(Date.now() / 1000), groupId).run()
-    // 割当用にデフォルトの「一般利用」役割を自動作成する
-    await c.env.DB.prepare("INSERT INTO service_role_master (service_id, role_code, role_name) VALUES (?, 'general', '一般利用')").bind(id).run()
+
     await logAudit(c, 'DELEGATED_SERVICE_CREATE', { key: 'log_service_add', params: { name, admin: user.email } })
     return c.json({ success: true, id })
 })
@@ -853,3 +866,149 @@ groupAdminRouter.post('/group-admin/api/app/delete', async (c) => {
     await logAudit(c, 'DELEGATED_APP_DELETE', { key: 'log_app_deleted', params: { id, admin: user.email } })
     return c.json({ success: true })
 })
+
+// ============================================================
+// 委任管理: 施設の管理
+// ============================================================
+
+groupAdminRouter.get('/group-admin/api/group-facilities/:id', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const id = c.req.param('id')
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(id)) return c.json({ error: 'Forbidden' }, 403)
+    const facilities = await c.env.DB.prepare('SELECT * FROM facilities WHERE managing_group_id = ? ORDER BY structure_no').bind(id).all()
+    return c.json({ facilities: facilities.results })
+})
+
+groupAdminRouter.get('/group-admin/api/facilities/all', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const managed = await getManagedGroupIds(c, user.id)
+    
+    const facilities = await c.env.DB.prepare(`
+        SELECT f.id, f.structure_no, f.building_use, f.managing_group_id, g.name AS group_name 
+        FROM facilities f 
+        LEFT JOIN groups g ON f.managing_group_id = g.id 
+        ORDER BY f.structure_no
+    `).all()
+    
+    // 管轄サブツリー内の施設のみを返す
+    const filtered = (facilities.results as any[]).filter(f => managed.has(f.managing_group_id))
+    return c.json(filtered)
+})
+
+groupAdminRouter.post('/group-admin/api/facility/add', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const groupId = body['managing_group_id'] as string
+    const no = (body['structure_no'] as string) || null
+    const use = (body['building_use'] as string) || null
+    if (!groupId) return c.json({ error: 'managing_group_id required' }, 400)
+    
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+    
+    const id = 'fac-' + crypto.randomUUID()
+    await c.env.DB.prepare('INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(id, no, use, groupId, Math.floor(Date.now() / 1000)).run()
+        
+    await logAudit(c, 'DELEGATED_FACILITY_ADD', { key: 'log_facility_add', params: { structure_no: no || id, admin: user.email } })
+    return c.json({ success: true, id })
+})
+
+groupAdminRouter.post('/group-admin/api/facility/move', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const facilityId = body['facility_id'] as string
+    const targetGroupId = body['managing_group_id'] as string
+    
+    if (!facilityId || !targetGroupId) return c.json({ error: 'missing fields' }, 400)
+    
+    const managed = await getManagedGroupIds(c, user.id)
+    
+    // 移動先の権限チェック
+    if (!managed.has(targetGroupId)) return c.json({ error: 'Forbidden (Target group)' }, 403)
+    
+    // 移動元の権限チェック
+    const fac = await c.env.DB.prepare('SELECT managing_group_id, structure_no FROM facilities WHERE id = ?').bind(facilityId).first() as { managing_group_id: string; structure_no: string | null } | null
+    if (!fac) return c.json({ error: 'Not found' }, 404)
+    if (!managed.has(fac.managing_group_id)) return c.json({ error: 'Forbidden (Source group)' }, 403)
+    
+    await c.env.DB.prepare('UPDATE facilities SET managing_group_id = ? WHERE id = ?').bind(targetGroupId, facilityId).run()
+    
+    await logAudit(c, 'DELEGATED_FACILITY_MOVE', { key: 'log_facility_move', params: { structure_no: fac.structure_no || facilityId, admin: user.email } })
+    return c.json({ success: true, moved: true })
+})
+
+groupAdminRouter.post('/group-admin/api/facility/remove', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const id = body['id'] as string
+    
+    const fac = await c.env.DB.prepare('SELECT managing_group_id, structure_no FROM facilities WHERE id = ?').bind(id).first() as { managing_group_id: string; structure_no: string | null } | null
+    if (!fac) return c.json({ error: 'Not found' }, 404)
+    
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(fac.managing_group_id)) return c.json({ error: 'Forbidden' }, 403)
+    
+    // 制約: 割当(service_user_assignments)に使われている施設は消せない（FK制約があるため手動チェック）
+    const usage = await c.env.DB.prepare('SELECT 1 FROM service_user_assignments WHERE facility_id = ? LIMIT 1').bind(id).first()
+    if (usage) return c.json({ error: 'Cannot delete facility in use by an assignment' }, 400)
+    
+    await c.env.DB.prepare('DELETE FROM facilities WHERE id = ?').bind(id).run()
+    
+    await logAudit(c, 'DELEGATED_FACILITY_REMOVE', { key: 'log_facility_remove', params: { structure_no: fac.structure_no || id, admin: user.email } })
+    return c.json({ success: true })
+})
+
+// ============================================================
+// 委任管理: 役割の管理
+// ============================================================
+
+groupAdminRouter.post('/group-admin/api/roles/add', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const serviceId = body['service_id'] as string
+    const roleCode = ((body['role_code'] as string) || '').trim()
+    const roleName = ((body['role_name'] as string) || '').trim()
+    const facilityType = ((body['facility_type'] as string) || '').trim() || null
+
+    if (!serviceId || !roleCode || !roleName) return c.json({ error: 'missing fields' }, 400)
+
+    const managed = await getManagedGroupIds(c, user.id)
+    const svc = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(serviceId).first() as { owner_group_id: string | null } | null
+    if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+
+    await c.env.DB.prepare('INSERT INTO service_role_master (service_id, facility_type, role_code, role_name) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING')
+        .bind(serviceId, facilityType, roleCode, roleName).run()
+    
+    await logAudit(c, 'DELEGATED_ROLE_ADD', { key: 'log_role_add', params: { serviceId, roleCode, admin: user.email } })
+    return c.json({ success: true })
+})
+
+groupAdminRouter.post('/group-admin/api/roles/remove', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const id = (await c.req.json())['id']
+
+    const rm = await c.env.DB.prepare('SELECT service_id FROM service_role_master WHERE id = ?').bind(id).first<{ service_id: string }>()
+    if (!rm) return c.json({ error: 'Not found' }, 404)
+    
+    const managed = await getManagedGroupIds(c, user.id)
+    const svc = await c.env.DB.prepare('SELECT owner_group_id FROM services WHERE id = ?').bind(rm.service_id).first() as { owner_group_id: string | null } | null
+    if (!svc || !svc.owner_group_id || !managed.has(svc.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+
+    // 制約: 割当に使われている役割は消せない
+    const usage = await c.env.DB.prepare('SELECT 1 FROM service_user_assignments WHERE service_role_id = ? LIMIT 1').bind(id).first()
+    if (usage) return c.json({ error: 'Cannot delete role in use by an assignment' }, 400)
+
+    await c.env.DB.prepare('DELETE FROM service_role_master WHERE id = ?').bind(id).run()
+
+    await logAudit(c, 'DELEGATED_ROLE_REMOVE', { key: 'log_role_remove', params: { id, admin: user.email } })
+    return c.json({ success: true })
+})

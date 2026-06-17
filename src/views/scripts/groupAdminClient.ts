@@ -158,6 +158,7 @@ export const groupAdminClientScript = '(' + function() {
         renderPerms();
         renderServices();
         renderApps();
+        if (typeof renderFacilities === 'function') renderFacilities();
         if (typeof renderDeveloperUI === 'function') renderDeveloperUI();
       }
 
@@ -461,14 +462,15 @@ export const groupAdminClientScript = '(' + function() {
           return;
         }
         el.innerHTML = list.map(function(a) {
-          var facility = a.structure_no || a.facility_id;
+          var facility = a.structure_no || a.facility_id || '-';
           if (a.building_use) facility += ' (' + a.building_use + ')';
+          var roleName = a.role_name || '-';
           var user = a.user_name || a.user_email;
           return '<tr>'
             + '<td>' + user + (a.user_name ? '<div style="font-size:0.8rem;color:#94a3b8;">' + a.user_email + '</div>' : '') + '</td>'
             + '<td style="font-size:0.88rem;">' + a.service_name + '</td>'
             + '<td style="font-size:0.85rem; color:#64748b;">' + facility + '</td>'
-            + '<td style="font-size:0.85rem;">' + a.role_name + '</td>'
+            + '<td style="font-size:0.85rem;">' + roleName + '</td>'
             + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(a.valid_from) + ' ～ ' + fmt(a.valid_to) + '</td>'
             + '<td style="text-align:right;"><button type="button" onclick="removeAssignment(' + a.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
             + '</tr>';
@@ -524,6 +526,130 @@ export const groupAdminClientScript = '(' + function() {
             renderMembers();
           })
           .catch(function(e) { console.error('Error: ' + e.message); });
+      };
+
+      // ==========================
+      // 施設の管理 (Facilities)
+      // ==========================
+
+      var tsControlMoveFacility = null;
+
+      window.loadAllFacilitiesForMove = function(groupIdToExclude) {
+          fetch('/group-admin/api/facilities/all')
+              .then(function(r) { return r.json(); })
+              .then(function(facs) {
+                  var selEl = document.getElementById('f-move-id');
+                  if (!selEl) return;
+                  var filtered = facs.filter(function(f) { return f.managing_group_id !== groupIdToExclude; });
+                  
+                  if (!tsControlMoveFacility && typeof TomSelect !== 'undefined') {
+                      tsControlMoveFacility = new TomSelect('#f-move-id', {
+                          valueField: 'id',
+                          labelField: 'label',
+                          searchField: ['label'],
+                          options: filtered.map(function(f) {
+                              var gName = f.group_name || 'Unknown Group';
+                              var lbl = (f.structure_no || f.id) + (f.building_use ? ' (' + f.building_use + ')' : '') + ' - [' + gName + ']';
+                              return { id: f.id, label: lbl };
+                          }),
+                          create: false,
+                          placeholder: '施設を選択...'
+                      });
+                  } else if (tsControlMoveFacility) {
+                      tsControlMoveFacility.clearOptions();
+                      tsControlMoveFacility.addOptions(filtered.map(function(f) {
+                          var gName = f.group_name || 'Unknown Group';
+                          var lbl = (f.structure_no || f.id) + (f.building_use ? ' (' + f.building_use + ')' : '') + ' - [' + gName + ']';
+                          return { id: f.id, label: lbl };
+                      }));
+                      tsControlMoveFacility.refreshOptions(false);
+                  }
+              })
+              .catch(function(e) { console.error('Failed to load facilities for move', e); });
+      };
+
+      window.renderFacilities = function() {
+        if (!currentGroupId) return;
+        
+        // 移動用プルダウンの更新
+        if (window.loadAllFacilitiesForMove) {
+            window.loadAllFacilitiesForMove(currentGroupId);
+        }
+
+        var el = document.getElementById('facilities-table-body');
+        if (!el) return;
+        
+        var list = (facilities || []).filter(function(f) { return f.managing_group_id === currentGroupId; });
+        
+        if (list.length === 0) {
+          el.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#94a3b8; padding:2rem;">登録されている施設はありません</td></tr>';
+          return;
+        }
+        
+        el.innerHTML = list.map(function(f) {
+          var fNo = f.structure_no || f.id;
+          var fUse = f.building_use || '—';
+          return '<tr>'
+            + '<td>' + fNo + '</td>'
+            + '<td>' + fUse + '</td>'
+            + '<td style="text-align:right;">'
+            + '<button type="button" onclick="removeFacility(' + "'" + f.id + "'" + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=' + "'#fef2f2'" + ';this.style.color=' + "'#ef4444'" + ';" onmouseout="this.style.background=' + "'transparent'" + ';this.style.color=' + "'#94a3b8'" + ';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>'
+            + '</td>'
+            + '</tr>';
+        }).join('');
+      };
+
+      window.addFacility = function() {
+          if (!currentGroupId) return;
+          var sno = document.getElementById('f-structure-no').value;
+          var use = document.getElementById('f-building-use').value;
+          fetch('/group-admin/api/facility/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ managing_group_id: currentGroupId, structure_no: sno, building_use: use })
+          })
+          .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(data) {
+              if (data.error) throw new Error(data.error);
+              window.location.reload();
+          })
+          .catch(function(e) { console.error('Error:', e.message); });
+      };
+
+      window.moveFacility = function() {
+          if (!currentGroupId) return;
+          var fid = tsControlMoveFacility ? tsControlMoveFacility.getValue() : document.getElementById('f-move-id').value;
+          if (!fid) return;
+          fetch('/group-admin/api/facility/move', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ facility_id: fid, managing_group_id: currentGroupId })
+          })
+          .then(function(r) { if (!r.ok) throw new Error('Error ' + r.status); return r.json(); })
+          .then(function(data) {
+              if (data.error) throw new Error(data.error);
+              window.location.reload();
+          })
+          .catch(function(e) { console.error('Error:', e.message); });
+      };
+
+      window.removeFacility = function(fid) {
+          showConfirm('この施設を削除しますか？\n※すでに割当等で利用されている場合は削除できません。', function() {
+              fetch('/group-admin/api/facility/remove', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: fid })
+              })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                  if (data.error) {
+                      alert('エラー: ' + data.error);
+                  } else {
+                      window.location.reload();
+                  }
+              })
+              .catch(function(e) { console.error('Error:', e.message); });
+          });
       };
 
       window.addMember = function() {
@@ -615,7 +741,7 @@ export const groupAdminClientScript = '(' + function() {
         var roles = (serviceId && rolesByService) ? (rolesByService[serviceId] || []) : [];
         // 役割マスタは facility_type=NULL(全種別) か、選択建物の用途に一致するものだけ出す。
         var filtered = roles.filter(function(r) { return r.facility_type == null || r.facility_type === buildingUse; });
-        fillSelect(roleEl, filtered.map(function(r){ return { id: r.id, role_name: r.role_name }; }), 'id', 'role_name', window.i18n.selectRole || '役割を選択');
+        fillSelect(roleEl, filtered.map(function(r){ return { id: r.id, role_name: r.role_name }; }), 'id', 'role_name', '役割なし (None)');
       };
 
       window.openAssignModal = function() {
@@ -627,9 +753,9 @@ export const groupAdminClientScript = '(' + function() {
         fillSelect(document.getElementById('a-user'), members.map(function(x){ return { user_id: x.user_id, label: (x.name ? x.name + ' <' + x.email + '>' : x.email) }; }), 'user_id', 'label', window.i18n.selectUser || '利用者を選択');
         fillSelect(document.getElementById('a-service'), grants, 'service_id', 'service_name', window.i18n.selectService || 'サービスを選択');
         var facList = (facilities || []).map(function(f){ var lbl = (f.structure_no || f.id) + (f.building_use ? ' (' + f.building_use + ')' : ''); return { id: f.id, label: lbl }; });
-        fillSelect(document.getElementById('a-facility'), facList, 'id', 'label', window.i18n.selectFacility || '施設を選択');
+        fillSelect(document.getElementById('a-facility'), facList, 'id', 'label', '施設指定なし (No facility)');
         var roleEl = document.getElementById('a-role');
-        if (roleEl) roleEl.innerHTML = '<option value="">' + (window.i18n.selectRole || '役割を選択') + '</option>';
+        if (roleEl) roleEl.innerHTML = '<option value="">役割なし (None)</option>';
         var vf = document.getElementById('a-valid-from'); if (vf) vf.value = new Date().toISOString().split('T')[0];
         var vt = document.getElementById('a-valid-to'); if (vt) vt.value = '';
         var warn = document.getElementById('a-no-grant'); if (warn) warn.style.display = grants.length === 0 ? '' : 'none';
@@ -643,12 +769,12 @@ export const groupAdminClientScript = '(' + function() {
         var roleId = (document.getElementById('a-role') || {}).value;
         var sv = document.getElementById('a-valid-from').value;
         var ev = document.getElementById('a-valid-to').value;
-        if (!userId || !serviceId || !facilityId || !roleId) { console.error(window.i18n.selectAll || '全項目を選択してください'); return; }
+        if (!userId || !serviceId) { console.error(window.i18n.selectAll || '全項目を選択してください'); return; }
         var validFrom = sv ? Math.floor(new Date(sv).getTime()/1000) : Math.floor(Date.now()/1000);
         var validTo = ev ? Math.floor(new Date(ev).getTime()/1000) : Math.floor(Date.now()/1000) + 315360000;
         fetch('/group-admin/api/assignment/add', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ group_id: currentGroupId, user_id: userId, service_id: serviceId, facility_id: facilityId, service_role_id: Number(roleId), valid_from: validFrom, valid_to: validTo })
+          body: JSON.stringify({ group_id: currentGroupId, user_id: userId, service_id: serviceId, facility_id: facilityId, service_role_id: roleId ? Number(roleId) : null, valid_from: validFrom, valid_to: validTo })
         })
         .then(function(r){ if (!r.ok) return r.json().catch(function(){return{};}).then(function(e){ throw new Error(e.error || ('Error ' + r.status)); }); return r.json(); })
         .then(function(){ window.location.reload(); })

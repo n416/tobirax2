@@ -287,7 +287,7 @@ CREATE TABLE IF NOT EXISTS group_service_grants (
 -- 【施設(建物)】施設ID=1:1で施設構造物番号に対応。管理グループを持つ。
 CREATE TABLE IF NOT EXISTS facilities (
     id                TEXT PRIMARY KEY,
-    structure_no      TEXT UNIQUE,
+    structure_no      TEXT,
     building_use      TEXT,
     managing_group_id TEXT NOT NULL REFERENCES groups(id),
     created_at        INTEGER NOT NULL
@@ -309,8 +309,8 @@ CREATE TABLE IF NOT EXISTS service_user_assignments (
     user_id         TEXT NOT NULL REFERENCES users(id),
     group_id        TEXT NOT NULL REFERENCES groups(id),
     service_id      TEXT NOT NULL REFERENCES services(id),
-    facility_id     TEXT NOT NULL REFERENCES facilities(id),
-    service_role_id INTEGER NOT NULL REFERENCES service_role_master(id),
+    facility_id     TEXT REFERENCES facilities(id),
+    service_role_id INTEGER REFERENCES service_role_master(id),
     valid_from      INTEGER NOT NULL,
     valid_to        INTEGER NOT NULL,
     UNIQUE(user_id, group_id, service_id, facility_id)

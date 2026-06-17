@@ -170,11 +170,13 @@ export const tabStyles = raw(`
   html[data-active-tab="assignments"] #tab-assignments,
   html[data-active-tab="grants"] #tab-grants,
   html[data-active-tab="access"] #tab-access,
+  html[data-active-tab="facilities"] #tab-facilities,
   html[data-active-tab="apps"] #tab-apps { display: block; }
   html[data-active-tab="members"] #tab-btn-members,
   html[data-active-tab="assignments"] #tab-btn-assignments,
   html[data-active-tab="grants"] #tab-btn-grants,
   html[data-active-tab="access"] #tab-btn-access,
+  html[data-active-tab="facilities"] #tab-btn-facilities,
   html[data-active-tab="apps"] #tab-btn-apps {
     background: #fff !important; color: var(--primary) !important; box-shadow: 0 2px 6px -2px rgba(0,0,0,0.1) !important;
   }

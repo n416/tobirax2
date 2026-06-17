@@ -100,7 +100,7 @@ export const AccountAssignmentsPage = (props: Props) => {
                 <div class="${amItemSub}">
                   <span class="material-symbols-outlined" style="font-size:16px;">badge</span>${a.role_name || ''}
                   <span class="${amBadge}">${a.service_name || ''}</span>
-                  <span style="color:#94a3b8;"><span class="material-symbols-outlined" style="font-size:14px;">apartment</span> ${a.structure_no || a.facility_id} · ${a.group_name || ''}</span>
+                  <span style="color:#94a3b8;"><span class="material-symbols-outlined" style="font-size:14px;">apartment</span> ${a.structure_no || a.facility_id || '施設指定なし'} · ${a.group_name || ''}</span>
                   <span style="color:#94a3b8;">${fmt(a.valid_from)} ～ ${fmt(a.valid_to)}</span>
                 </div>
               </div>
@@ -150,11 +150,12 @@ export const AccountAssignmentsPage = (props: Props) => {
               ${props.services.map(s => html`<option value="${s.id}">${serviceLabel(s)}</option>`)}
             </select>
             <label class="${amFormLabel}">${t.am_label_assign_facility}</label>
-            <select id="a-facility" name="facility_id" required style="margin-bottom:1rem;">
+            <select id="a-facility" name="facility_id" style="margin-bottom:1rem;">
+              <option value="">施設指定なし (No facility)</option>
               ${props.facilities.map(f => html`<option value="${f.id}">${f.structure_no || f.id}${f.building_use ? ` (${f.building_use})` : ''}</option>`)}
             </select>
             <label class="${amFormLabel}">${t.am_label_assign_role}</label>
-            <select id="a-role" name="service_role_id" required style="margin-bottom:1rem;"></select>
+            <select id="a-role" name="service_role_id" style="margin-bottom:1rem;"></select>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
               <div><label class="${amFormLabel}">${t.label_valid_from}</label>
                 <input type="date" name="valid_from" value="${todayStr()}" required /></div>

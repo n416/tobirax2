@@ -108,3 +108,21 @@ VALUES
   ('u-g-all', 'app-user-reg', 0, 9999999999, 1700000000),
   ('u-g-all', 'app-wiki', 0, 9999999999, 1700000000);
 
+-- -------------------------------------------------------------------------
+-- 9. 自社サービスのルート契約と直系経路上の利用枠
+-- -------------------------------------------------------------------------
+-- svc-portal の所有者は g-middle。そのルートは g-root。
+INSERT INTO service_contracts (id, service_id, customer_group_id, seat_limit, valid_from, valid_to)
+VALUES ('ct-implicit-portal', 'svc-portal', 'g-root', NULL, 0, 2147483647);
+
+INSERT INTO group_service_grants (group_id, service_id, contract_id, seat_limit, valid_from, valid_to)
+VALUES 
+  ('g-root', 'svc-portal', 'ct-implicit-portal', NULL, 0, 2147483647),
+  ('g-middle', 'svc-portal', 'ct-implicit-portal', NULL, 0, 2147483647);
+
+-- -------------------------------------------------------------------------
+-- 10. 施設 (Facilities)
+-- -------------------------------------------------------------------------
+INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at)
+VALUES 
+  ('fac-demo-1', 'Bldg-A', 'オフィス', 'g-middle', 1700000000);

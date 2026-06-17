@@ -22,11 +22,11 @@ export const accountAssignmentsClientScript = '(' + function() {
       var use = FAC_USE[fac.value] || null;
       var matched = ROLES.filter(function(r){ return r.service_id === svc.value && (r.facility_type == null || r.facility_type === use); });
       role.innerHTML = '';
+      var oNone = document.createElement('option'); oNone.value=''; oNone.textContent = i18nNoRole;
       if (matched.length === 0) {
-        var o = document.createElement('option'); o.value=''; o.textContent = i18nNoRole; o.disabled = true; o.selected = true;
-        role.appendChild(o);
-        return;
+        oNone.selected = true;
       }
+      role.appendChild(oNone);
       matched.forEach(function(r){ var o = document.createElement('option'); o.value = r.id; o.textContent = r.role_name; role.appendChild(o); });
     }
     window.amRefreshRoles = refreshRoles;

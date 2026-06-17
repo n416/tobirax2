@@ -249,7 +249,7 @@ export async function getBillingGroupIds(c: any, userId: string): Promise<Set<st
 // 利用者割当(ゲート③)の中核ロジック: ゲート②(利用枠)確認 + 席数上限チェック + upsert。
 //   戻り値 'no_grant'(利用枠なし) / 'seat'(席数超過) / 'ok'。呼び出し側(運営者/委任)で
 //   結果を表示に変換する。運営者ルートと委任ルートで共通利用し、判定の二重管理を防ぐ。
-export async function createAssignment(c: any, p: { userId: string; groupId: string; serviceId: string; facilityId: string; roleId: number; validFrom: number; validTo: number }): Promise<'no_grant' | 'seat' | 'ok'> {
+export async function createAssignment(c: any, p: { userId: string; groupId: string; serviceId: string; facilityId: string | null; roleId: number | null; validFrom: number; validTo: number }): Promise<'no_grant' | 'seat' | 'ok'> {
     // ゲート②: このグループ×サービスの利用枠が無ければ割当不可。
     // ただし、自グループが所有する「active」なサービスは無条件で利用可能(自作ツールのため)。
     const grant = await c.env.DB.prepare('SELECT * FROM group_service_grants WHERE group_id = ? AND service_id = ?')
@@ -294,12 +294,28 @@ export async function createAssignment(c: any, p: { userId: string; groupId: str
             if ((usedC?.c || 0) >= contract.seat_limit) return 'seat'
         }
     }
-    // UNIQUE(user_id, group_id, service_id, facility_id) で upsert(役割・期間を更新)。
-    await c.env.DB.prepare(`
-        INSERT INTO service_user_assignments (user_id, group_id, service_id, facility_id, service_role_id, valid_from, valid_to)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, group_id, service_id, facility_id) DO UPDATE SET service_role_id=excluded.service_role_id, valid_from=excluded.valid_from, valid_to=excluded.valid_to
-    `).bind(p.userId, p.groupId, p.serviceId, p.facilityId, p.roleId, p.validFrom, p.validTo).run()
+    // UNIQUE(user_id, group_id, service_id, facility_id) 制約がありますが、facility_id が NULL の場合複数登録できてしまう問題を防ぐため
+    // アプリケーション側で既存行をチェックして UPDATE/INSERT を出し分けます。
+    let assignId: number | undefined;
+    if (p.facilityId) {
+        const row = await c.env.DB.prepare('SELECT id FROM service_user_assignments WHERE user_id = ? AND group_id = ? AND service_id = ? AND facility_id = ?')
+            .bind(p.userId, p.groupId, p.serviceId, p.facilityId).first() as { id: number } | null;
+        assignId = row?.id;
+    } else {
+        const row = await c.env.DB.prepare('SELECT id FROM service_user_assignments WHERE user_id = ? AND group_id = ? AND service_id = ? AND facility_id IS NULL')
+            .bind(p.userId, p.groupId, p.serviceId).first() as { id: number } | null;
+        assignId = row?.id;
+    }
+
+    if (assignId) {
+        await c.env.DB.prepare('UPDATE service_user_assignments SET service_role_id = ?, valid_from = ?, valid_to = ? WHERE id = ?')
+            .bind(p.roleId, p.validFrom, p.validTo, assignId).run()
+    } else {
+        await c.env.DB.prepare(`
+            INSERT INTO service_user_assignments (user_id, group_id, service_id, facility_id, service_role_id, valid_from, valid_to)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(p.userId, p.groupId, p.serviceId, p.facilityId || null, p.roleId, p.validFrom, p.validTo).run()
+    }
     return 'ok'
 }
 

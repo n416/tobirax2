@@ -785,8 +785,43 @@ adminRouter.post('/admin/am/services/approve', async (c) => {
         return c.text('Error: The service composition has changed since you opened this page. Please return to the previous page, refresh, and review again.', 409)
     }
 
-    await c.env.DB.prepare("UPDATE services SET status = 'active' WHERE id = ? AND status = 'pending'").bind(id).run()
-    await logAudit(c, 'SERVICE_APPROVED', { key: 'log_service_add', params: { name: id, admin: user.email } })
+    const service = await c.env.DB.prepare("SELECT owner_group_id FROM services WHERE id = ?").bind(id).first<{ owner_group_id: string | null }>()
+    
+    const statements = []
+    statements.push(c.env.DB.prepare("UPDATE services SET status = 'active' WHERE id = ? AND status = 'pending'").bind(id))
+
+    if (service && service.owner_group_id) {
+        // 自社サービスの場合、ルート契約と直系経路上の利用枠を物理作成する
+        const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+        const parentMap = new Map((allGroups as any[]).map(g => [g.id, g.parent_id]))
+        const path: string[] = []
+        let cur: string | null = service.owner_group_id
+        let rootId = service.owner_group_id
+        while (cur) {
+            path.unshift(cur) // [Root, ..., HQ, Dev]
+            rootId = cur
+            cur = parentMap.get(cur) || null
+        }
+        
+        const contractId = crypto.randomUUID()
+        statements.push(
+            c.env.DB.prepare('INSERT INTO service_contracts (id, service_id, customer_group_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, NULL, 0, 2147483647)')
+            .bind(contractId, id, rootId)
+        )
+        
+        for (const gid of path) {
+            statements.push(
+                c.env.DB.prepare('INSERT INTO group_service_grants (group_id, service_id, contract_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, NULL, 0, 2147483647)')
+                .bind(gid, id, contractId)
+            )
+        }
+    }
+    
+    const details = JSON.stringify({ key: 'log_service_add', params: { name: id, admin: user.email } })
+    statements.push(c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SERVICE_APPROVED', details))
+
+    await c.env.DB.batch(statements)
+    
     return c.redirect('/admin/am/services')
 })
 // サービス申請を却下する(status='rejected')。運営者専用。
@@ -918,21 +953,44 @@ adminRouter.post('/admin/api/am/facility/add', async (c) => {
     const buildingUse = ((body['building_use'] as string) || '').trim() || null
     if (!groupId) return c.json({ error: 'managing_group_id required' }, 400)
 
-    const existing = await c.env.DB.prepare('SELECT * FROM facilities WHERE structure_no = ?').bind(structureNo).first() as { managing_group_id: string } | null
-    if (existing) {
-        if (existing.managing_group_id === groupId) {
-            return c.json({ error: '既にこのグループに登録されています。' }, 400)
-        } else {
-            await c.env.DB.prepare('UPDATE facilities SET managing_group_id = ?, building_use = ? WHERE structure_no = ?').bind(groupId, buildingUse, structureNo).run()
-            await logAudit(c, 'FACILITY_MOVE', { key: 'log_facility_move', params: { structure_no: structureNo, admin: user.email } })
-            return c.json({ success: true, moved: true })
-        }
-    } else {
-        await c.env.DB.prepare('INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), structureNo, buildingUse, groupId, Math.floor(Date.now() / 1000)).run()
-        await logAudit(c, 'FACILITY_ADD', { key: 'log_facility_add', params: { structure_no: structureNo, admin: user.email } })
-        return c.json({ success: true })
-    }
+    // UNIQUE制約解除に伴い、常に新規INSERTする
+    await c.env.DB.prepare('INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), structureNo, buildingUse, groupId, Math.floor(Date.now() / 1000)).run()
+    await logAudit(c, 'FACILITY_ADD', { key: 'log_facility_add', params: { structure_no: structureNo, admin: user.email } })
+    return c.json({ success: true })
+})
+
+adminRouter.get('/admin/api/am/facilities/all', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const facilities = await c.env.DB.prepare(`
+        SELECT f.id, f.structure_no, f.building_use, f.managing_group_id, g.name AS group_name 
+        FROM facilities f 
+        LEFT JOIN groups g ON f.managing_group_id = g.id 
+        ORDER BY f.structure_no
+    `).all()
+    return c.json(facilities.results)
+})
+
+adminRouter.post('/admin/api/am/facility/move', async (c) => {
+    const user = await getAdmin(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const facilityId = body['facility_id'] as string
+    const targetGroupId = body['managing_group_id'] as string
+    
+    if (!facilityId || !targetGroupId) return c.json({ error: 'missing fields' }, 400)
+    
+    // 権限バリデーション: 今回は getAdmin(c) でシステム管理者が保証されているため全グループ移動可能
+    // (将来的にグループ管理者に開放される場合は、ここで移動元・移動先が getManagedGroupIds の範囲内かチェックする)
+    
+    await c.env.DB.prepare('UPDATE facilities SET managing_group_id = ? WHERE id = ?').bind(targetGroupId, facilityId).run()
+    
+    // 監査ログ
+    const facility = await c.env.DB.prepare('SELECT structure_no FROM facilities WHERE id = ?').bind(facilityId).first() as { structure_no: string | null } | null
+    await logAudit(c, 'FACILITY_MOVE', { key: 'log_facility_move', params: { structure_no: facility?.structure_no || facilityId, admin: user.email } })
+    
+    return c.json({ success: true, moved: true })
 })
 adminRouter.post('/admin/api/am/facility/remove', async (c) => {
     const user = await getAdmin(c)
@@ -986,11 +1044,11 @@ adminRouter.post('/admin/api/am/assignment/add', async (c) => {
     const userId = (body['user_id'] as string) || ''
     const groupId = (body['group_id'] as string) || ''
     const serviceId = (body['service_id'] as string) || ''
-    const facilityId = (body['facility_id'] as string) || ''
-    const roleId = Number(body['service_role_id'])
+    const facilityId = body['facility_id'] ? (body['facility_id'] as string) : null
+    const roleId = body['service_role_id'] != null && body['service_role_id'] !== '' ? Number(body['service_role_id']) : null
     const validFrom = Math.floor(new Date(body['valid_from'] as string).getTime() / 1000)
     const validTo = Math.floor(new Date(body['valid_to'] as string).getTime() / 1000)
-    if (!userId || !groupId || !serviceId || !facilityId || !roleId) return c.json({ error: 'Missing fields' }, 400)
+    if (!userId || !groupId || !serviceId) return c.json({ error: 'Missing fields' }, 400)
 
     const res = await createAssignment(c, { userId, groupId, serviceId, facilityId, roleId, validFrom, validTo })
     if (res !== 'ok') return c.json({ error: res }, 400)

@@ -98,7 +98,7 @@ CREATE TABLE group_service_grants (
 -- 【施設（建物）】施設ID=1:1で施設構造物番号に対応。管理する支店を持つ。
 CREATE TABLE facilities (
     id                TEXT PRIMARY KEY,            -- ポータル採番の安定した施設ID
-    structure_no      TEXT UNIQUE,                -- 施設構造物番号（1:1）
+    structure_no      TEXT,                       -- 施設構造物番号（1:N）
     building_use      TEXT,                       -- 建物用途/種別（オフィス/病院/工場 …）役割メニューの絞り込みに使う
     managing_group_id TEXT NOT NULL REFERENCES groups(id),  -- 管理する支店
     created_at        INTEGER NOT NULL
@@ -122,8 +122,8 @@ CREATE TABLE service_user_assignments (
     user_id         TEXT NOT NULL REFERENCES users(id),
     group_id        TEXT NOT NULL REFERENCES groups(id),       -- どのグループの立場として
     service_id      TEXT NOT NULL REFERENCES services(id),
-    facility_id     TEXT NOT NULL REFERENCES facilities(id),   -- 対象の建物
-    service_role_id INTEGER NOT NULL REFERENCES service_role_master(id),  -- 役割（マスタ参照）
+    facility_id     TEXT REFERENCES facilities(id),   -- 対象の建物
+    service_role_id INTEGER REFERENCES service_role_master(id),  -- 役割（マスタ参照）
     valid_from      INTEGER NOT NULL,
     valid_to        INTEGER NOT NULL,
     UNIQUE(user_id, group_id, service_id, facility_id)

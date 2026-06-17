@@ -13,6 +13,8 @@ export const accountGroupsClientScript = '(' + function() {
         var tsControl = null;
         var tsControlParentNew = null;
         var tsControlParentEdit = null;
+        var tsControlMoveFacility = null;
+        var tsControlMoveSourceGroup = null;
         var currentGroupId = '';
         var currentMembers = [];
         var currentFacilities = [];
@@ -87,6 +89,7 @@ export const accountGroupsClientScript = '(' + function() {
             window.resetAddButton();
             window.loadMembers(id);
             window.loadFacilities(id);
+            if(window.loadAllFacilitiesForMove) window.loadAllFacilitiesForMove();
             window.loadGrants(id);
             if(window.switchTab) window.switchTab('members');
         };
@@ -247,6 +250,58 @@ export const accountGroupsClientScript = '(' + function() {
             });
         };
 
+        window.loadAllFacilitiesForMove = function() {
+            var sourceSelect = document.getElementById('f-move-source-group');
+            var facilitySelect = document.getElementById('f-move-id');
+            if(!sourceSelect || !facilitySelect) return;
+            
+            if (!tsControlMoveFacility && typeof TomSelect !== 'undefined') {
+                tsControlMoveFacility = new TomSelect('#f-move-id', {
+                    valueField: 'value',
+                    labelField: 'text',
+                    searchField: ['text'],
+                    maxOptions: 2000,
+                    placeholder: i18n.placeholderSelect || '施設を選択...',
+                    create: false
+                });
+                if(!window.tomSelects) window.tomSelects = {};
+                window.tomSelects['f-move-id'] = tsControlMoveFacility;
+            }
+            
+            if (!tsControlMoveSourceGroup && typeof TomSelect !== 'undefined') {
+                tsControlMoveSourceGroup = new TomSelect('#f-move-source-group', {
+                    create: false,
+                    onChange: function(value) {
+                        tsControlMoveFacility.clearOptions();
+                        tsControlMoveFacility.clear();
+                        if (!value) return;
+                        
+                        fetch('/admin/api/am/group-facilities/' + encodeURIComponent(value) + '?t=' + new Date().getTime())
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.facilities) {
+                                data.facilities.forEach(function(f) {
+                                    if (f.managing_group_id === currentGroupId) return; // 自分のグループの施設は移動候補に出さない
+                                    var label = (f.structure_no || '') + ' ' + (f.building_use || '');
+                                    tsControlMoveFacility.addOption({ value: f.id, text: label });
+                                });
+                                tsControlMoveFacility.refreshOptions(false);
+                            }
+                        });
+                    }
+                });
+                if(!window.tomSelects) window.tomSelects = {};
+                window.tomSelects['f-move-source-group'] = tsControlMoveSourceGroup;
+            } else if (tsControlMoveSourceGroup) {
+                // 再読み込み時はいったんクリアしてユーザーに再度選ばせる
+                tsControlMoveSourceGroup.clear();
+                if (tsControlMoveFacility) {
+                    tsControlMoveFacility.clearOptions();
+                    tsControlMoveFacility.clear();
+                }
+            }
+        };
+
         window.loadFacilities = function(id) {
             fetch('/admin/api/am/group-facilities/' + id + '?t=' + new Date().getTime())
                 .then(function(r) { return r.json(); })
@@ -300,7 +355,7 @@ export const accountGroupsClientScript = '(' + function() {
         window.addFacility = function() {
             var no = document.getElementById('f-structure-no').value;
             var use = document.getElementById('f-building-use').value;
-            if(!no) { alert(i18n.alertRequired || 'Required'); return; }
+            if(!no) { console.error('Required'); return; }
             fetch('/admin/api/am/facility/add', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ managing_group_id: currentGroupId, structure_no: no, building_use: use })
@@ -310,8 +365,29 @@ export const accountGroupsClientScript = '(' + function() {
                 document.getElementById('f-structure-no').value = '';
                 document.getElementById('f-building-use').value = '';
                 window.loadFacilities(currentGroupId); 
+                if(window.loadAllFacilitiesForMove) window.loadAllFacilitiesForMove();
             })
-            .catch(function(e) { console.error(e); alert('Error: ' + e.message); });
+            .catch(function(e) { console.error(e); });
+        };
+
+        window.moveFacility = function() {
+            var facilityId = document.getElementById('f-move-id').value;
+            if(!facilityId) { console.error('Facility required'); return; }
+            fetch('/admin/api/am/facility/move', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ managing_group_id: currentGroupId, facility_id: facilityId })
+            })
+            .then(function(r) { if(!r.ok) { return r.json().catch(function(){return {};}).then(function(e){ throw new Error(e.error || 'Server error'); }); } return r.json(); })
+            .then(function() { 
+                if (window.tomSelects && window.tomSelects['f-move-id']) {
+                    window.tomSelects['f-move-id'].clear();
+                } else {
+                    document.getElementById('f-move-id').value = '';
+                }
+                window.loadFacilities(currentGroupId); 
+                if(window.loadAllFacilitiesForMove) window.loadAllFacilitiesForMove();
+            })
+            .catch(function(e) { console.error(e); });
         };
 
         var removeFacTargetId = null;

@@ -193,6 +193,9 @@ export const GroupAdminPage = (props: Props) => {
         <button id="tab-btn-access" onclick="switchTab('access')">
           <span class="material-symbols-outlined">lock_open</span>${t.ga_tab_access}
         </button>
+        <button id="tab-btn-facilities" onclick="switchTab('facilities')">
+          <span class="material-symbols-outlined">domain</span>施設
+        </button>
         <button id="tab-btn-apps" onclick="switchTab('apps')">
           <span class="material-symbols-outlined">apps</span>${t.ga_tab_apps}
         </button>
@@ -258,6 +261,57 @@ export const GroupAdminPage = (props: Props) => {
             </table>
           </div>
         </div>
+      </div>
+
+      <!-- 施設タブ -->
+      <div id="tab-facilities" class="tab-content">
+         <div class="${infoBox}">
+           <span class="material-symbols-outlined">info</span>
+           自グループの管轄として施設を登録・管理します。既存の施設を他のグループに移動させることも可能ですが、移動先はご自身が管理権限を持つグループ（管轄内）に限られます。
+         </div>
+         <div class="${card}" style="margin-bottom: 1.5rem; padding: 1.5rem;">
+            <div style="font-weight:bold; margin-bottom:1rem; color:#475569;">新規施設の登録</div>
+            <div style="margin-bottom: 1.5rem;">
+               <label class="${formLabel}">構造物番号/施設名 (Structure No. / Name)</label>
+               <input type="text" id="f-structure-no" class="${dateInput}" placeholder="F-12345" />
+            </div>
+            <div style="margin-bottom: 1.5rem;">
+               <label class="${formLabel}">用途 (Use)</label>
+               <input type="text" id="f-building-use" class="${dateInput}" placeholder="Office" />
+            </div>
+            ${Button({ onclick: "addFacility()", children: html`<span class="material-symbols-outlined">add_business</span> <span>新規追加</span>` })}
+
+            <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e2e8f0;" />
+
+            <div style="font-weight:bold; margin-bottom:1rem; color:#475569;">既存施設の管轄移動</div>
+            <div style="margin-bottom: 1.5rem;">
+               <label class="${formLabel}">移動する施設 (Select Facility)</label>
+               <select id="f-move-id" class="tom-select" placeholder="施設を選択...">
+                  <option value=""></option>
+               </select>
+            </div>
+            ${Button({ onclick: "moveFacility()", children: html`<span class="material-symbols-outlined">drive_file_move</span> <span>このグループへ移動</span>` })}
+         </div>
+
+         <div class="${sectionTitle}" style="margin-bottom: 0.75rem;">
+            <span class="material-symbols-outlined">domain</span>${t.am_section_facilities || '施設一覧'}
+         </div>
+         <div class="${card}">
+            <div class="${tableWrap}">
+               <table>
+                  <thead>
+                     <tr>
+                        <th>構造物番号 (Structure No.)</th>
+                        <th>用途 (Building Use)</th>
+                        <th></th>
+                     </tr>
+                  </thead>
+                  <tbody id="facilities-table-body">
+                     <tr><td colspan="3" style="text-align:center; color:#94a3b8; padding:2rem;">読込中...</td></tr>
+                  </tbody>
+               </table>
+            </div>
+         </div>
       </div>
 
       <!-- 利用枠タブ(ゲート②) — 決済権者のみ -->
