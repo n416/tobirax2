@@ -341,6 +341,39 @@ groupAdminRouter.post('/group-admin/api/membership/remove', async (c) => {
     return c.json({ success: true })
 })
 
+// 委任: 子グループの作成と管理者の任命
+groupAdminRouter.post('/group-admin/api/group/create', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const parentId = body['parent_group_id'] as string
+    const name = ((body['name'] as string) || '').trim()
+    const adminUserId = body['admin_user_id'] as string
+
+    if (!parentId || !name || !adminUserId) return c.json({ error: 'missing fields' }, 400)
+
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!managed.has(parentId)) return c.json({ error: 'Forbidden' }, 403)
+
+    const newGroupId = 'grp-' + crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+
+    // 新しいグループを作成
+    await c.env.DB.prepare('INSERT INTO groups (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)')
+        .bind(newGroupId, name, parentId, now).run()
+
+    // 管理者を任命
+    const validTo = 2147483647 // 無期限相当
+    await c.env.DB.prepare(`
+        INSERT INTO group_memberships (user_id, group_id, is_group_admin, is_billing_admin, is_developer, valid_from, valid_to)
+        VALUES (?, ?, 1, 0, 0, ?, ?)
+    `).bind(adminUserId, newGroupId, now, validTo).run()
+
+    await logAudit(c, 'DELEGATED_GROUP_CREATE', { key: 'log_group_create', params: { parent: parentId, new_group: newGroupId, admin: user.email } })
+    return c.json({ success: true, id: newGroupId })
+})
+
+
 // 委任: ゲート③ 利用者割当の作成。対象グループが自分の管理サブツリー内かを検証し、
 //   ゲート②(利用枠)・席数上限は共通の createAssignment で判定する。
 groupAdminRouter.post('/group-admin/api/assignment/add', async (c) => {

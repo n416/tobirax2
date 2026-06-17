@@ -35,6 +35,7 @@ export const GroupsPage = (props: Props) => {
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof TomSelect !== 'undefined') {
                 tsControl = new TomSelect('#g-perm-app-id', { 
+                    controlInput: '<input type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />',
                     plugins: ['remove_button'], 
                     create: false, 
                     maxItems: null, 

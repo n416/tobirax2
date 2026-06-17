@@ -64,6 +64,7 @@ export const AccountGroupsPage = (props: Props) => {
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof TomSelect !== 'undefined') {
                 tsControl = new TomSelect('#m-user-id', {
+                    controlInput: '<input type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />',
                     plugins: ['remove_button'],
                     create: false,
                     maxItems: null,
@@ -80,6 +81,7 @@ export const AccountGroupsPage = (props: Props) => {
                 var newParentEl = document.getElementById('new-group-parent');
                 if (newParentEl) {
                     tsControlParentNew = new TomSelect('#new-group-parent', {
+                        controlInput: '<input type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />',
                         create: false,
                         sortField: { field: '$order' },
                         placeholder: i18n.placeholderSearch || '検索...',
@@ -89,6 +91,7 @@ export const AccountGroupsPage = (props: Props) => {
                 var editParentEl = document.getElementById('m-parent');
                 if (editParentEl) {
                     tsControlParentEdit = new TomSelect('#m-parent', {
+                        controlInput: '<input type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />',
                         create: false,
                         sortField: { field: '$order' },
                         placeholder: i18n.placeholderSearch || '検索...',
