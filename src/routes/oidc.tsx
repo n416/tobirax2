@@ -358,9 +358,10 @@ oidcRouter.on(['GET', 'POST'], '/oidc/logout', async (c) => {
     // (自身が発行した検証済みトークン)内の sub にフォールバックする。これにより、
     // ブラウザのセッションCookieが既に消えていてもトークン失効は機能する。
     const sessionId = getCookie(c, '__Host-idp_session')
+    const hashedSessionId = sessionId ? await hashToken(sessionId) : null
     let userId: string | null = null
-    if (sessionId) {
-        const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ?').bind(sessionId).first() as Session | null
+    if (hashedSessionId) {
+        const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ?').bind(hashedSessionId).first() as Session | null
         if (session) userId = session.user_id
     }
 
@@ -395,8 +396,8 @@ oidcRouter.on(['GET', 'POST'], '/oidc/logout', async (c) => {
         try { await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(userId).run() } catch (e) { }
     }
     // ブラウザの SSO セッションを終了し Cookie をクリアする。
-    if (sessionId) {
-        try { await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run() } catch (e) { }
+    if (hashedSessionId) {
+        try { await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(hashedSessionId).run() } catch (e) { }
     }
     setCookie(c, '__Host-idp_session', '', { path: '/', secure: true, httpOnly: true, expires: new Date(0) })
 
