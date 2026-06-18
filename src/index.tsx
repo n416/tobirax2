@@ -8,6 +8,7 @@ import { verifyPassword, hashPassword, generateToken, getCookieOptions } from '.
 import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
+import { requireSecret } from './utils/env'
 import { signRS256, verifyPkce, verifyRS256 } from './oidc/jwt'
 import { getJwksKeys } from './oidc/keys'
 import { Login } from './views/Login'
@@ -652,7 +653,7 @@ app.post('/login', async (c) => {
 
     // 2要素認証(2FA)チェック
     if (user.two_factor_secret) {
-        const secret = c.env.JWT_SECRET || 'dev_secret'
+        const secret = requireSecret(c.env, 'JWT_SECRET', 'dev_secret')
         const token = await sign({ sub: user.id, role: 'pre_2fa', exp: Math.floor(Date.now() / 1000) + 300 }, secret)
         setCookie(c, 'pre_2fa_token', token, { path: '/', secure: true, httpOnly: true, maxAge: 300, sameSite: 'Lax' })
 
@@ -984,7 +985,7 @@ export async function issueOidcTokens(c: any, user: User, clientId: string, nonc
         at_hash: atHash,
         ...(nonce ? { nonce } : {}),
         ...buildOidcClaims(user, grantedScope),
-    }, c.env.DB, c.env.OIDC_KEK)
+    }, c.env.DB, requireSecret(c.env, 'OIDC_KEK', 'dev-only-insecure-oidc-kek-change-me'))
 
     return c.json({
         access_token: accessToken,
@@ -1009,7 +1010,7 @@ app.get('/login/2fa', async (c) => {
     const t = getLang(c)
     const token = getCookie(c, 'pre_2fa_token')
     if (!token) return c.redirect('/login')
-    try { await verify(token, c.env.JWT_SECRET || 'dev_secret', "HS256") } catch (e) { return c.redirect('/login') }
+    try { await verify(token, requireSecret(c.env, 'JWT_SECRET', 'dev_secret'), "HS256") } catch (e) { return c.redirect('/login') }
     const returnTo = c.req.query('return_to')
     return c.html(<Login2FA t={t} returnTo={returnTo} />)
 })
@@ -1021,7 +1022,7 @@ app.post('/login/2fa', async (c) => {
     const preToken = getCookie(c, 'pre_2fa_token')
     if (!preToken) return c.redirect('/login')
     let payload;
-    try { payload = await verify(preToken, c.env.JWT_SECRET || 'dev_secret', "HS256") } catch (e) { return c.redirect('/login') }
+    try { payload = await verify(preToken, requireSecret(c.env, 'JWT_SECRET', 'dev_secret'), "HS256") } catch (e) { return c.redirect('/login') }
     const userId = payload.sub as string
 
     const loginIp = c.req.header('CF-Connecting-IP') || 'unknown'

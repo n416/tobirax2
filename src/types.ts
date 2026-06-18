@@ -1,5 +1,6 @@
 export interface Env {
   DB: D1Database
+  ENVIRONMENT?: string
   RESEND_API_KEY?: string
   JWT_SECRET: string
   // OIDC 署名用秘密鍵を保存時に暗号化するための鍵暗号化鍵(KEK)(oidc/keys.ts 参照)。

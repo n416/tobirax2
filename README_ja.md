@@ -84,10 +84,8 @@ npm run dev         # -> http://localhost:8787/login
 wrangler d1 create tobira-mock-db
 wrangler d1 execute tobira-mock-db --remote --file ./schema.sql
 
-# 2. シークレットを設定
-wrangler secret put OIDC_KEK     # OIDC署名鍵を保存時に暗号化する鍵（本番では必須）
-# wrangler.toml [vars] の JWT_SECRET も独自の乱数に変更してください
-# （内部セッション / API トークンの署名に使用）。シークレット化も推奨。
+# 2. シークレットを設定 (未設定だと本番ではエラーで停止します)
+npm run setup:secrets            # 自動生成スクリプトで OIDC_KEK と JWT_SECRET を登録
 
 # 3. リモートの管理者を作成（プロンプトで [2] Remote を選択）
 npx tsx scripts/manage-admin.ts create admin@example.com mypassword

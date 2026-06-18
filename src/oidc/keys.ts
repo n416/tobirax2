@@ -71,7 +71,8 @@ const fromB64u = (s: string): Uint8Array => {
 // Derive a 32-byte AES-GCM key from the (any-length) KEK secret material.
 // Local dev falls back to a fixed value, mirroring how JWT_SECRET is handled.
 async function deriveKek(kek: string | undefined): Promise<CryptoKey> {
-  const material = kek || 'dev-only-insecure-oidc-kek-change-me'
+  if (!kek) throw new Error('Missing OIDC_KEK');
+  const material = kek;
   const hash = await crypto.subtle.digest('SHA-256', te.encode(material))
   return crypto.subtle.importKey('raw', hash, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
 }

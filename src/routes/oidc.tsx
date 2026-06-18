@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env, User, App, AuthCode, Session } from '../types';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { getJwksKeys } from '../oidc/keys';
+import { requireSecret } from '../utils/env';
 import { signRS256, verifyPkce, verifyRS256 } from '../oidc/jwt';
 import { generateToken } from '../utils/auth';
 import {
@@ -55,7 +56,7 @@ oidcRouter.get('/.well-known/openid-configuration', (c) => {
 })
 
 oidcRouter.get('/.well-known/jwks.json', async (c) => {
-    const keys = await getJwksKeys(c.env.DB, c.env.OIDC_KEK)
+    const keys = await getJwksKeys(c.env.DB, requireSecret(c.env, 'OIDC_KEK', 'dev-only-insecure-oidc-kek-change-me'))
     return c.json({ keys: keys.map(k => ({ ...k, alg: 'RS256', use: 'sig' })) })
 })
 
@@ -292,7 +293,7 @@ async function backchannelLogoutToken(c: any, issuer: string, clientId: string, 
         iat: Math.floor(Date.now() / 1000),
         jti: generateToken(),
         events: { 'http://schemas.openid.net/event/backchannel-logout': {} },
-    }, c.env.DB, c.env.OIDC_KEK, 'logout+jwt')
+    }, c.env.DB, requireSecret(c.env, 'OIDC_KEK', 'dev-only-insecure-oidc-kek-change-me'), 'logout+jwt')
 }
 
 // ユーザーがログイン中の RP のうち、backchannel_logout_uri を登録しているもの全てに
@@ -357,7 +358,7 @@ oidcRouter.on(['GET', 'POST'], '/oidc/logout', async (c) => {
     // id_token_hint を検証する(署名のみ — ログアウト時には通常すでに失効している)。
     let hintAud: string | null = null
     if (idTokenHint) {
-        const payload = await verifyRS256(idTokenHint, c.env.DB, c.env.OIDC_KEK)
+        const payload = await verifyRS256(idTokenHint, c.env.DB, requireSecret(c.env, 'OIDC_KEK', 'dev-only-insecure-oidc-kek-change-me'))
         if (payload) {
             hintAud = typeof payload.aud === 'string' ? payload.aud
                 : Array.isArray(payload.aud) ? String(payload.aud[0]) : null
