@@ -15,7 +15,7 @@ export async function sendEmail(env: Env, to: string, subject: string, html: str
         'Authorization': `Bearer ${env.RESEND_API_KEY}`
       },
       body: JSON.stringify({
-        // Updated to the custom domain
+        // カスタムドメインを使用するように更新
         from: 'tobira <noreply@tobiras.work>', 
         to: [to],
         subject: subject,

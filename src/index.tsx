@@ -4,8 +4,9 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { csrf } from 'hono/csrf'
 import { html } from 'hono/html'
 import { Env, User, App, Session, Permission, Group, AuthCode, SystemConfig, LocalizedText } from './types'
-import { verifyPassword, hashPassword, generateToken, getCookieOptions, validatePassword } from './utils/auth'
+import { verifyPassword, hashPassword, generateToken, getCookieOptions, validatePassword, BCRYPT_COST, getBcryptCost, hashToken } from './utils/auth'
 import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
+import { encryptSecret, decryptSecret } from './utils/secretbox'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
 import { requireSecret } from './utils/env'
@@ -463,7 +464,8 @@ export function isAllowedRedirectUri(redirectUri: string, app: { base_url: strin
     } catch {
         return false
     }
-    // リダイレクト先は http(s) のみ許可。
+    // リダイレクト先は http(s) のみ許可。ただし http はローカル開発環境のみ許容。
+    if (redir.protocol === 'http:' && redir.hostname !== 'localhost' && redir.hostname !== '127.0.0.1') return false
     if (redir.protocol !== 'https:' && redir.protocol !== 'http:') return false
     if (redir.origin !== base.origin) return false
     const basePath = base.pathname.replace(/\/+$/, '')
@@ -629,27 +631,43 @@ app.get('/login', async (c) => {
     return c.html(<Login t={t} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} email={loginHint} />)
 })
 
+const ACCT_RL_LIMIT = 10;
+const ACCT_RL_WINDOW = 900; // 15 mins
+
 app.post('/login', async (c) => {
     const t = getLang(c)
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
 
-    // パスワード総当たりを遅らせるための IP 別レート制限。
-    const loginIp = c.req.header('CF-Connecting-IP') || 'unknown'
-    if (!(await rateLimit(c.env.DB, `login:${loginIp}`, 10, 60))) {
-        return c.html(<Login t={t} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
-    }
-
     const body = await c.req.parseBody()
-    const email = body['email'] as string
+    const rawEmail = typeof body['email'] === 'string' ? body['email'] : ''
+    const email = rawEmail.trim().toLowerCase()
     const password = body['password'] as string
     const returnTo = body['return_to'] as string // OIDC: /authorize URL to resume
+
+    // パスワード総当たりを遅らせるための IP別 および アカウント別 レート制限
+    const loginIp = c.req.header('CF-Connecting-IP') || 'unknown'
+    const ipOk = await rateLimit(c.env.DB, `login:ip:${loginIp}`, 10, 60)
+    const acctOk = await rateLimit(c.env.DB, `login:acct:${email}`, ACCT_RL_LIMIT, ACCT_RL_WINDOW)
+
+    if (!ipOk || !acctOk) {
+        return c.html(<Login t={t} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
+    }
 
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first() as User | null
     if (!user || !(await verifyPassword(password, user.password_hash))) {
         return c.html(<Login t={t} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
     }
+
+    // Opaque upgrade: if the stored hash cost is less than the current standard, re-hash and update
+    if (getBcryptCost(user.password_hash) < BCRYPT_COST) {
+        const upgradedHash = await hashPassword(password)
+        await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(upgradedHash, user.id).run()
+    }
+
+    // パスワード検証成功時にアカウントのレート制限カウンタをリセット
+    await c.env.DB.prepare('DELETE FROM rate_limits WHERE k = ?').bind(`login:acct:${email}`).run()
 
     // 2要素認証(2FA)チェック
     if (user.two_factor_secret) {
@@ -719,9 +737,6 @@ app.post('/signup', async (c) => {
     if (!email || !password) return view(t.error_required)
     if (!validatePassword(password)) return view(t.error_password_too_short || 'Password must be at least 8 characters long.')
 
-    const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
-    if (existing) return view(t.error_user_exists)
-
     // 任意の既定グループ → そのグループのアプリ権限を継承する。
     const grpRow = await c.env.DB.prepare("SELECT value FROM system_config WHERE key = 'signup_group_id'").first<{ value: string }>()
     const groupId = grpRow?.value || null
@@ -729,22 +744,26 @@ app.post('/signup', async (c) => {
     const userId = crypto.randomUUID()
     const pwHash = await hashPassword(password)
     const now = Math.floor(Date.now() / 1000)
+
+    // サインアップ列挙対策: 成功時・既存時問わず同一のリダイレクトを行う
+    const params = new URLSearchParams()
+    params.set('message', 'signup_done')
+    if (returnTo) params.set('return_to', returnTo)
+    const successRedirect = '/login?' + params.toString()
+
     try {
         await c.env.DB.prepare(
             'INSERT INTO users (id, email, password_hash, group_id, created_at, updated_at, email_verified) VALUES (?, ?, ?, ?, ?, ?, 0)'
         ).bind(userId, email, pwHash, groupId, now, now).run()
+
+        const details = JSON.stringify({ key: 'log_signup', params: { email } })
+        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SIGNUP', details).run()
     } catch (e) {
-        return view(t.error_user_exists)
+        // UNIQUE制約違反等の場合もタイミング差を出さずに同じ応答を返す
+        return c.redirect(successRedirect)
     }
 
-    const details = JSON.stringify({ key: 'log_login', params: { email } })
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SIGNUP', details).run()
-
-    // 作成したばかりのアカウントを自動ログインする。
-    await createSession(c, userId)
-
-    if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
-    return c.redirect('/')
+    return c.redirect(successRedirect)
 })
 
 
@@ -783,7 +802,9 @@ app.post('/user/2fa/setup', async (c) => {
     const token = (body['token'] as string).replace(/\s+/g, '')
     const secret = body['secret'] as string 
     if (verifyToken(token, secret)) {
-        await c.env.DB.prepare('UPDATE users SET two_factor_secret = ? WHERE id = ?').bind(secret, user.id).run()
+        const kek = await requireSecret(c.env, 'OIDC_KEK', 'fallback-local-dev-kek-do-not-use-in-prod');
+        const encryptedSecret = await encryptSecret(secret, kek);
+        await c.env.DB.prepare('UPDATE users SET two_factor_secret = ? WHERE id = ?').bind(encryptedSecret, user.id).run()
         const details = JSON.stringify({ key: 'log_2fa_enable', params: { email: user.email } });
         await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('2FA_ENABLE', details).run()
         return c.redirect('/account?msg=msg_2fa_enabled')
@@ -1068,14 +1089,38 @@ app.post('/login/2fa', async (c) => {
     const userId = payload.sub as string
 
     const loginIp = c.req.header('CF-Connecting-IP') || 'unknown'
-    if (!(await rateLimit(c.env.DB, `2fa:${userId}:${loginIp}`, 10, 60))) {
+    const ipOk = await rateLimit(c.env.DB, `2fa:ip:${loginIp}`, 10, 60)
+    const userOk = await rateLimit(c.env.DB, `2fa:user:${userId}`, ACCT_RL_LIMIT, ACCT_RL_WINDOW)
+
+    if (!ipOk || !userOk) {
         return c.html(<Login2FA t={t} returnTo={returnTo} error={t.error_rate_limited} />, 429)
     }
 
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first() as User | null
     if (!user || !user.two_factor_secret) return c.redirect('/login')
-    if (verifyToken(otp, user.two_factor_secret)) {
-        await createSession(c, user.id)
+    let decryptedSecret: string | null = null;
+    try {
+        const kek = await requireSecret(c.env, 'OIDC_KEK', 'fallback-local-dev-kek-do-not-use-in-prod');
+        decryptedSecret = await decryptSecret(user.two_factor_secret, kek);
+    } catch (e) {
+        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.error_credentials || 'Invalid credentials'} />, 403);
+    }
+
+    if (!decryptedSecret || !verifyToken(otp, decryptedSecret)) {
+        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.err_invalid_code} />)
+    }
+
+    // 2FA成功時にユーザーのレート制限カウンタをリセット
+    await c.env.DB.prepare('DELETE FROM rate_limits WHERE k = ?').bind(`2fa:user:${userId}`).run()
+
+    // Lazy migration: if the stored secret was legacy plaintext, encrypt and save it now
+    if (!user.two_factor_secret.startsWith('v1:')) {
+        const kek = await requireSecret(c.env, 'OIDC_KEK', 'fallback-local-dev-kek-do-not-use-in-prod');
+        const encryptedSecret = await encryptSecret(decryptedSecret, kek);
+        await c.env.DB.prepare('UPDATE users SET two_factor_secret = ? WHERE id = ?').bind(encryptedSecret, user.id).run();
+    }
+
+    await createSession(c, user.id)
         deleteCookie(c, 'pre_2fa_token')
 
         let targetAppName = 'Tobira Dashboard';
@@ -1089,9 +1134,6 @@ app.post('/login/2fa', async (c) => {
 
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
         return c.redirect(admin ? '/admin' : '/')
-    } else {
-        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.err_invalid_code} />)
-    }
 })
 
 export default app

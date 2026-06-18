@@ -171,7 +171,11 @@ oidcRouter.post('/oauth/token', async (c) => {
         const ac = await c.env.DB.prepare('SELECT * FROM auth_codes WHERE code = ?').bind(code).first() as AuthCode | null
         const nowSec = Math.floor(Date.now() / 1000)
         if (!ac || ac.used_at || ac.expires_at < nowSec) return tokenError(c, 'invalid_grant', 'authorization code is invalid or expired')
-        await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ?').bind(nowSec, code).run()
+        
+        const updateRes = await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at >= ?').bind(nowSec, code, nowSec).run()
+        if ((updateRes as any)?.meta?.changes === 0) {
+            return tokenError(c, 'invalid_grant', 'authorization code is already used or expired')
+        }
 
         const clientId = body.client_id || basicClientId
         if (clientId && clientId !== ac.app_id) return tokenError(c, 'invalid_grant', 'client_id does not match the authorization code')
@@ -357,12 +361,22 @@ oidcRouter.on(['GET', 'POST'], '/oidc/logout', async (c) => {
 
     // id_token_hint を検証する(署名のみ — ログアウト時には通常すでに失効している)。
     let hintAud: string | null = null
+    const ID_TOKEN_LOGOUT_GRACE_SEC = 24 * 3600; // 24 hours
     if (idTokenHint) {
         const payload = await verifyRS256(idTokenHint, c.env.DB, requireSecret(c.env, 'OIDC_KEK', 'dev-only-insecure-oidc-kek-change-me'))
         if (payload) {
             hintAud = typeof payload.aud === 'string' ? payload.aud
                 : Array.isArray(payload.aud) ? String(payload.aud[0]) : null
-            if (!userId && typeof payload.sub === 'string') userId = payload.sub
+            
+            // exp検証（猶予期間つき）
+            const nowSec = Math.floor(Date.now() / 1000)
+            const exp = typeof payload.exp === 'number' ? payload.exp : 0
+            const isWithinGracePeriod = exp + ID_TOKEN_LOGOUT_GRACE_SEC >= nowSec
+
+            // クッキーにセッションがなく、かつ猶予期間内なら sub を信用する
+            if (!userId && isWithinGracePeriod && typeof payload.sub === 'string') {
+                userId = payload.sub
+            }
         }
     }
 

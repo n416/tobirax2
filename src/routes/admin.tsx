@@ -28,7 +28,7 @@ import {
   createAssignment
 } from '../index';
 import { sendEmail } from '../utils/mail';
-import { generateToken, hashPassword, validatePassword } from '../utils/auth';
+import { generateToken, hashPassword, validatePassword, hashToken } from '../utils/auth';
 
 function isValidInitiateLoginUri(uri: string, baseUrl: string, redirectUris: string | null): boolean {
     if (!uri) return true;
@@ -227,6 +227,10 @@ adminRouter.post('/admin/apps', async (c) => {
     const hashedSecret = await hashPassword(plainSecret)
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
+    if (!redirectUris) {
+        return c.redirect('/admin/apps?error=redirect_uris is required for new apps.')
+    }
+
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
     const initiateLoginUri = ((body['initiate_login_uri'] as string) || '').trim() || null
 
@@ -416,8 +420,10 @@ adminRouter.post('/admin/invite', async (c) => {
     const email = body['email'] as string
     if (!email) return c.redirect('/admin/users?error=Email required')
     const token = generateToken()
-    const expiresAt = Math.floor(Date.now() / 1000) + (86400 * 30)
-    try { await c.env.DB.prepare('INSERT INTO invitations (id, email, invited_by, expires_at) VALUES (?, ?, ?, ?)').bind(token, email, user.id, expiresAt).run() }
+    const hashedToken = await hashToken(token)
+    // 既存の平文トークンは無効化され、新規分からハッシュ保存になります（仕様変更）
+    const expiresAt = Math.floor(Date.now() / 1000) + (86400 * 7) // 7 days
+    try { await c.env.DB.prepare('INSERT INTO invitations (id, email, invited_by, expires_at) VALUES (?, ?, ?, ?)').bind(hashedToken, email, user.id, expiresAt).run() }
     catch (e: any) { return c.redirect(`/admin/users?error=${encodeURIComponent('Error: ' + e.message)}`) }
     const url = new URL(c.req.url)
     return c.redirect(`/admin/users?invite_url=${encodeURIComponent(url.protocol + '//' + url.host + '/invite?token=' + token)}`)
@@ -1303,8 +1309,9 @@ adminRouter.post('/invite', async (c) => {
         return c.html(<Invite t={t} token={token} error={t.error_password_too_short || 'Password must be at least 8 characters long.'} />)
     }
 
+    const hashedToken = await hashToken(token)
     const invite = await c.env.DB.prepare('SELECT * FROM invitations WHERE id = ? AND expires_at > ?')
-        .bind(token, Math.floor(Date.now() / 1000)).first<{ email: string }>()
+        .bind(hashedToken, Math.floor(Date.now() / 1000)).first<{ email: string }>()
     if (!invite) return c.html(<Invite t={t} error={t.error_invalid_invite} />)
     const userId = crypto.randomUUID()
     const pwHash = await hashPassword(password)
@@ -1312,7 +1319,7 @@ adminRouter.post('/invite', async (c) => {
     try {
         await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, created_at, updated_at, email_verified) VALUES (?, ?, ?, ?, ?, 1)')
             .bind(userId, invite.email, pwHash, now, now).run()
-        await c.env.DB.prepare('DELETE FROM invitations WHERE id = ?').bind(token).run()
+        await c.env.DB.prepare('DELETE FROM invitations WHERE id = ?').bind(hashedToken).run()
         return c.redirect('/login?msg=msg_account_created')
     } catch (e) {
         return c.html(<Invite t={t} token={token} error={t.error_user_exists} />)
@@ -1326,8 +1333,10 @@ adminRouter.post('/forgot-password', async (c) => {
     const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first() as User | null
     if (user) {
         const token = generateToken()
+        const hashedToken = await hashToken(token)
         const expires = Math.floor(Date.now() / 1000) + 3600
-        await c.env.DB.prepare('INSERT INTO password_resets (token, user_id, expires_at) VALUES (?, ?, ?)').bind(token, user.id, expires).run()
+        // 既存の平文トークンは無効化され、新規分からハッシュ保存になります（仕様変更）
+        await c.env.DB.prepare('INSERT INTO password_resets (token, user_id, expires_at) VALUES (?, ?, ?)').bind(hashedToken, user.id, expires).run()
         const resetLink = `${new URL(c.req.url).origin}/reset-password?token=${token}`;
         const htmlBody = `
       <div style="font-family: sans-serif; color: #333; line-height: 1.6;">
@@ -1348,7 +1357,8 @@ adminRouter.get('/reset-password', async (c) => {
     const t = getLang(c)
     const token = c.req.query('token')
     if (!token) return c.redirect('/forgot-password')
-    const reset = await c.env.DB.prepare('SELECT * FROM password_resets WHERE token = ? AND expires_at > ?').bind(token, Math.floor(Date.now() / 1000)).first()
+    const hashedToken = await hashToken(token)
+    const reset = await c.env.DB.prepare('SELECT * FROM password_resets WHERE token = ? AND expires_at > ?').bind(hashedToken, Math.floor(Date.now() / 1000)).first()
     if (!reset) return c.html(<ResetPassword t={t} token="" error={t.error_invalid_invite} />)
     return c.html(<ResetPassword t={t} token={token} />)
 })
@@ -1362,13 +1372,14 @@ adminRouter.post('/reset-password', async (c) => {
         return c.html(<ResetPassword t={t} token={token} error={t.error_password_too_short || 'Password must be at least 8 characters long.'} />)
     }
 
-    const reset = await c.env.DB.prepare('SELECT * FROM password_resets WHERE token = ? AND expires_at > ?').bind(token, Math.floor(Date.now() / 1000)).first<{ user_id: string }>()
+    const hashedToken = await hashToken(token)
+    const reset = await c.env.DB.prepare('SELECT * FROM password_resets WHERE token = ? AND expires_at > ?').bind(hashedToken, Math.floor(Date.now() / 1000)).first<{ user_id: string }>()
     if (!reset) return c.html(<ResetPassword t={t} token="" error={t.error_invalid_invite} />)
     const pwHash = await hashPassword(password)
     await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(pwHash, reset.user_id).run()
     await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(reset.user_id).run()
     try { await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(reset.user_id).run() } catch (e) { }
-    await c.env.DB.prepare('DELETE FROM password_resets WHERE token = ?').bind(token).run()
+    await c.env.DB.prepare('DELETE FROM password_resets WHERE token = ?').bind(hashedToken).run()
     return c.redirect('/login')
 })
 adminRouter.post('/admin/config', async (c) => {
