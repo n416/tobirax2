@@ -2,7 +2,10 @@
 // このファイルはクライアントサイドで実行されるJavaScriptです。
 // コンパイル時に構文チェックを行うため、関数として定義し文字列化して配信します。
 
-export const accountGroupsClientScript = `
+export const accountGroupsClientScript = '(' + function() {
+  // バンドラ(esbuild等)が自動挿入するデバッグ用関数への対策
+  var __name = function(f) { return f; };
+
     (function() {
         // HTMLエスケープ関数: innerHTML連結時にXSSを防止する
         function escapeHtml(v) {
@@ -546,4 +549,4 @@ export const accountGroupsClientScript = `
             var el = document.getElementById(targetId); if(el) el.value = d.toISOString().split('T')[0];
         };
     })();
-`;
+}.toString() + ')();';

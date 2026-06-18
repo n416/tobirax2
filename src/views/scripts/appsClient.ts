@@ -2,7 +2,10 @@
 // このファイルはクライアントサイドで実行されるJavaScriptです。
 // コンパイル時に構文チェックを行うため、関数として定義し文字列化して配信します。
 
-export const getAppsClientScript = (t: any) => `
+export const getAppsClientScript = (t: any) => '(' + function() {
+  // バンドラ(esbuild等)が自動挿入するデバッグ用関数への対策
+  var __name = function(f) { return f; };
+
         (function() {
             // 画像プレビュー機能
             window.handleIconPreview = function(input, previewId) {
@@ -209,4 +212,4 @@ export const getAppsClientScript = (t: any) => `
                 });
             };
         })();
-`;
+}.toString() + ')();';
