@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 
 // Configure otplib
 authenticator.options = { 
-    window: 6, // Allow 1 step window for time drift
+    window: 1, // Allow 1 step window for time drift
     step: 30
 };
 

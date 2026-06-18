@@ -169,7 +169,7 @@ async function rateLimit(db: D1Database, key: string, limit: number, windowSec: 
 export async function getAdmin(c: any) {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
-    const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ?').bind(sessionId).first() as Session | null
+    const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?').bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
     if (!session) return null
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
     const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user?.email).first()
@@ -1023,6 +1023,12 @@ app.post('/login/2fa', async (c) => {
     let payload;
     try { payload = await verify(preToken, c.env.JWT_SECRET || 'dev_secret', "HS256") } catch (e) { return c.redirect('/login') }
     const userId = payload.sub as string
+
+    const loginIp = c.req.header('CF-Connecting-IP') || 'unknown'
+    if (!(await rateLimit(c.env.DB, `2fa:${userId}:${loginIp}`, 10, 60))) {
+        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.error_rate_limited} />, 429)
+    }
+
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first() as User | null
     if (!user || !user.two_factor_secret) return c.redirect('/login')
     if (verifyToken(otp, user.two_factor_secret)) {
