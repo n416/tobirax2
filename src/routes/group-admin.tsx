@@ -321,7 +321,9 @@ groupAdminRouter.get('/group-admin', async (c) => {
 
     />)
   } catch (e: any) {
-    return c.json({ error: e.message, stack: e.stack }, 500)
+    console.error(e)
+    const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
+    return c.json(isDev ? { error: e.message, stack: e.stack } : { error: 'Internal Server Error' }, 500)
   }
 })
 

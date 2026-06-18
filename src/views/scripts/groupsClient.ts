@@ -4,6 +4,13 @@
 
 export const groupsClientScript = `
     (function() {
+        // HTMLエスケープ関数: innerHTML連結時にXSSを防止する
+        function escapeHtml(v) {
+          return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         var i18nEl = document.getElementById('i18n-data');
         var i18n = i18nEl ? i18nEl.dataset : {};
         var ALL_APPS = [];

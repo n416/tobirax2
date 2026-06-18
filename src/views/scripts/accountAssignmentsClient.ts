@@ -7,6 +7,13 @@ export const accountAssignmentsClientScript = '(' + function() {
   var __name = function(f) { return f; };
 
   (function() {
+    // HTMLエスケープ関数: innerHTML連結時にXSSを防止する
+    function escapeHtml(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     var rolesEl = document.getElementById('roles-json');
     var facUseEl = document.getElementById('facuse-json');
     var i18nEl = document.getElementById('i18n-no-role');

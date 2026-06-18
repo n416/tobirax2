@@ -4,6 +4,13 @@
 
 export const accountGroupsClientScript = `
     (function() {
+        // HTMLエスケープ関数: innerHTML連結時にXSSを防止する
+        function escapeHtml(v) {
+          return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         var i18nEl = document.getElementById('i18n-data');
         var i18n = i18nEl ? i18nEl.dataset : {};
         var tsControl = null;
@@ -202,7 +209,7 @@ export const accountGroupsClientScript = `
                 var dStart = new Date(m.valid_from * 1000).toLocaleDateString();
                 var isForever = m.valid_to > 2000000000;
                 var dEnd = isForever ? (i18n.termForever || 'Forever') : new Date(m.valid_to * 1000).toLocaleDateString();
-                var sub = (m.name ? (m.email + ' · ') : '');
+                var sub = (m.name ? (escapeHtml(m.email) + ' · ') : '');
                 meta.innerHTML = '<div style="display:flex; align-items:center; gap:0.4rem;"><span class="material-symbols-outlined" style="font-size:16px;">date_range</span> ' + sub + dStart + ' ～ ' + dEnd + '</div>';
                 left.appendChild(meta);
 

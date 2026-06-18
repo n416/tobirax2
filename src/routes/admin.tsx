@@ -25,7 +25,8 @@ import {
   handleIconUpload,
   logAudit,
   deleteServiceCascade,
-  createAssignment
+  createAssignment,
+  rateLimit
 } from '../index';
 import { sendEmail } from '../utils/mail';
 import { generateToken, hashPassword, validatePassword, hashToken } from '../utils/auth';
@@ -374,7 +375,9 @@ adminRouter.get('/admin/groups', async (c) => {
         if (!apps.success) throw new Error('Apps DB Error: ' + apps.error)
         return c.html(<GroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results as any} apps={apps.results as any} siteName={siteName} appConfig={config} />)
     } catch (e: any) {
-        return c.text('Error: ' + e.message + '\n' + e.stack, 500)
+        console.error(e)
+        const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
+        return c.text(isDev ? ('Error: ' + e.message + '\n' + e.stack) : 'Internal Server Error', 500)
     }
 })
 adminRouter.post('/admin/groups', async (c) => {
@@ -539,7 +542,9 @@ adminRouter.post('/admin/api/user/group', async (c) => {
         await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('USER_UPDATE', details).run()
         return c.json({ success: true })
     } catch (e: any) {
-        return c.json({ error: e.message, stack: e.stack }, 500)
+        console.error(e)
+        const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
+        return c.json(isDev ? { error: e.message, stack: e.stack } : { error: 'Internal Server Error' }, 500)
     }
 })
 adminRouter.post('/admin/api/user/permission/revoke', async (c) => {
@@ -648,7 +653,9 @@ adminRouter.get('/admin/am/groups', async (c) => {
         if (!users.success) throw new Error('Users DB Error: ' + users.error)
         return c.html(<AccountGroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results as any} users={users.results as any} facilities={facilities.results as any} contracts={contracts.results as any} siteName={siteName} appConfig={config} />)
     } catch (e: any) {
-        return c.text('Error: ' + e.message + '\n' + e.stack, 500)
+        console.error(e)
+        const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
+        return c.text(isDev ? ('Error: ' + e.message + '\n' + e.stack) : 'Internal Server Error', 500)
     }
 })
 adminRouter.post('/admin/am/groups', async (c) => {
@@ -1330,6 +1337,11 @@ adminRouter.post('/forgot-password', async (c) => {
     const t = getLang(c)
     const body = await c.req.parseBody()
     const email = ((body['email'] as string) || '').trim().toLowerCase()
+    // レート制限: IP単位で1時間あたり5回まで
+    const ip = c.req.header('CF-Connecting-IP') || 'unknown'
+    if (!(await rateLimit(c.env.DB, `forgot:${ip}`, 5, 3600))) {
+        return c.html(<ForgotPassword t={t} message={t.link_sent} />)
+    }
     const user = await c.env.DB.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first() as User | null
     if (user) {
         const token = generateToken()
@@ -1344,12 +1356,13 @@ adminRouter.post('/forgot-password', async (c) => {
         <p>You requested a password reset. Please click the link below to set a new password:</p>
         <p><a href="${resetLink}" style="color: #0288d1; word-break: break-all;">${resetLink}</a></p>
         <p>This link will expire in 1 hour.</p>
-        <p><strong>繝代せ繝ｯ繝ｼ繝峨Μ繧ｻ繝・ヨ</strong></p>
-        <p>繝代せ繝ｯ繝ｼ繝峨Μ繧ｻ繝・ヨ縺ｮ繝ｪ繧ｯ繧ｨ繧ｹ繝医ｒ蜿励￠莉倥￠縺ｾ縺励◆縲ゆｻ･荳九・繝ｪ繝ｳ繧ｯ繧偵け繝ｪ繝・け縺励※縲∵眠縺励＞繝代せ繝ｯ繝ｼ繝峨ｒ險ｭ螳壹＠縺ｦ縺上□縺輔＞縲・/p>
+        <p><strong>パスワードリセット</strong></p>
+        <p>パスワードリセットのリクエストを受け付けました。以下のリンクをクリックして、新しいパスワードを設定してください。</p>
         <p><a href="${resetLink}" style="color: #0288d1; word-break: break-all;">${resetLink}</a></p>
+        <p>このリンクは1時間で無効になります。</p>
       </div>
     `;
-        await sendEmail(c.env, email, 'Password Reset / 繝代せ繝ｯ繝ｼ繝峨Μ繧ｻ繝・ヨ', htmlBody);
+        await sendEmail(c.env, email, 'Password Reset / パスワードリセット', htmlBody);
     }
     return c.html(<ForgotPassword t={t} message={t.link_sent} />)
 })
@@ -1373,13 +1386,14 @@ adminRouter.post('/reset-password', async (c) => {
     }
 
     const hashedToken = await hashToken(token)
-    const reset = await c.env.DB.prepare('SELECT * FROM password_resets WHERE token = ? AND expires_at > ?').bind(hashedToken, Math.floor(Date.now() / 1000)).first<{ user_id: string }>()
-    if (!reset) return c.html(<ResetPassword t={t} token="" error={t.error_invalid_invite} />)
+    const now = Math.floor(Date.now() / 1000)
+    // DELETE ... RETURNING で原子的に消費。同一トークンを2リクエスト同時に使えない
+    const consumed = await c.env.DB.prepare('DELETE FROM password_resets WHERE token = ? AND expires_at > ? RETURNING user_id').bind(hashedToken, now).first<{ user_id: string }>()
+    if (!consumed) return c.html(<ResetPassword t={t} token="" error={t.error_invalid_invite} />)
     const pwHash = await hashPassword(password)
-    await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(pwHash, reset.user_id).run()
-    await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(reset.user_id).run()
-    try { await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(reset.user_id).run() } catch (e) { }
-    await c.env.DB.prepare('DELETE FROM password_resets WHERE token = ?').bind(hashedToken).run()
+    await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(pwHash, consumed.user_id).run()
+    await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(consumed.user_id).run()
+    try { await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(consumed.user_id).run() } catch (e) { }
     return c.redirect('/login')
 })
 adminRouter.post('/admin/config', async (c) => {

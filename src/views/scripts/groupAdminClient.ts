@@ -17,6 +17,13 @@ export const groupAdminClientScript = '(' + function() {
       document.documentElement.setAttribute('data-active-tab', tab);
     })();
     (function() {
+      // HTMLエスケープ関数: innerHTML連結時にXSSを防止する
+      function escapeHtml(v) {
+        return String(v == null ? '' : v)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
       var membersByGroup = null;
       var assignsByGroup = null;
       var permsByGroup = null;
@@ -265,13 +272,13 @@ export const groupAdminClientScript = '(' + function() {
             if (apps.length === 0) { card.style.display = 'none'; return; }
             card.style.display = '';
             body.innerHTML = apps.map(function(a){
-              var who = a.user_name ? (a.user_name + ' <' + a.user_email + '>') : a.user_email;
-              var reason = a.reason ? a.reason : '(理由なし)';
+              var who = a.user_name ? (escapeHtml(a.user_name) + ' &lt;' + escapeHtml(a.user_email) + '&gt;') : escapeHtml(a.user_email);
+              var reason = a.reason ? escapeHtml(a.reason) : '(理由なし)';
               return '<div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.85rem 1rem; margin-bottom:0.75rem; background:white;">'
                 + '<div style="display:flex; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; align-items:flex-start;">'
                 +   '<div style="min-width:0;">'
                 +     '<div style="font-weight:700; color:#0f172a;">' + who + '</div>'
-                +     '<div style="font-size:0.82rem; color:#64748b; margin-top:0.15rem;">' + (a.group_name || a.group_id) + ' ・ <span style="font-weight:700; color:#5b21b6;">' + roleTypeLabel(a.role_type) + '</span></div>'
+                +     '<div style="font-size:0.82rem; color:#64748b; margin-top:0.15rem;">' + escapeHtml(a.group_name || a.group_id) + ' ・ <span style="font-weight:700; color:#5b21b6;">' + roleTypeLabel(a.role_type) + '</span></div>'
                 +     '<div style="font-size:0.88rem; color:#334155; margin-top:0.5rem; white-space:pre-wrap;">' + reason + '</div>'
                 +   '</div>'
                 +   '<div style="display:flex; gap:0.5rem; flex-shrink:0;">'
@@ -333,8 +340,8 @@ export const groupAdminClientScript = '(' + function() {
         } else {
           roleListEl.innerHTML = roles.map(function(r) {
             return '<div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem; border-bottom:1px solid #f1f5f9;">'
-                 + '<div><strong>' + r.role_name + '</strong> <span style="color:#64748b; font-size:0.8rem;">[' + r.role_code + ']</span>'
-                 + (r.facility_type ? ' <span style="font-size:0.75rem; color:#0f172a; background:#e2e8f0; padding:2px 6px; border-radius:4px;">' + r.facility_type + '</span>' : '')
+                 + '<div><strong>' + escapeHtml(r.role_name) + '</strong> <span style="color:#64748b; font-size:0.8rem;">[' + escapeHtml(r.role_code) + ']</span>'
+                 + (r.facility_type ? ' <span style="font-size:0.75rem; color:#0f172a; background:#e2e8f0; padding:2px 6px; border-radius:4px;">' + escapeHtml(r.facility_type) + '</span>' : '')
                  + '</div>'
                  + '<button type="button" onclick="removeRole(' + r.id + ')" class="material-symbols-outlined" style="color:#ef4444; background:none; border:none; cursor:pointer; font-size:18px;">delete</button>'
                  + '</div>';
@@ -395,8 +402,8 @@ export const groupAdminClientScript = '(' + function() {
           if (m.is_developer) badges.push(badge('#0e7490', '#cffafe', window.i18n.roleDeveloper || '開発者'));
           if (badges.length === 0) badges.push(badge('#475569', '#f1f5f9', window.i18n.roleMember || 'メンバー'));
           var badgeHtml = badges.join('');
-          var displayName = m.name || m.email;
-          var subEmail = m.name ? ('<div style="font-size:0.8rem; color:#94a3b8;">' + m.email + '</div>') : '';
+          var displayName = escapeHtml(m.name || m.email);
+          var subEmail = m.name ? ('<div style="font-size:0.8rem; color:#94a3b8;">' + escapeHtml(m.email) + '</div>') : '';
           return '<tr>'
             + '<td><div>' + displayName + '</div>' + subEmail + '</td>'
             + '<td>' + badgeHtml + '</td>'
@@ -453,7 +460,7 @@ export const groupAdminClientScript = '(' + function() {
               var barColor = isFull ? '#ef4444' : '#10b981';
               htmlStr += '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
                 + '<div style="font-size:0.85rem; color:#64748b; font-weight:600; margin-bottom:0.5rem; display:flex; justify-content:space-between;">'
-                + '<span>' + g.service_name + '</span><span style="color:' + (isFull ? '#ef4444' : '#64748b') + ';">' + remainingStr + '</span>'
+                + '<span>' + escapeHtml(g.service_name) + '</span><span style="color:' + (isFull ? '#ef4444' : '#64748b') + ';">' + remainingStr + '</span>'
                 + '</div>'
                 + '<div style="font-size:1.25rem; font-weight:800; color:#0f172a; margin-bottom:0.5rem;">' + usedCount + ' <span style="font-size:0.85rem; font-weight:500; color:#64748b;">/ ' + limitStr + ' 消費</span></div>'
                 + '<div style="width:100%; background:#f1f5f9; border-radius:999px; height:6px; overflow:hidden;">'
@@ -472,13 +479,13 @@ export const groupAdminClientScript = '(' + function() {
           return;
         }
         el.innerHTML = list.map(function(a) {
-          var facility = a.structure_no || a.facility_id || '-';
-          if (a.building_use) facility += ' (' + a.building_use + ')';
-          var roleName = a.role_name || '-';
-          var user = a.user_name || a.user_email;
+          var facility = escapeHtml(a.structure_no || a.facility_id || '-');
+          if (a.building_use) facility += ' (' + escapeHtml(a.building_use) + ')';
+          var roleName = escapeHtml(a.role_name || '-');
+          var user = escapeHtml(a.user_name || a.user_email);
           return '<tr>'
-            + '<td>' + user + (a.user_name ? '<div style="font-size:0.8rem;color:#94a3b8;">' + a.user_email + '</div>' : '') + '</td>'
-            + '<td style="font-size:0.88rem;">' + a.service_name + '</td>'
+            + '<td>' + user + (a.user_name ? '<div style="font-size:0.8rem;color:#94a3b8;">' + escapeHtml(a.user_email) + '</div>' : '') + '</td>'
+            + '<td style="font-size:0.88rem;">' + escapeHtml(a.service_name) + '</td>'
             + '<td style="font-size:0.85rem; color:#64748b;">' + facility + '</td>'
             + '<td style="font-size:0.85rem;">' + roleName + '</td>'
             + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(a.valid_from) + ' ～ ' + fmt(a.valid_to) + '</td>'
@@ -500,8 +507,8 @@ export const groupAdminClientScript = '(' + function() {
           var srcColor = p.source === 'user' ? '#1d4ed8' : '#047857';
           var srcBg = p.source === 'user' ? '#dbeafe' : '#d1fae5';
           return '<tr>'
-            + '<td style="font-size:0.88rem;">' + p.user_email + '</td>'
-            + '<td><strong>' + p.app_name + '</strong></td>'
+            + '<td style="font-size:0.88rem;">' + escapeHtml(p.user_email) + '</td>'
+            + '<td><strong>' + escapeHtml(p.app_name) + '</strong></td>'
             + '<td><span style="font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + srcColor + '; background:' + srcBg + ';">' + srcLabel + '</span></td>'
             + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(p.valid_from) + ' ～ ' + fmt(p.valid_to) + '</td>'
             + '</tr>';
@@ -568,8 +575,8 @@ export const groupAdminClientScript = '(' + function() {
                   } else if (tsControlMoveFacility) {
                       tsControlMoveFacility.clearOptions();
                       tsControlMoveFacility.addOptions(filtered.map(function(f) {
-                          var gName = f.group_name || 'Unknown Group';
-                          var lbl = (f.structure_no || f.id) + (f.building_use ? ' (' + f.building_use + ')' : '') + ' - [' + gName + ']';
+                          var gName = escapeHtml(f.group_name || 'Unknown Group');
+                          var lbl = escapeHtml(f.structure_no || f.id) + (f.building_use ? ' (' + escapeHtml(f.building_use) + ')' : '') + ' - [' + gName + ']';
                           return { id: f.id, label: lbl };
                       }));
                       tsControlMoveFacility.refreshOptions(false);
@@ -597,8 +604,8 @@ export const groupAdminClientScript = '(' + function() {
         }
         
         el.innerHTML = list.map(function(f) {
-          var fNo = f.structure_no || f.id;
-          var fUse = f.building_use || '—';
+          var fNo = escapeHtml(f.structure_no || f.id);
+          var fUse = escapeHtml(f.building_use || '—');
           return '<tr>'
             + '<td>' + fNo + '</td>'
             + '<td>' + fUse + '</td>'
@@ -733,7 +740,7 @@ export const groupAdminClientScript = '(' + function() {
       function fillSelect(el, items, valueKey, textKey, placeholder) {
         if (!el) return;
         var html = '<option value="">' + placeholder + '</option>';
-        items.forEach(function(it) { html += '<option value="' + it[valueKey] + '">' + it[textKey] + '</option>'; });
+        items.forEach(function(it) { html += '<option value="' + escapeHtml(it[valueKey]) + '">' + escapeHtml(it[textKey]) + '</option>'; });
         el.innerHTML = html;
       }
 
@@ -842,7 +849,7 @@ export const groupAdminClientScript = '(' + function() {
               var availStr = unlimited ? (i18n.grantUnlimited || '無制限') : availNum;
               var over = (!unlimited && childSeats > g.seat_limit);
               return '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:260px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
-                + '<div style="font-size:0.9rem; font-weight:700; color:#0f172a; margin-bottom:0.65rem;">' + g.service_name + '</div>'
+                + '<div style="font-size:0.9rem; font-weight:700; color:#0f172a; margin-bottom:0.65rem;">' + escapeHtml(g.service_name) + '</div>'
                 + '<div style="display:flex; gap:0.75rem;">'
                 +   '<div style="flex:1;"><div style="font-size:0.7rem; color:#64748b; margin-bottom:0.15rem;">' + (i18n.grantTotal || '総枠') + '</div><div style="font-size:1.15rem; font-weight:800; color:#0f172a;">' + totalStr + '</div></div>'
                 +   '<div style="flex:1;"><div style="font-size:0.7rem; color:#64748b; margin-bottom:0.15rem;">' + (i18n.grantDistributed || '子へ配分') + '</div><div style="font-size:1.15rem; font-weight:800; color:#7c3aed;">' + childSeats + '</div></div>'
@@ -870,7 +877,7 @@ export const groupAdminClientScript = '(' + function() {
               var isRootGrant = (availableContracts || []).some(function(c) { return c.id === g.contract_id && c.customer_group_id === currentGroupId; });
               var deleteBtn = isRootGrant ? '<button type="button" onclick="removeGrant(' + g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '';
               return '<tr>'
-                + '<td><strong>' + g.service_name + '</strong></td>'
+                + '<td><strong>' + escapeHtml(g.service_name) + '</strong></td>'
                 + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
                 + '<td style="font-size:0.82rem; color:#94a3b8;">' + fmt(g.valid_from) + ' ～ ' + fmt(g.valid_to) + '</td>'
                 + '<td style="text-align:right;">' + deleteBtn + '</td>'
@@ -903,7 +910,7 @@ export const groupAdminClientScript = '(' + function() {
             contractsBody.innerHTML = myContracts.map(function(c) {
               var seat = (c.seat_limit == null) ? (i18n.seatUnlimited || '無制限') : c.seat_limit;
               return '<tr>'
-                + '<td><strong>' + c.service_name + (c.group_name ? ' (' + c.group_name + ')' : '') + '</strong></td>'
+                + '<td><strong>' + escapeHtml(c.service_name) + (c.group_name ? ' (' + escapeHtml(c.group_name) + ')' : '') + '</strong></td>'
                 + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
                 + '</tr>';
             }).join('');
@@ -933,8 +940,8 @@ export const groupAdminClientScript = '(' + function() {
         body.innerHTML = rows.map(function(r) {
           var seat = (r.g.seat_limit == null) ? (i18n.seatUnlimited || '無制限') : r.g.seat_limit;
           return '<tr>'
-            + '<td><span class="material-symbols-outlined" style="font-size:16px; color:#94a3b8; vertical-align:middle; margin-right:0.3rem;">subdirectory_arrow_right</span>' + r.child.name + '</td>'
-            + '<td style="font-size:0.88rem;">' + r.g.service_name + '</td>'
+            + '<td><span class="material-symbols-outlined" style="font-size:16px; color:#94a3b8; vertical-align:middle; margin-right:0.3rem;">subdirectory_arrow_right</span>' + escapeHtml(r.child.name) + '</td>'
+            + '<td style="font-size:0.88rem;">' + escapeHtml(r.g.service_name) + '</td>'
             + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
             + '<td style="text-align:right;"><button type="button" onclick="removeGrant(' + r.g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
             + '</tr>';
@@ -1083,7 +1090,7 @@ export const groupAdminClientScript = '(' + function() {
         el.innerHTML = list.map(function(s) {
           var apps = s.apps || [];
           var chips = apps.length ? apps.map(function(a){
-            return '<span style="display:inline-flex;align-items:center;gap:0.25rem;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:999px;padding:2px 6px 2px 10px;font-size:0.78rem;margin:0 0.25rem 0.25rem 0;">' + a.name
+            return '<span style="display:inline-flex;align-items:center;gap:0.25rem;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:999px;padding:2px 6px 2px 10px;font-size:0.78rem;margin:0 0.25rem 0.25rem 0;">' + escapeHtml(a.name)
               + (s.status !== 'active' ? '<button type="button" title="外す" onclick="removeServiceApp(\'' + s.id + '\',\'' + a.id + '\')" style="background:none;border:none;color:#6366f1;cursor:pointer;padding:0 2px;line-height:1;font-size:0.95rem;">×</button>' : '') + '</span>';
           }).join('') : '<span style="color:#cbd5e1;">—</span>';
           
@@ -1096,7 +1103,7 @@ export const groupAdminClientScript = '(' + function() {
           var tagsHtml = sTags.map(function(t) {
             var color = t.status === 'active' ? '#047857' : (t.status === 'rejected' ? '#b91c1c' : '#c2410c');
             var bg = t.status === 'active' ? '#d1fae5' : (t.status === 'rejected' ? '#fef2f2' : '#fff7ed');
-            var label = t.tag_name;
+            var label = escapeHtml(t.tag_name);
             if (t.status !== 'active') label += ' (' + (t.status === 'pending' ? '申請中' : '却下') + ')';
             return '<span style="display:inline-block; margin-right:0.25rem; font-size:0.75rem; padding:2px 8px; border-radius:999px; background:'+bg+'; color:'+color+'; border:1px solid '+(t.status==='active'?'#a7f3d0':(t.status==='rejected'?'#fecaca':'#fed7aa'))+';">' + label + '</span>';
           }).join('');
@@ -1104,8 +1111,8 @@ export const groupAdminClientScript = '(' + function() {
 
           var encS = encodeURIComponent(JSON.stringify(s));
           return '<tr>'
-            + '<td><strong>' + s.name + '</strong>'
-            +   '<div style="font-size:0.75rem; color:#64748b; font-family:monospace; margin-top:2px;">' + s.id + '</div>'
+            + '<td><strong>' + escapeHtml(s.name) + '</strong>'
+            +   '<div style="font-size:0.75rem; color:#64748b; font-family:monospace; margin-top:2px;">' + escapeHtml(s.id) + '</div>'
             +   '<div style="margin-top:0.4rem;">' + chips + '</div>'
             +   tagsDisplay
             +   reasonInfo
@@ -1172,7 +1179,7 @@ export const groupAdminClientScript = '(' + function() {
           }
 
           return '<tr>'
-            + '<td><strong>' + a.name + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + a.id + '</div>' + reasonInfo + '</td>'
+            + '<td><strong>' + escapeHtml(a.name) + '</strong><div style="font-size:0.78rem;color:#94a3b8;font-family:monospace;">' + escapeHtml(a.id) + '</div>' + reasonInfo + '</td>'
             + '<td>' + statusBadge(a.status) + '</td>'
             + '<td style="text-align:right; white-space:nowrap;">'
             +   '<button type="button" title="' + (a.status === 'active' ? '詳細' : '編集') + '" onclick="openAppEditModal(&quot;' + dataAttr + '&quot;)" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;" onmouseover="this.style.background=&quot;#f1f5f9&quot;;this.style.color=&quot;#4f46e5&quot;;" onmouseout="this.style.background=&quot;transparent&quot;;this.style.color=&quot;#94a3b8&quot;;"><span class="material-symbols-outlined" style="font-size:18px;">' + (a.status === 'active' ? 'visibility' : 'edit') + '</span></button>'
@@ -1318,7 +1325,7 @@ export const groupAdminClientScript = '(' + function() {
             appliedTagsEl.innerHTML = sTags.map(function(t) {
               var color = t.status === 'active' ? '#047857' : (t.status === 'rejected' ? '#b91c1c' : '#c2410c');
               var bg = t.status === 'active' ? '#d1fae5' : (t.status === 'rejected' ? '#fef2f2' : '#fff7ed');
-              var label = t.tag_name;
+              var label = escapeHtml(t.tag_name);
               if (t.status !== 'active') label += ' (' + (t.status === 'pending' ? '申請中' : '却下') + ')';
               return '<span style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.8rem; padding:4px 8px 4px 10px; border-radius:999px; background:'+bg+'; color:'+color+'; border:1px solid '+(t.status==='active'?'#a7f3d0':(t.status==='rejected'?'#fecaca':'#fed7aa'))+';">' + label
                 + '<button type="button" title="外す" onclick="removeServiceTag(&quot;' + serviceId + '&quot;, &quot;' + t.tag_id + '&quot;)" style="background:none;border:none;color:'+color+';cursor:pointer;padding:0 2px;line-height:1;font-size:1.1rem;opacity:0.7;" onmouseover="this.style.opacity=1;" onmouseout="this.style.opacity=0.7;">×</button>'
@@ -1334,7 +1341,7 @@ export const groupAdminClientScript = '(' + function() {
           avail.forEach(function(t) {
             var applied = sTags.some(function(at) { return at.tag_id === t.id; });
             if (!applied) {
-              optionsHtml += '<option value="' + t.id + '">' + t.name + '</option>';
+              optionsHtml += '<option value="' + escapeHtml(t.id) + '">' + escapeHtml(t.name) + '</option>';
             }
           });
           availableTagsEl.innerHTML = optionsHtml;

@@ -154,7 +154,7 @@ export async function checkPermission(c: any, userId: string, appId: string): Pr
 // D1 を使ったキー別の固定ウィンドウ・レートリミッター。許可なら true を返す。
 // (Cloudflare ネイティブの rate-limit バインディングはベストエフォート/結果整合で、
 // ここでは確実に効いていなかったため、権威ある(authoritative)カウンタを自前で持つ。)
-async function rateLimit(db: D1Database, key: string, limit: number, windowSec: number): Promise<boolean> {
+export async function rateLimit(db: D1Database, key: string, limit: number, windowSec: number): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000)
     const resetAt = now + windowSec
     const row = await db.prepare(`
@@ -568,7 +568,9 @@ app.get('/', async (c) => {
 
         return c.html(<UserDashboard t={t} userEmail={user.email} apps={standaloneApps as any} services={entitledServices} availableServiceTags={availableServiceTags} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
     } catch (e: any) {
-        return c.json({ error: e.message, stack: e.stack }, 500)
+        console.error(e)
+        const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
+        return c.json(isDev ? { error: e.message, stack: e.stack } : { error: 'Internal Server Error' }, 500)
     }
 })
 
