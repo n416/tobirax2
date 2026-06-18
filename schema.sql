@@ -307,7 +307,8 @@ CREATE TABLE IF NOT EXISTS group_service_grants (
 
 -- 【施設(建物)】
 -- 当システム（認証ポータル）は「論理的な施設（例: A棟、B棟）」のアクセス権限を管理する責務を持つ。
--- 物理的な工事履歴などの管理はコアシステムのドメインであるため、ポータル側は 1施設＝1レコード として扱う。
+-- 物理的な工事履歴などの管理はコアシステムのドメインであるため、ポータル側は 1施設＝1レコード（1構造物番号） として扱う。
+-- ※カンマ区切り等で複数の構造物番号を保持することはしない。
 CREATE TABLE IF NOT EXISTS facilities (
     id                TEXT PRIMARY KEY,
     structure_no      TEXT,
