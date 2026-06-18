@@ -29,9 +29,9 @@ export async function hashToken(token: string): Promise<string> {
     .join('')
 }
 
-// ※ bcryptの仕様により、パスワードは最大72バイトで切り詰められる点に注意
+// ※ bcryptの仕様により、パスワードは最大72バイトで切り詰められる点に注意。DoS防止のため上限を設ける
 export function validatePassword(password: string): boolean {
-  return password.length >= 8
+  return password.length >= 8 && password.length <= 72
 }
 
 export function getCookieOptions(expiresAt: number) {

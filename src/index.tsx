@@ -156,22 +156,26 @@ export async function checkPermission(c: any, userId: string, appId: string): Pr
 // ここでは確実に効いていなかったため、権威ある(authoritative)カウンタを自前で持つ。)
 async function rateLimit(db: D1Database, key: string, limit: number, windowSec: number): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000)
-    const row = await db.prepare('SELECT count, reset_at FROM rate_limits WHERE k = ?')
-        .bind(key).first<{ count: number; reset_at: number }>()
-    if (!row || row.reset_at <= now) {
-        await db.prepare('INSERT INTO rate_limits (k, count, reset_at) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET count = 1, reset_at = excluded.reset_at')
-            .bind(key, now + windowSec).run()
-        return true
+    const resetAt = now + windowSec
+    const row = await db.prepare(`
+        INSERT INTO rate_limits (k, count, reset_at) VALUES (?, 1, ?)
+        ON CONFLICT(k) DO UPDATE SET
+            count = CASE WHEN ? >= rate_limits.reset_at THEN 1 ELSE rate_limits.count + 1 END,
+            reset_at = CASE WHEN ? >= rate_limits.reset_at THEN ? ELSE rate_limits.reset_at END
+        RETURNING count
+    `).bind(key, resetAt, now, now, resetAt).first<{ count: number }>()
+
+    if (row && row.count > limit) {
+        return false
     }
-    if (row.count >= limit) return false
-    await db.prepare('UPDATE rate_limits SET count = count + 1 WHERE k = ?').bind(key).run()
     return true
 }
 
 export async function getAdmin(c: any) {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
-    const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?').bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
+    const hashedSessionId = await hashToken(sessionId)
+    const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?').bind(hashedSessionId, Math.floor(Date.now() / 1000)).first() as Session | null
     if (!session) return null
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
     if (user?.email) {
@@ -184,7 +188,8 @@ export async function getAdmin(c: any) {
 export async function getUser(c: any) {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
-    const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?').bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
+    const hashedSessionId = await hashToken(sessionId)
+    const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?').bind(hashedSessionId, Math.floor(Date.now() / 1000)).first() as Session | null
     if (!session) return null
     return await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
 }
@@ -426,8 +431,9 @@ export async function ensureGroupProvider(c: any, groupId: string): Promise<stri
 export async function getSessionRow(c: any): Promise<Session | null> {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
+    const hashedSessionId = await hashToken(sessionId)
     return await c.env.DB.prepare('SELECT * FROM sessions WHERE id = ? AND expires_at > ?')
-        .bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
+        .bind(hashedSessionId, Math.floor(Date.now() / 1000)).first() as Session | null
 }
 
 // 新しいログインセッションを作成し Cookie を設定する。auth_time(実際の認証時刻)を
@@ -436,8 +442,9 @@ async function createSession(c: any, userId: string): Promise<void> {
     const sessionId = generateToken()
     const now = Math.floor(Date.now() / 1000)
     const expires = now + 86400
+    const hashedSessionId = await hashToken(sessionId)
     await c.env.DB.prepare('INSERT INTO sessions (id, user_id, expires_at, auth_time) VALUES (?, ?, ?, ?)')
-        .bind(sessionId, userId, expires, now).run()
+        .bind(hashedSessionId, userId, expires, now).run()
     setCookie(c, '__Host-idp_session', sessionId, getCookieOptions(expires))
 }
 
@@ -776,11 +783,12 @@ app.post('/signup', async (c) => {
 app.get('/logout', async (c) => {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (sessionId) {
-        const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ?').bind(sessionId).first() as Session | null
+        const hashedSessionId = await hashToken(sessionId)
+        const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ?').bind(hashedSessionId).first() as Session | null
         if (session) {
             await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(session.user_id).run()
         }
-        try { await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run() } catch (e) { }
+        try { await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(hashedSessionId).run() } catch (e) { }
     }
     setCookie(c, '__Host-idp_session', '', { path: '/', secure: true, httpOnly: true, expires: new Date(0) })
     return c.redirect('/login')
@@ -874,7 +882,8 @@ app.post('/change-password', async (c) => {
     // Clear other sessions and app_sessions
     const sessionId = getCookie(c, '__Host-idp_session')
     if (sessionId) {
-        await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').bind(user.id, sessionId).run()
+        const hashedSessionId = await hashToken(sessionId)
+        await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').bind(user.id, hashedSessionId).run()
     } else {
         await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id).run()
     }
@@ -1035,8 +1044,10 @@ export async function issueOidcTokens(c: any, user: User, clientId: string, nonc
     const effectiveAuthTime = authTime ?? now
     const accessToken = generateToken()
     const refreshToken = generateToken()
+    const hashedAccessToken = await hashToken(accessToken)
+    const hashedRefreshToken = await hashToken(refreshToken)
     await c.env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(accessToken, refreshToken, user.id, clientId, now + expiresIn, grantedScope, effectiveAuthTime).run()
+        .bind(hashedAccessToken, hashedRefreshToken, user.id, clientId, now + expiresIn, grantedScope, effectiveAuthTime).run()
 
     const issuer = new URL(c.req.url).origin
     // OIDC Core 3.1.3.6: at_hash = base64url(SHA-256(access_token) の左半分)。

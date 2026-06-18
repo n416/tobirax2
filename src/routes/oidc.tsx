@@ -4,7 +4,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { getJwksKeys } from '../oidc/keys';
 import { requireSecret } from '../utils/env';
 import { signRS256, verifyPkce, verifyRS256 } from '../oidc/jwt';
-import { generateToken } from '../utils/auth';
+import { generateToken, hashToken } from '../utils/auth';
 import {
   checkPermission,
   getUser,
@@ -133,12 +133,13 @@ oidcRouter.get('/authorize', async (c) => {
     }
 
     const code = generateToken()
+    const hashedCode = await hashToken(code)
     const expires = Math.floor(Date.now() / 1000) + 300
     // セッションの実際の auth_time を code に持ち込み、id_token がユーザーの実認証時刻を
     // 反映するようにする(OIDC auth_time)。
     await c.env.DB.prepare(
         'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(code, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope, session?.auth_time ?? null).run()
+    ).bind(hashedCode, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope, session?.auth_time ?? null).run()
 
     return c.redirect(buildRedirect(redirectUri, responseMode, { code, state }))
 })
@@ -168,11 +169,12 @@ oidcRouter.post('/oauth/token', async (c) => {
     if (grantType === 'authorization_code') {
         const code = body.code
         if (!code) return tokenError(c, 'invalid_request', 'missing code')
-        const ac = await c.env.DB.prepare('SELECT * FROM auth_codes WHERE code = ?').bind(code).first() as AuthCode | null
+        const hashedCode = await hashToken(code)
+        const ac = await c.env.DB.prepare('SELECT * FROM auth_codes WHERE code = ?').bind(hashedCode).first() as AuthCode | null
         const nowSec = Math.floor(Date.now() / 1000)
         if (!ac || ac.used_at || ac.expires_at < nowSec) return tokenError(c, 'invalid_grant', 'authorization code is invalid or expired')
         
-        const updateRes = await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at >= ?').bind(nowSec, code, nowSec).run()
+        const updateRes = await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at >= ?').bind(nowSec, hashedCode, nowSec).run()
         if ((updateRes as any)?.meta?.changes === 0) {
             return tokenError(c, 'invalid_grant', 'authorization code is already used or expired')
         }
@@ -203,19 +205,20 @@ oidcRouter.post('/oauth/token', async (c) => {
     if (grantType === 'refresh_token') {
         const refreshToken = body.refresh_token
         if (!refreshToken) return tokenError(c, 'invalid_request', 'missing refresh_token')
-        const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).first() as any
+        const hashedRefreshToken = await hashToken(refreshToken)
+        const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).first() as any
         if (!session) return tokenError(c, 'invalid_grant', 'invalid refresh_token')
         // パブリッククライアントはシークレット無しで更新可。機密クライアントは認証必須。
         const auth = await authenticateClient(c, session.app_id, providedSecret, true)
         if (!auth.ok) return auth.res
         const check = await checkPermission(c, session.user_id, session.app_id)
         if (!check.allowed) {
-            await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
+            await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).run()
             return tokenError(c, 'invalid_grant', check.reason || 'access denied')
         }
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
-        await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
+        await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).run()
         // 更新をまたいで当初付与の scope と auth_time を保持し、更新後の id_token が
         // 元の認証時刻を保つようにする。
         return issueOidcTokens(c, user, session.app_id, null, (session.scope as string) || null, (session.auth_time as number) ?? null)
@@ -228,8 +231,9 @@ oidcRouter.on(['GET', 'POST'], '/userinfo', async (c) => {
     const auth = c.req.header('Authorization') || ''
     if (!auth.startsWith('Bearer ')) return bearerUnauthorized(c)
     const token = auth.slice(7)
+    const hashedToken = await hashToken(token)
     const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?')
-        .bind(token, Math.floor(Date.now() / 1000)).first() as any
+        .bind(hashedToken, Math.floor(Date.now() / 1000)).first() as any
     if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
     if (!user) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
@@ -254,8 +258,9 @@ oidcRouter.get('/entitlements/me', async (c) => {
     const auth = c.req.header('Authorization') || ''
     if (!auth.startsWith('Bearer ')) return bearerUnauthorized(c)
     const token = auth.slice(7)
+    const hashedToken = await hashToken(token)
     const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?')
-        .bind(token, Math.floor(Date.now() / 1000)).first() as any
+        .bind(hashedToken, Math.floor(Date.now() / 1000)).first() as any
     if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
 
     // トークンを発行した OIDC クライアント → 組み込まれているドメインサービスを service_apps から引く。
@@ -431,8 +436,9 @@ oidcRouter.post('/oauth/revoke', async (c) => {
 
     // トークンを access token または refresh token として引き当てる。token_type_hint は
     // あくまで最適化であり、RFC 7009 §2.1 はもう一方の種別も試すことを要求する。
-    const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(token)
-    const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(token)
+    const hashedToken = await hashToken(token)
+    const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(hashedToken)
+    const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(hashedToken)
     let session = await (hint === 'access_token' ? byAccess : byRefresh).first() as any
     if (!session) session = await (hint === 'access_token' ? byRefresh : byAccess).first() as any
 
@@ -462,6 +468,7 @@ oidcRouter.post('/oauth/introspect', async (c) => {
 
     const token = body.token
     if (!token) return tokenError(c, 'invalid_request', 'missing token')
+    const hashedToken = await hashToken(token)
 
     // 呼び出し元は登録済みクライアントとして認証しなければならない(RFC 7662 §2.1)。
     // ここでは*呼び出し元自身*の身元を認証する — トークンの所有者ではない — ので、
@@ -474,14 +481,14 @@ oidcRouter.post('/oauth/introspect', async (c) => {
     const hint = body.token_type_hint
     const inactive = () => c.json({ active: false })
 
-    const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(token)
-    const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(token)
+    const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(hashedToken)
+    const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(hashedToken)
     // どちらの形式で一致したかを記録し、token_type のラベル付けと access token の失効判定に使う。
     let session = await (hint === 'refresh_token' ? byRefresh : byAccess).first() as any
-    let matchedAccess = !!session && session.token === token
+    let matchedAccess = !!session && session.token === hashedToken
     if (!session) {
         session = await (hint === 'refresh_token' ? byAccess : byRefresh).first() as any
-        matchedAccess = !!session && session.token === token
+        matchedAccess = !!session && session.token === hashedToken
     }
     // 未知のトークン、または別クライアントに属するトークン → inactive(§4 プライバシー)。
     if (!session || session.app_id !== callerId) return inactive()
