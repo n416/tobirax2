@@ -132,7 +132,11 @@ export const ChangePassword = (props: Props) => {
 
           <form method="POST" action="/change-password">
             <label class="${field}">
-              <span class="lbl">${t.label_new_password}</span>
+              <span class="lbl">${t.label_current_password || 'Current Password'}</span>
+              <input type="password" name="current_password" autocomplete="current-password" required placeholder="••••••••" />
+            </label>
+            <label class="${field}">
+              <span class="lbl">${t.label_new_password || 'New Password'}</span>
               <input type="password" name="password" autocomplete="new-password" required placeholder="••••••••" />
             </label>
             <div style="text-align:right;">

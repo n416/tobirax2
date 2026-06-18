@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
     -- OIDC profile スコープのクレーム(NULL の場合はトークン発行時に email にフォールバック)
     name TEXT,
     preferred_username TEXT,
-    picture TEXT
+    picture TEXT,
+    email_verified INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

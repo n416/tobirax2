@@ -22,6 +22,7 @@ interface Props {
   availableTags?: any[]
   siteName: string
   appConfig: SystemConfig
+  newSecret?: string
 }
 
 export const AppsPage = (props: Props) => {
@@ -42,6 +43,8 @@ export const AppsPage = (props: Props) => {
             children: html`<span class="material-symbols-outlined" style="font-size: 18px;">add</span> ${t.btn_add_app}`
         })}
       </div>
+
+
 
       ${Modal({
         id: "new-app-modal",
@@ -137,7 +140,7 @@ export const AppsPage = (props: Props) => {
                data-url="${app.base_url}" 
                data-desc="${app.description || ''}"
                data-icon="${app.icon_url || ''}"
-               data-secret="${app.client_secret || ''}"
+               data-has-secret="${app.client_secret ? 'true' : 'false'}"
                data-redirect-uris="${app.redirect_uris || ''}"
                data-backchannel-logout-uri="${app.backchannel_logout_uri || ''}"
                data-initiate-login-uri="${app.initiate_login_uri || ''}"
@@ -251,11 +254,18 @@ export const AppsPage = (props: Props) => {
 
                     <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
                         <span class="form-label">${t.label_client_secret}</span>
-                        <input type="text" id="edit-secret" readonly onclick="this.select()" style="width:100%; font-family:monospace; font-size:0.85rem; background:#fff;" />
-                        <small id="edit-secret-note" style="display:block; color:#64748b; margin-top:0.35rem;"></small>
+                        <div id="edit-secret-status" style="font-size: 0.9rem; font-weight: bold; color: #16a34a; margin-bottom: 0.5rem;"></div>
+                        <input type="hidden" id="edit-has-secret" />
+                        <small id="edit-secret-note" style="display:block; color:#64748b; margin-top:0.35rem;">
+                            The secret is hashed and cannot be viewed. You can generate a new one if lost.
+                        </small>
                         <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
                             <button type="button" onclick="appSecretAction('regenerate')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 ${t.btn_regenerate_secret}</button>
                             <button type="button" onclick="appSecretAction('clear')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">${t.btn_make_public}</button>
+                        </div>
+                        <div id="new-secret-banner-admin" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:1rem; border-radius:8px; margin-top:1rem;">
+                            <div style="font-weight:bold; margin-bottom:0.5rem;">New Secret Generated. Please copy it now! It will NOT be shown again.</div>
+                            <code id="new-secret-value-admin" style="background:#fff; padding:0.5rem; border:1px solid #cbd5e1; border-radius:4px; display:block; word-break:break-all; user-select:all;"></code>
                         </div>
                     </div>
 

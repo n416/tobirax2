@@ -4,7 +4,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { csrf } from 'hono/csrf'
 import { html } from 'hono/html'
 import { Env, User, App, Session, Permission, Group, AuthCode, SystemConfig, LocalizedText } from './types'
-import { verifyPassword, hashPassword, generateToken, getCookieOptions } from './utils/auth'
+import { verifyPassword, hashPassword, generateToken, getCookieOptions, validatePassword } from './utils/auth'
 import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
@@ -717,6 +717,7 @@ app.post('/signup', async (c) => {
     }
 
     if (!email || !password) return view(t.error_required)
+    if (!validatePassword(password)) return view(t.error_password_too_short || 'Password must be at least 8 characters long.')
 
     const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first()
     if (existing) return view(t.error_user_exists)
@@ -729,8 +730,9 @@ app.post('/signup', async (c) => {
     const pwHash = await hashPassword(password)
     const now = Math.floor(Date.now() / 1000)
     try {
-        await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-            .bind(userId, email, pwHash, groupId, now, now).run()
+        await c.env.DB.prepare(
+            'INSERT INTO users (id, email, password_hash, group_id, created_at, updated_at, email_verified) VALUES (?, ?, ?, ?, ?, ?, 0)'
+        ).bind(userId, email, pwHash, groupId, now, now).run()
     } catch (e) {
         return view(t.error_user_exists)
     }
@@ -810,15 +812,41 @@ app.get('/change-password', async (c) => {
 app.post('/change-password', async (c) => {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
+    const config = await getSystemConfig(c.env.DB)
+    const siteName = getLocalizedValue(c, config.appName)
+    const view = (error: string, message?: string) => c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} error={error} message={message} />)
+
     const body = await c.req.parseBody()
-    const password = body['password'] as string
-    const pwHash = await hashPassword(password)
+    const currentPassword = body['current_password'] as string
+    const newPassword = body['password'] as string
+
+    if (!currentPassword || !newPassword) return view(getLang(c).error_required || 'All fields are required.')
+    
+    // Verify current password
+    if (!(await verifyPassword(currentPassword, user.password_hash))) {
+        return view(getLang(c).error_invalid_credentials || 'Invalid current password.')
+    }
+
+    // Validate new password
+    if (!validatePassword(newPassword)) {
+        return view(getLang(c).error_password_too_short || 'Password must be at least 8 characters long.')
+    }
+
+    const pwHash = await hashPassword(newPassword)
     await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(pwHash, user.id).run()
     const details = JSON.stringify({ key: 'log_password_change', params: { email: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PASSWORD_CHANGE', details).run()
-    const config = await getSystemConfig(c.env.DB)
-    const siteName = getLocalizedValue(c, config.appName)
-    return c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} message={getLang(c).msg_password_changed} />)
+
+    // Clear other sessions and app_sessions
+    const sessionId = getCookie(c, 'tobira_session_id')
+    if (sessionId) {
+        await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').bind(user.id, sessionId).run()
+    } else {
+        await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id).run()
+    }
+    await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(user.id).run()
+
+    return view('', getLang(c).msg_password_changed)
 })
 // セルフサービスの OIDC プロフィール(name / preferred_username / picture)。
 // 空欄 = 未設定(クレームでは email にフォールバック)。
@@ -895,7 +923,13 @@ export async function authenticateClient(
     const app = await c.env.DB.prepare('SELECT client_secret FROM apps WHERE id = ?').bind(appId).first() as { client_secret?: string | null } | null
     const registered = app?.client_secret
     if (registered) {
-        if (!providedSecret || !safeEqual(providedSecret, registered)) {
+        let isMatch = false
+        if (registered.startsWith('$2a$') || registered.startsWith('$2b$')) {
+            isMatch = !!providedSecret && await verifyPassword(providedSecret, registered)
+        } else {
+            isMatch = !!providedSecret && safeEqual(providedSecret, registered)
+        }
+        if (!isMatch) {
             return { ok: false, res: tokenError(c, 'invalid_client', 'client authentication failed', 401) }
         }
     } else if (!usedPkce) {
@@ -940,7 +974,7 @@ export function buildOidcClaims(user: User, scope: string | null): Record<string
     }
     if (scopes.includes('email')) {
         claims.email = user.email
-        claims.email_verified = true
+        claims.email_verified = !!user.email_verified
     }
     return claims
 }

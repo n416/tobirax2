@@ -3,7 +3,7 @@ import type { Env, User, App, Session } from '../types';
 import { Layout } from '../views/admin/Layout';
 import { GroupAdminPage } from '../views/GroupAdminPage';
 import { dict } from '../i18n';
-import { generateToken } from '../utils/auth';
+import { generateToken, hashPassword } from '../utils/auth';
 import {
   getLang,
   getSystemConfig,
@@ -267,7 +267,9 @@ groupAdminRouter.get('/group-admin', async (c) => {
         }
         servicesByGroup[gid] = svcRows || []
         const { results: appRows } = await c.env.DB.prepare(`
-            SELECT id, name, base_url, status, reason FROM apps
+            SELECT id, name, base_url, status, reason, redirect_uris, description,
+                   (CASE WHEN client_secret IS NOT NULL THEN 1 ELSE 0 END) AS has_secret
+            FROM apps
             WHERE owner_group_id = ? ORDER BY created_at DESC
         `).bind(gid).all()
         appsByGroup[gid] = appRows || []
@@ -842,11 +844,12 @@ groupAdminRouter.post('/group-admin/api/app/request', async (c) => {
     // ID 衝突チェック(PK)。
     const dup = await c.env.DB.prepare('SELECT id FROM apps WHERE id = ?').bind(id).first()
     if (dup) return c.json({ error: 'id_taken' }, 409)
-    const clientSecret = generateToken() + generateToken().replace(/-/g, '')
+    const plainSecret = generateToken() + generateToken().replace(/-/g, '')
+    const hashedSecret = await hashPassword(plainSecret)
     await c.env.DB.prepare(`
         INSERT INTO apps (id, name, base_url, status, created_at, description, client_secret, redirect_uris, owner_group_id)
         VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-    `).bind(id, name, baseUrl, Math.floor(Date.now() / 1000), description, clientSecret, redirectUris, groupId).run()
+    `).bind(id, name, baseUrl, Math.floor(Date.now() / 1000), description, hashedSecret, redirectUris, groupId).run()
     await logAudit(c, 'DELEGATED_APP_REQUEST', { key: 'log_app_created', params: { appName: name, id, admin: user.email } })
     return c.json({ success: true })
 })
@@ -874,6 +877,27 @@ groupAdminRouter.post('/group-admin/api/app/update', async (c) => {
         .bind(name, baseUrl, redirectUris, description, newStatus, id).run()
     await logAudit(c, 'DELEGATED_APP_UPDATE', { key: 'log_app_updated', params: { appName: name, status: newStatus, admin: user.email } })
     return c.json({ success: true })
+})
+
+// 自グループのアプリのシークレットを再生成/クリア
+groupAdminRouter.post('/group-admin/api/app/secret', async (c) => {
+    const user = await getUser(c)
+    if (!user) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await c.req.json()
+    const id = body['id'] as string
+    const action = body['action'] as string
+
+    const row = await c.env.DB.prepare('SELECT owner_group_id FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null } | null
+    if (!row) return c.json({ error: 'Not found' }, 404)
+    const managed = await getManagedGroupIds(c, user.id)
+    if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
+
+    const plainSecret = action === 'clear' ? null : (generateToken() + generateToken().replace(/-/g, ''))
+    const hashedSecret = plainSecret ? await hashPassword(plainSecret) : null
+
+    await c.env.DB.prepare('UPDATE apps SET client_secret = ? WHERE id = ?').bind(hashedSecret, id).run()
+    await logAudit(c, 'DELEGATED_APP_SECRET', { key: 'log_app_updated', params: { appName: id, status: action === 'clear' ? 'secret cleared' : 'secret regenerated', admin: user.email } })
+    return c.json({ success: true, new_secret: plainSecret })
 })
 
 // 自グループのアプリ(申請含む)を削除。

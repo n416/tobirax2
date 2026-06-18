@@ -18,6 +18,7 @@ export interface User {
   recovery_codes?: string | null
   updated_at: number
   name?: string | null
+  email_verified: number
   preferred_username?: string | null
   picture?: string | null
 }

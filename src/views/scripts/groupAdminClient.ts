@@ -1217,6 +1217,15 @@ export const groupAdminClientScript = '(' + function() {
           var el = document.getElementById(id);
           if (el) el.disabled = isReadOnly;
         });
+
+        // Secret status
+        document.getElementById('ape-has-secret').value = a.has_secret ? '1' : '0';
+        var secretStatus = document.getElementById('ape-secret-status');
+        if (secretStatus) {
+            secretStatus.innerText = a.has_secret ? 'Secret is set (Hashed)' : 'Public Client (No Secret)';
+            secretStatus.style.color = a.has_secret ? '#16a34a' : '#64748b';
+        }
+
         var saveBtn = document.getElementById('ape-save-btn');
         if (saveBtn) saveBtn.style.display = isReadOnly ? 'none' : 'flex';
         var m = document.getElementById('edit-app-modal-ga');
@@ -1247,6 +1256,47 @@ export const groupAdminClientScript = '(' + function() {
             .then(function(){ window.location.reload(); })
             .catch(function(e){ console.error('Error: ' + e.message); });
         });
+      };
+      
+      window.appSecretActionGa = function(action) {
+        var id = document.getElementById('ape-id').value;
+        if (!id) return;
+        fetch('/group-admin/api/app/secret', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id, action: action })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                alert('Error: ' + data.error);
+                return;
+            }
+            if (action === 'clear') {
+                document.getElementById('ape-has-secret').value = '0';
+                var s = document.getElementById('ape-secret-status');
+                if (s) { s.innerText = 'Public Client (No Secret)'; s.style.color = '#64748b'; }
+                var banner = document.getElementById('new-secret-banner-ga');
+                if(banner) banner.style.display = 'none';
+            } else if (action === 'regenerate') {
+                document.getElementById('ape-has-secret').value = '1';
+                var s = document.getElementById('ape-secret-status');
+                if (s) { s.innerText = 'Secret is set (Hashed)'; s.style.color = '#16a34a'; }
+                var banner = document.getElementById('new-secret-banner-ga');
+                var codeVal = document.getElementById('new-secret-value-ga');
+                if (banner && codeVal) {
+                    codeVal.innerText = data.new_secret;
+                    banner.style.display = 'block';
+                }
+            }
+            // Update local data so reopening modal reflects new status
+            if (appsByGroup && currentGroupId) {
+                var list = appsByGroup[currentGroupId] || [];
+                var app = list.find(function(x) { return x.id === id; });
+                if (app) app.has_secret = action === 'regenerate' ? 1 : 0;
+            }
+        })
+        .catch(function(err) { console.error('Error:', err); alert('Failed to update secret'); });
       };
 
       var currentTagsServiceId = null;

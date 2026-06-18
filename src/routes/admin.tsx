@@ -28,7 +28,7 @@ import {
   createAssignment
 } from '../index';
 import { sendEmail } from '../utils/mail';
-import { generateToken, hashPassword } from '../utils/auth';
+import { generateToken, hashPassword, validatePassword } from '../utils/auth';
 
 function isValidInitiateLoginUri(uri: string, baseUrl: string, redirectUris: string | null): boolean {
     if (!uri) return true;
@@ -86,8 +86,8 @@ adminRouter.get('/admin/apps', async (c) => {
         ORDER BY (a.status = 'pending') DESC, a.created_at DESC
     `).all()
     const tagsResult = await c.env.DB.prepare("SELECT * FROM tags WHERE status = 'active' ORDER BY name").all()
-
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} availableTags={tagsResult.results as any} siteName={siteName} appConfig={config} />)
+    const newSecret = c.req.query('new_secret')
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} availableTags={tagsResult.results as any} siteName={siteName} appConfig={config} newSecret={newSecret} />)
 })
 
 adminRouter.get('/admin/tags', async (c) => {
@@ -224,7 +224,8 @@ adminRouter.post('/admin/apps', async (c) => {
 
     // 新規アプリは既定で機密(シークレットを生成)。パブリック/SPA クライアントにするのは
     // 後から編集モーダルの「パブリックにする」操作で行う。
-    const clientSecret = generateToken() + generateToken().replace(/-/g, '')
+    const plainSecret = generateToken() + generateToken().replace(/-/g, '')
+    const hashedSecret = await hashPassword(plainSecret)
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
@@ -236,7 +237,7 @@ adminRouter.post('/admin/apps', async (c) => {
 
     // アプリ↔サービスの紐づけはここでは行わない(サービス構成側 service_apps で組み込む)。
     await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri, initiate_login_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri, initiateLoginUri).run()
+        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, hashedSecret, redirectUris, backchannelLogoutUri, initiateLoginUri).run()
 
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
@@ -246,15 +247,33 @@ adminRouter.post('/admin/apps', async (c) => {
 // アプリの client_secret を再生成、またはクリア(=パブリック化)する。
 adminRouter.post('/admin/apps/secret', async (c) => {
     const user = await getAdmin(c)
-    if (!user) return c.redirect('/login')
-    const body = await c.req.parseBody()
-    const id = body['id']
-    const action = body['action']
-    const secret = action === 'clear' ? null : (generateToken() + generateToken().replace(/-/g, ''))
-    await c.env.DB.prepare('UPDATE apps SET client_secret = ? WHERE id = ?').bind(secret, id).run()
+    if (!user) {
+        if (c.req.header('Accept')?.includes('application/json')) return c.json({ error: 'Unauthorized' }, 401)
+        return c.redirect('/login')
+    }
+    
+    // Parse body as JSON if Content-Type is application/json, otherwise parse as form
+    let id, action;
+    if (c.req.header('Content-Type')?.includes('application/json')) {
+        const body = await c.req.json()
+        id = body.id
+        action = body.action
+    } else {
+        const body = await c.req.parseBody()
+        id = body['id']
+        action = body['action']
+    }
+
+    const plainSecret = action === 'clear' ? null : (generateToken() + generateToken().replace(/-/g, ''))
+    const hashedSecret = plainSecret ? await hashPassword(plainSecret) : null
+    await c.env.DB.prepare('UPDATE apps SET client_secret = ? WHERE id = ?').bind(hashedSecret, id).run()
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: id, status: action === 'clear' ? 'secret cleared' : 'secret regenerated', admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
-    return c.redirect('/admin/apps')
+    
+    if (c.req.header('Accept')?.includes('application/json')) {
+        return c.json({ success: true, new_secret: plainSecret })
+    }
+    return c.redirect('/admin/apps' + (plainSecret ? `?new_secret=${encodeURIComponent(plainSecret)}` : ''))
 })
 
 // === アプリ更新(改修版) ===
@@ -1280,6 +1299,11 @@ adminRouter.post('/invite', async (c) => {
     const body = await c.req.parseBody()
     const token = (body['token'] as string).replace(/\s+/g, '')
     const password = body['password'] as string
+    
+    if (!validatePassword(password)) {
+        return c.html(<Invite t={t} token={token} error={t.error_password_too_short || 'Password must be at least 8 characters long.'} />)
+    }
+
     const invite = await c.env.DB.prepare('SELECT * FROM invitations WHERE id = ? AND expires_at > ?')
         .bind(token, Math.floor(Date.now() / 1000)).first<{ email: string }>()
     if (!invite) return c.html(<Invite t={t} error={t.error_invalid_invite} />)
@@ -1334,6 +1358,11 @@ adminRouter.post('/reset-password', async (c) => {
     const body = await c.req.parseBody()
     const token = (body['token'] as string).replace(/\s+/g, '')
     const password = body['password'] as string
+    
+    if (!validatePassword(password)) {
+        return c.html(<ResetPassword t={t} token={token} error={t.error_password_too_short || 'Password must be at least 8 characters long.'} />)
+    }
+
     const reset = await c.env.DB.prepare('SELECT * FROM password_resets WHERE token = ? AND expires_at > ?').bind(token, Math.floor(Date.now() / 1000)).first<{ user_id: string }>()
     if (!reset) return c.html(<ResetPassword t={t} token="" error={t.error_invalid_invite} />)
     const pwHash = await hashPassword(password)

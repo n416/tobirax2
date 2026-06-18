@@ -12,6 +12,10 @@ export function generateToken(): string {
   return crypto.randomUUID()
 }
 
+export function validatePassword(password: string): boolean {
+  return password.length >= 8
+}
+
 export function getCookieOptions(expiresAt: number) {
   return {
     path: '/',

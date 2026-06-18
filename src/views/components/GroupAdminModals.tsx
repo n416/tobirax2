@@ -90,6 +90,23 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
               <textarea id="ape-redirect" class="${dateInput}" style="min-height:64px; font-family:monospace; font-size:0.85rem;" placeholder="(空欄なら変更なし)"></textarea>
             </div>
 
+            <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+                <span class="form-label">Client Secret</span>
+                <div id="ape-secret-status" style="font-size: 0.9rem; font-weight: bold; color: #16a34a; margin-bottom: 0.5rem;"></div>
+                <input type="hidden" id="ape-has-secret" />
+                <small style="display:block; color:#64748b; margin-top:0.35rem;">
+                    The secret is hashed and cannot be viewed. You can generate a new one if lost.
+                </small>
+                <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
+                    <button type="button" onclick="window.appSecretActionGa('regenerate')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 ${t.btn_regenerate_secret || 'Regenerate Secret'}</button>
+                    <button type="button" onclick="window.appSecretActionGa('clear')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">${t.btn_make_public || 'Make Public (No Secret)'}</button>
+                </div>
+                <div id="new-secret-banner-ga" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:1rem; border-radius:8px; margin-top:1rem;">
+                    <div style="font-weight:bold; margin-bottom:0.5rem;">New Secret Generated. Please copy it now! It will NOT be shown again.</div>
+                    <code id="new-secret-value-ga" style="background:#fff; padding:0.5rem; border:1px solid #cbd5e1; border-radius:4px; display:block; word-break:break-all; user-select:all;"></code>
+                </div>
+            </div>
+
             <div style="margin-top:0.25rem;">
               <span id="ape-save-btn" style="display:flex;">
                 ${Button({ onclick: "updateApp()", children: html`<span class="material-symbols-outlined">save</span> ${t.save}` })}

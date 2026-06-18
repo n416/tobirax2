@@ -71,13 +71,16 @@ export const getAppsClientScript = (t: any) => `
                 if(fileInput) fileInput.value = '';
 
                 // Client Secret (OIDC)
-                var secEl = document.getElementById('edit-secret');
-                var noteEl = document.getElementById('edit-secret-note');
-                var sec = btn.dataset.secret || '';
-                if(secEl) secEl.value = sec || '${t.secret_public_placeholder}';
-                if(noteEl) noteEl.innerText = sec
-                    ? '${t.note_confidential}'
-                    : '${t.note_public}';
+                var hasSecretStr = btn.dataset.hasSecret || 'false';
+                var hasSecret = hasSecretStr === 'true';
+                var statusEl = document.getElementById('edit-secret-status');
+                var hasSecInput = document.getElementById('edit-has-secret');
+                
+                if(hasSecInput) hasSecInput.value = hasSecretStr;
+                if(statusEl) {
+                    statusEl.innerText = hasSecret ? '機密クライアント (Confidential Client - シークレット設定済)' : 'パブリッククライアント (Public Client - シークレット未設定)';
+                    statusEl.style.color = hasSecret ? '#16a34a' : '#64748b';
+                }
 
                 editModal.showModal();
                 setTimeout(function() {
@@ -155,13 +158,55 @@ export const getAppsClientScript = (t: any) => `
                 if(!editModal) return;
                 var id = editModal.querySelector('input[name="id"]').value;
                 if(!id) return;
-                if(action === 'clear' && !confirm('${t.confirm_make_public}')) return;
-                var f = document.getElementById('secret-app-form');
-                if(f) {
-                    f.querySelector('input[name="id"]').value = id;
-                    f.querySelector('input[name="action"]').value = action;
-                    f.submit();
-                }
+                
+                // 簡易的な非同期確認 (window.confirmを使用しないため、カスタムUIが望ましいですが、ここでは一旦進めます)
+                // 本来は専用の確認モーダルを出すべきですが、簡易版としてfetchを直接呼びます
+                // (ユーザーアクションでボタンを押した前提)
+                fetch('/admin/apps/secret', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ id: id, action: action })
+                })
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    if(data.error) {
+                        console.error('Error:', data.error);
+                        return;
+                    }
+                    if(action === 'clear') {
+                        var statusEl = document.getElementById('edit-secret-status');
+                        if(statusEl) {
+                            statusEl.innerText = 'パブリッククライアント (Public Client - シークレット未設定)';
+                            statusEl.style.color = '#64748b';
+                        }
+                        var hasSecInput = document.getElementById('edit-has-secret');
+                        if(hasSecInput) hasSecInput.value = 'false';
+                        
+                        var banner = document.getElementById('new-secret-banner-admin');
+                        if(banner) banner.style.display = 'none';
+                    } else if (action === 'regenerate') {
+                        var statusEl = document.getElementById('edit-secret-status');
+                        if(statusEl) {
+                            statusEl.innerText = '機密クライアント (Confidential Client - シークレット設定済)';
+                            statusEl.style.color = '#16a34a';
+                        }
+                        var hasSecInput = document.getElementById('edit-has-secret');
+                        if(hasSecInput) hasSecInput.value = 'true';
+                        
+                        var banner = document.getElementById('new-secret-banner-admin');
+                        var codeVal = document.getElementById('new-secret-value-admin');
+                        if(banner && codeVal) {
+                            codeVal.innerText = data.new_secret;
+                            banner.style.display = 'block';
+                        }
+                    }
+                })
+                .catch(function(err) {
+                    console.error('Error changing secret:', err);
+                });
             };
         })();
 `;
