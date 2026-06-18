@@ -8,6 +8,7 @@ import { Group, App, SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
 import { MultiSelect } from '../components/MultiSelect'
+import { safeJsonStringify } from '../../utils/json'
 
 interface Props {
   t: typeof dict.en
@@ -20,7 +21,7 @@ interface Props {
 
 export const GroupsPage = (props: Props) => {
   const t = props.t
-  const allAppsJson = JSON.stringify(props.apps.map(a => ({value: a.id, text: a.name})));
+  const allAppsJson = safeJsonStringify(props.apps.map(a => ({value: a.id, text: a.name})));
 
   ;
 

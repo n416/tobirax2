@@ -8,6 +8,7 @@ import { Group, User, SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
 import { MultiSelect } from '../components/MultiSelect'
+import { safeJsonStringify } from '../../utils/json'
 
 interface Props {
   t: typeof dict.en
@@ -29,7 +30,7 @@ export const AccountGroupsPage = (props: Props) => {
     value: u.id,
     text: u.name ? `${u.name} <${u.email}>` : u.email,
   }))
-  const allUsersJson = JSON.stringify(userOptions)
+  const allUsersJson = safeJsonStringify(userOptions)
 
   // 親子(parent_id)からツリーを構築し、深さつきのフラット配列にする。
   // 親が存在しない/未設定のものは最上位として扱う。兄弟は名前順。

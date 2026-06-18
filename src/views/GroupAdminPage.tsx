@@ -12,6 +12,7 @@ import { ServiceAppsModal } from './components/ServiceAppsModal'
 import { sectionTitle, card, tabBar, groupSelectWrapper, badge, tableWrap, formLabel, dateInput, selectInput, infoBox, actionBtn, tabStyles } from './styles/groupAdminStyles'
 import { groupAdminClientScript } from './scripts/groupAdminClient'
 import { GroupAdminModals } from './components/GroupAdminModals'
+import { safeJsonStringify } from '../utils/json'
 
 interface ManagedGroup extends Group {
   member_count: number
@@ -97,27 +98,27 @@ export const GroupAdminPage = (props: Props) => {
     value: u.id,
     text: u.name ? `${u.name} <${u.email}>` : u.email,
   }))
-  const allUsersJson = JSON.stringify(userOptions)
+  const allUsersJson = safeJsonStringify(userOptions)
 
   // タブ切替 + グループ切替はすべてクライアントJS で処理する。
   // グループ×タブのデータは JSON として埋め込み、再フェッチ不要にする。
-  const membersByGroupJson = JSON.stringify(props.membersByGroup)
-  const assignmentsByGroupJson = JSON.stringify(props.assignmentsByGroup)
-  const permsByGroupJson = JSON.stringify(props.permissionsByGroup)
-  const grantsByGroupJson = JSON.stringify(props.grantsByGroup)
-  const facilitiesJson = JSON.stringify(props.facilities)
-  const rolesByServiceJson = JSON.stringify(props.rolesByService)
-  const grantsDetailByGroupJson = JSON.stringify(props.grantsDetailByGroup)
-  const availableContractsJson = JSON.stringify(props.availableContracts)
-  const childrenByGroupJson = JSON.stringify(props.childrenByGroup)
+  const membersByGroupJson = safeJsonStringify(props.membersByGroup)
+  const assignmentsByGroupJson = safeJsonStringify(props.assignmentsByGroup)
+  const permsByGroupJson = safeJsonStringify(props.permissionsByGroup)
+  const grantsByGroupJson = safeJsonStringify(props.grantsByGroup)
+  const facilitiesJson = safeJsonStringify(props.facilities)
+  const rolesByServiceJson = safeJsonStringify(props.rolesByService)
+  const grantsDetailByGroupJson = safeJsonStringify(props.grantsDetailByGroup)
+  const availableContractsJson = safeJsonStringify(props.availableContracts)
+  const childrenByGroupJson = safeJsonStringify(props.childrenByGroup)
   const isBillingAdmin = props.isBillingAdmin
-  const servicesByGroupJson = JSON.stringify(props.servicesByGroup)
-  const appsByGroupJson = JSON.stringify(props.appsByGroup)
-  const approvedAppsByGroupJson = JSON.stringify(props.approvedAppsByGroup)
-  const devStatusesJson = JSON.stringify(props.devStatuses || {})
-  const serviceTagsByGroupJson = JSON.stringify(props.serviceTagsByGroup || {})
-  const customTagsByGroupJson = JSON.stringify(props.customTagsByGroup || {})
-  const availableTagsJson = JSON.stringify(props.availableTags || [])
+  const servicesByGroupJson = safeJsonStringify(props.servicesByGroup)
+  const appsByGroupJson = safeJsonStringify(props.appsByGroup)
+  const approvedAppsByGroupJson = safeJsonStringify(props.approvedAppsByGroup)
+  const devStatusesJson = safeJsonStringify(props.devStatuses || {})
+  const serviceTagsByGroupJson = safeJsonStringify(props.serviceTagsByGroup || {})
+  const customTagsByGroupJson = safeJsonStringify(props.customTagsByGroup || {})
+  const availableTagsJson = safeJsonStringify(props.availableTags || [])
 
   if (groups.length === 0) {
     return Layout({

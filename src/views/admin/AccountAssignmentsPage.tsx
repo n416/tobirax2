@@ -9,6 +9,7 @@ import {
   amListGrid, amListCard, amItemTitle, amItemSub, amFormLabel, amBadge,
   amEmpty, amSectionHead, amDeleteForm, todayStr, plusYearStr,
 } from './amShared'
+import { safeJsonStringify } from '../../utils/json'
 
 interface Props {
   t: typeof dict.en
@@ -37,8 +38,8 @@ export const AccountAssignmentsPage = (props: Props) => {
     t.am_service_of_provider.replace('{service}', s.name).replace('{provider}', s.provider_name || '')
 
   // クライアント側の絞り込み用データ。
-  const rolesJson = JSON.stringify(props.roles.map(r => ({ id: r.id, service_id: r.service_id, facility_type: r.facility_type ?? null, role_name: r.role_name, role_code: r.role_code })))
-  const facUseJson = JSON.stringify(Object.fromEntries(props.facilities.map(f => [f.id, f.building_use ?? null])))
+  const rolesJson = safeJsonStringify(props.roles.map(r => ({ id: r.id, service_id: r.service_id, facility_type: r.facility_type ?? null, role_name: r.role_name, role_code: r.role_code })))
+  const facUseJson = safeJsonStringify(Object.fromEntries(props.facilities.map(f => [f.id, f.building_use ?? null])))
 
   const errorMsg = props.error === 'no_grant' ? t.am_grants_subtitle
     : props.error === 'seat' ? t.am_alert_seat_exceeded
@@ -169,7 +170,7 @@ export const AccountAssignmentsPage = (props: Props) => {
 
       <script type="application/json" id="roles-json">${raw(rolesJson)}</script>
       <script type="application/json" id="facuse-json">${raw(facUseJson)}</script>
-      <script type="application/json" id="i18n-no-role">${raw(JSON.stringify(t.am_alert_no_role))}</script>
+      <script type="application/json" id="i18n-no-role">${raw(safeJsonStringify(t.am_alert_no_role))}</script>
       <script>
           window.__name = function(f) { return f; };
           ${raw(accountAssignmentsClientScript)}

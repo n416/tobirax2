@@ -10,6 +10,7 @@ import {
   amListGrid, amListCard, amItemTitle, amItemSub, amFormLabel, amBadge,
   amEmpty, amSectionHead, amDeleteForm, todayStr, plusYearStr,
 } from './amShared'
+import { safeJsonStringify } from '../../utils/json'
 
 interface Props {
   t: typeof dict.en
@@ -143,8 +144,8 @@ export const AccountServicesPage = (props: Props) => {
       ${ServiceAppsModal(t, '/admin/api')}
       ${RejectReasonModal()}
 
-      <script type="application/json" id="am-services-data">${raw(JSON.stringify(servicesData))}</script>
-      <script type="application/json" id="am-all-apps-data">${raw(JSON.stringify(allAppsData))}</script>
+      <script type="application/json" id="am-services-data">${raw(safeJsonStringify(servicesData))}</script>
+      <script type="application/json" id="am-all-apps-data">${raw(safeJsonStringify(allAppsData))}</script>
       <script>
         ${raw(RejectReasonModalScript)}
         
