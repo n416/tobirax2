@@ -22,7 +22,6 @@ interface Props {
   availableTags?: any[]
   siteName: string
   appConfig: SystemConfig
-  newSecret?: string
 }
 
 export const AppsPage = (props: Props) => {

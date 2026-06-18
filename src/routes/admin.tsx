@@ -86,8 +86,7 @@ adminRouter.get('/admin/apps', async (c) => {
         ORDER BY (a.status = 'pending') DESC, a.created_at DESC
     `).all()
     const tagsResult = await c.env.DB.prepare("SELECT * FROM tags WHERE status = 'active' ORDER BY name").all()
-    const newSecret = c.req.query('new_secret')
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} availableTags={tagsResult.results as any} siteName={siteName} appConfig={config} newSecret={newSecret} />)
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} availableTags={tagsResult.results as any} siteName={siteName} appConfig={config} />)
 })
 
 adminRouter.get('/admin/tags', async (c) => {
@@ -273,7 +272,7 @@ adminRouter.post('/admin/apps/secret', async (c) => {
     if (c.req.header('Accept')?.includes('application/json')) {
         return c.json({ success: true, new_secret: plainSecret })
     }
-    return c.redirect('/admin/apps' + (plainSecret ? `?new_secret=${encodeURIComponent(plainSecret)}` : ''))
+    return c.redirect('/admin/apps')
 })
 
 // === アプリ更新(改修版) ===
@@ -1311,7 +1310,7 @@ adminRouter.post('/invite', async (c) => {
     const pwHash = await hashPassword(password)
     const now = Math.floor(Date.now() / 1000)
     try {
-        await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, created_at, updated_at, email_verified) VALUES (?, ?, ?, ?, ?, 1)')
             .bind(userId, invite.email, pwHash, now, now).run()
         await c.env.DB.prepare('DELETE FROM invitations WHERE id = ?').bind(token).run()
         return c.redirect('/login?msg=msg_account_created')

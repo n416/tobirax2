@@ -240,9 +240,13 @@ export const AccountPage = (props: Props) => {
           closeAction: "this.closest('.custom-modal').close()",
           children: html`
             <form id="disable-2fa-form" method="POST" action="/user/2fa/disable" style="margin:0;">
-              <div style="margin-bottom: 2rem;">
+              <div style="margin-bottom: 1.5rem;">
                 <p style="color:#475569; font-size:1rem; line-height:1.5;">${t.confirm_disable_2fa}</p>
               </div>
+              <label style="display:block; margin-bottom:2rem;">
+                <span style="display:block; font-size:0.88rem; font-weight:600; color:var(--text-main); margin-bottom:0.4rem;">${t.label_current_password || 'Current Password'}</span>
+                <input type="password" name="current_password" required placeholder="••••••••" style="width:100%; padding:0.7rem 0.9rem; border:1px solid #cbd5e1; border-radius:10px; font-size:0.95rem; box-sizing:border-box;" />
+              </label>
               <div style="display: flex; justify-content: flex-end; gap: 1rem;">
                 <button type="button" onclick="this.closest('.custom-modal').close()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
                 <button type="submit" style="background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">

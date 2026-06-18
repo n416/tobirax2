@@ -797,6 +797,14 @@ app.post('/user/2fa/setup', async (c) => {
 app.post('/user/2fa/disable', async (c) => {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
+    
+    const body = await c.req.parseBody()
+    const currentPassword = body['current_password'] as string
+    
+    if (!currentPassword || !(await verifyPassword(currentPassword, user.password_hash))) {
+        return c.redirect('/account?error=' + encodeURIComponent(getLang(c).error_credentials || 'Invalid password'))
+    }
+
     await c.env.DB.prepare('UPDATE users SET two_factor_secret = NULL WHERE id = ?').bind(user.id).run()
     const details = JSON.stringify({ key: 'log_2fa_disable', params: { email: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('2FA_DISABLE', details).run()
@@ -824,7 +832,7 @@ app.post('/change-password', async (c) => {
     
     // Verify current password
     if (!(await verifyPassword(currentPassword, user.password_hash))) {
-        return view(getLang(c).error_invalid_credentials || 'Invalid current password.')
+        return view(getLang(c).error_credentials || 'Invalid current password.')
     }
 
     // Validate new password
@@ -838,7 +846,7 @@ app.post('/change-password', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PASSWORD_CHANGE', details).run()
 
     // Clear other sessions and app_sessions
-    const sessionId = getCookie(c, 'tobira_session_id')
+    const sessionId = getCookie(c, '__Host-idp_session')
     if (sessionId) {
         await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').bind(user.id, sessionId).run()
     } else {
