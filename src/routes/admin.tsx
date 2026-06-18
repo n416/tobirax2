@@ -417,7 +417,7 @@ adminRouter.post('/admin/invite', async (c) => {
     const user = await getAdmin(c)
     if (!user) return c.redirect('/login')
     const body = await c.req.parseBody()
-    const email = body['email'] as string
+    const email = ((body['email'] as string) || '').trim().toLowerCase()
     if (!email) return c.redirect('/admin/users?error=Email required')
     const token = generateToken()
     const hashedToken = await hashToken(token)
@@ -1329,8 +1329,8 @@ adminRouter.get('/forgot-password', (c) => c.html(<ForgotPassword t={getLang(c)}
 adminRouter.post('/forgot-password', async (c) => {
     const t = getLang(c)
     const body = await c.req.parseBody()
-    const email = body['email'] as string
-    const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first() as User | null
+    const email = ((body['email'] as string) || '').trim().toLowerCase()
+    const user = await c.env.DB.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first() as User | null
     if (user) {
         const token = generateToken()
         const hashedToken = await hashToken(token)

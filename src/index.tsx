@@ -174,8 +174,11 @@ export async function getAdmin(c: any) {
     const session = await c.env.DB.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?').bind(sessionId, Math.floor(Date.now() / 1000)).first() as Session | null
     if (!session) return null
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
-    const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user?.email).first()
-    return admin ? user : null
+    if (user?.email) {
+        const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE LOWER(email) = LOWER(?)').bind(user.email).first()
+        return admin ? user : null
+    }
+    return null
 }
 
 export async function getUser(c: any) {
@@ -624,8 +627,10 @@ app.get('/login', async (c) => {
     const user = await getUser(c)
     if (user && !reauth) {
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
-        const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user.email).first()
-        return c.redirect(admin ? '/admin' : '/')
+        if (user?.email) {
+            const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE LOWER(email) = LOWER(?)').bind(user.email).first()
+            return c.redirect(admin ? '/admin' : '/')
+        }
     }
 
     return c.html(<Login t={t} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} email={loginHint} />)
@@ -655,7 +660,7 @@ app.post('/login', async (c) => {
         return c.html(<Login t={t} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
     }
 
-    const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first() as User | null
+    const user = await c.env.DB.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first() as User | null
     if (!user || !(await verifyPassword(password, user.password_hash))) {
         return c.html(<Login t={t} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
     }
@@ -684,7 +689,7 @@ app.post('/login', async (c) => {
     await createSession(c, user.id)
 
     let targetAppName = 'Tobira Dashboard';
-    const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(email).first()
+    const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE LOWER(email) = LOWER(?)').bind(email).first()
     if (admin) {
         targetAppName = 'Tobira Admin';
     }
@@ -722,7 +727,7 @@ app.post('/signup', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
     const body = await c.req.parseBody()
-    const email = ((body['email'] as string) || '').trim()
+    const email = ((body['email'] as string) || '').trim().toLowerCase()
     const password = body['password'] as string
     const returnTo = body['return_to'] as string
 
@@ -747,7 +752,7 @@ app.post('/signup', async (c) => {
 
     // サインアップ列挙対策: 成功時・既存時問わず同一のリダイレクトを行う
     const params = new URLSearchParams()
-    params.set('message', 'signup_done')
+    params.set('msg', 'msg_account_created')
     if (returnTo) params.set('return_to', returnTo)
     const successRedirect = '/login?' + params.toString()
 
@@ -1124,7 +1129,7 @@ app.post('/login/2fa', async (c) => {
         deleteCookie(c, 'pre_2fa_token')
 
         let targetAppName = 'Tobira Dashboard';
-        const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user.email).first()
+        const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE LOWER(email) = LOWER(?)').bind(user.email).first()
         if (admin) {
             targetAppName = 'Tobira Admin';
         }
