@@ -233,7 +233,7 @@ export const UserDashboard = (props: Props) => {
                     ` : html`
                       <div class="${appGrid}">
                         ${svc.apps.map((app: any) => html`
-                          <a href="/login?redirect_to=${app.base_url}" class="${appCardLink}">
+                          <a href="${app.initiate_login_uri || app.base_url}" class="${appCardLink}">
                             <div class="${appCard}">
                               <div>
                                 <div style="display:flex; align-items:center; gap:0.85rem; margin-bottom:0.5rem;">
@@ -274,7 +274,7 @@ export const UserDashboard = (props: Props) => {
           ` : html`
             <div class="${appGrid}">
               ${props.apps.map(app => html`
-                <a href="/login?redirect_to=${app.base_url}" class="${appCardLink}">
+                <a href="${app.initiate_login_uri || app.base_url}" class="${appCardLink}">
                   <div class="${appCard}">
                     <div>
                       <div style="display:flex; align-items:center; gap:0.85rem; margin-bottom:0.5rem;">

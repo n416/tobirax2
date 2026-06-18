@@ -30,6 +30,32 @@ import {
 import { sendEmail } from '../utils/mail';
 import { generateToken, hashPassword } from '../utils/auth';
 
+function isValidInitiateLoginUri(uri: string, baseUrl: string, redirectUris: string | null): boolean {
+    if (!uri) return true;
+    let parsedUri: URL, base: URL;
+    try {
+        parsedUri = new URL(uri);
+        base = new URL(baseUrl);
+    } catch {
+        return false;
+    }
+    if (parsedUri.protocol !== 'https:' && parsedUri.protocol !== 'http:') return false;
+    if (parsedUri.origin === base.origin) return true;
+
+    if (redirectUris) {
+        const uris = redirectUris.split('\n').map(s => s.trim()).filter(Boolean);
+        for (const r of uris) {
+            try {
+                const rUrl = new URL(r);
+                if (parsedUri.origin === rUrl.origin) return true;
+            } catch {
+                // ignore
+            }
+        }
+    }
+    return false;
+}
+
 export const adminRouter = new Hono<{ Bindings: Env }>();
 
 adminRouter.get('/admin', async (c) => {
@@ -202,9 +228,15 @@ adminRouter.post('/admin/apps', async (c) => {
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
+    const initiateLoginUri = ((body['initiate_login_uri'] as string) || '').trim() || null
+
+    if (initiateLoginUri && !isValidInitiateLoginUri(initiateLoginUri, body['base_url'] as string, redirectUris)) {
+        return c.redirect('/admin/apps?error=Invalid initiate_login_uri. Must match base_url or a redirect_uri origin.')
+    }
+
     // アプリ↔サービスの紐づけはここでは行わない(サービス構成側 service_apps で組み込む)。
-    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri).run()
+    await c.env.DB.prepare('INSERT INTO apps (id, name, base_url, status, created_at, description, icon_url, client_secret, redirect_uris, backchannel_logout_uri, initiate_login_uri) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, clientSecret, redirectUris, backchannelLogoutUri, initiateLoginUri).run()
 
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
@@ -241,9 +273,15 @@ adminRouter.post('/admin/apps/update', async (c) => {
 
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
+    const initiateLoginUri = ((body['initiate_login_uri'] as string) || '').trim() || null
+
+    if (initiateLoginUri && !isValidInitiateLoginUri(initiateLoginUri, body['base_url'] as string, redirectUris)) {
+        return c.redirect('/admin/apps?error=Invalid initiate_login_uri. Must match base_url or a redirect_uri origin.')
+    }
+
     // アプリ↔サービスの紐づけはここでは行わない(サービス構成側 service_apps で組み込む)。
-    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ?, backchannel_logout_uri = ? WHERE id = ?')
-        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, id).run()
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, description = ?, icon_url = ?, redirect_uris = ?, backchannel_logout_uri = ?, initiate_login_uri = ? WHERE id = ?')
+        .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, initiateLoginUri, id).run()
         
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: body['name'], status: 'Updated', admin: user.email } });
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()

@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS apps (
     -- OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント。値があれば /oidc/logout が
     -- 署名付き logout_token をここへ POST し、RP 側も自身のセッションを破棄できる。
     backchannel_logout_uri TEXT,
+    -- ダッシュボードのアプリ起動時にブラウザを送るRP側のログイン開始URL。未設定なら base_url にフォールバック
+    initiate_login_uri TEXT,
     -- セルフサービス: このアプリ(クライアント)を申請/所有するグループ。NULL = 運営者が
     -- 直接作った従来のグローバルアプリ。group_admin は自分の管理サブツリーが owner の
     -- アプリだけを操作でき、status='pending' のアプリは運営者の承諾(=status='active')を待つ。

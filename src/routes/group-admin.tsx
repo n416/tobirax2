@@ -834,6 +834,8 @@ groupAdminRouter.post('/group-admin/api/app/request', async (c) => {
     const baseUrl = ((body['base_url'] as string) || '').trim()
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const description = ((body['description'] as string) || '').trim() || null
+    // TODO(initiate_login_uri): グループ管理者のアプリ申請画面(UI)に initiate_login_uri を追加した場合、
+    // ここで req.json から受け取り、apps テーブルへ INSERT するよう修正すること。
     if (!groupId || !id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
     const managed = await getManagedGroupIds(c, user.id)
     if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
@@ -859,6 +861,8 @@ groupAdminRouter.post('/group-admin/api/app/update', async (c) => {
     const baseUrl = ((body['base_url'] as string) || '').trim()
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const description = ((body['description'] as string) || '').trim() || null
+    // TODO(initiate_login_uri): グループ管理者のアプリ更新画面(UI)に initiate_login_uri を追加した場合、
+    // ここで req.json から受け取り、apps テーブルを UPDATE するよう修正すること。
     if (!id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
     const row = await c.env.DB.prepare('SELECT owner_group_id, status FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null, status: string } | null
     if (!row) return c.json({ error: 'Not found' }, 404)

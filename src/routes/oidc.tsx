@@ -8,7 +8,6 @@ import {
   checkPermission,
   getUser,
   logAudit,
-  issueCodeAndRedirect,
   isSafeReturnTo,
   buildRedirect,
   tokenError,

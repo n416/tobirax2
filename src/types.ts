@@ -32,6 +32,7 @@ export interface App {
   client_secret?: string | null // null/undefined = パブリッククライアント(PKCE)
   redirect_uris?: string | null // 改行区切りの完全一致 redirect_uris(OIDC)。空なら base_url のオリジン照合にフォールバック
   backchannel_logout_uri?: string | null // OIDC Back-Channel Logout 1.0: RP のログアウトエンドポイント
+  initiate_login_uri?: string | null // ダッシュボードからのログイン開始URL
   service_name?: string | null
   // セルフサービス: 申請/所有グループ。NULL = 運営者が直接作ったグローバルアプリ。
   owner_group_id?: string | null

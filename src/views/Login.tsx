@@ -4,7 +4,6 @@ import { dict } from '../i18n'
 
 interface Props {
   t: typeof dict.en
-  redirectTo?: string
   returnTo?: string
   error?: string
   message?: string
@@ -18,7 +17,6 @@ export const Login = (props: Props) => {
   const t = props.t
 
   const signupParams = new URLSearchParams()
-  if (props.redirectTo) signupParams.set('redirect_to', props.redirectTo)
   if (props.returnTo) signupParams.set('return_to', props.returnTo)
   const signupQs = signupParams.toString() ? '?' + signupParams.toString() : ''
 
@@ -194,7 +192,6 @@ export const Login = (props: Props) => {
             ${props.message ? html`<div class="success-message">${props.message}</div>` : ''}
             
             <form method="POST" action="">
-                ${props.redirectTo ? html`<input type="hidden" name="redirect_to" value="${props.redirectTo}" />` : ''}
                 ${props.returnTo ? html`<input type="hidden" name="return_to" value="${props.returnTo}" />` : ''}
 
                 <div class="${inputGroupClass}">

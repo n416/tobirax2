@@ -44,6 +44,10 @@ export const getAppsClientScript = (t: any) => `
                 var bclEl = form.querySelector('input[name="backchannel_logout_uri"]');
                 if(bclEl) bclEl.value = btn.dataset.backchannelLogoutUri || '';
 
+                // Initiate Login URI (OIDC)
+                var iniEl = form.querySelector('input[name="initiate_login_uri"]');
+                if(iniEl) iniEl.value = btn.dataset.initiateLoginUri || '';
+
                 // アイコン関連
                 var iconEl = form.querySelector('input[name="icon_url"]');
                 var iconUrl = btn.dataset.icon || '';

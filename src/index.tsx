@@ -44,7 +44,7 @@ const app = new Hono<{ Bindings: Env }>()
 const oidcCsrfExempt = (path: string) =>
     path === '/oauth/token' || path === '/oauth/revoke' || path === '/oauth/introspect' ||
     path === '/register' ||
-    path === '/userinfo' || path === '/oidc/logout' || path.startsWith('/api/') ||
+    path === '/userinfo' || path === '/oidc/logout' ||
     path.startsWith('/entitlements/')
 app.use('*', async (c, next) => {
     if (oidcCsrfExempt(c.req.path)) return next()
@@ -500,7 +500,7 @@ app.get('/', async (c) => {
         // ユーザーが有効な割当を持つサービスとそのサービス内のアプリを取得
         const { results: serviceAppsRows } = await c.env.DB.prepare(`
             SELECT DISTINCT s.id AS service_id, s.name AS service_name, 
-                   a.id AS app_id, a.name AS app_name, a.icon_url, a.description, a.base_url
+                   a.id AS app_id, a.name AS app_name, a.icon_url, a.description, a.base_url, a.initiate_login_uri
             FROM service_user_assignments sua
             JOIN group_memberships m ON m.user_id = sua.user_id AND m.group_id = sua.group_id AND m.valid_from <= ? AND m.valid_to >= ?
             JOIN services s ON s.id = sua.service_id
@@ -524,7 +524,8 @@ app.get('/', async (c) => {
                 name: row.app_name,
                 icon_url: row.icon_url,
                 description: row.description,
-                base_url: row.base_url
+                base_url: row.base_url,
+                initiate_login_uri: row.initiate_login_uri
             })
         }
         const entitledServices = Array.from(servicesMap.values())
@@ -608,7 +609,6 @@ app.get('/login', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
-    const redirectTo = c.req.query('redirect_to')
     const returnTo = c.req.query('return_to') // OIDC: come back to /authorize after login
     const msgKey = c.req.query('msg')
     // @ts-ignore
@@ -622,12 +622,11 @@ app.get('/login', async (c) => {
     const user = await getUser(c)
     if (user && !reauth) {
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
-        if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
         const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user.email).first()
         return c.redirect(admin ? '/admin' : '/')
     }
 
-    return c.html(<Login t={t} redirectTo={redirectTo} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} email={loginHint} />)
+    return c.html(<Login t={t} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} email={loginHint} />)
 })
 
 app.post('/login', async (c) => {
@@ -645,12 +644,11 @@ app.post('/login', async (c) => {
     const body = await c.req.parseBody()
     const email = body['email'] as string
     const password = body['password'] as string
-    const redirectTo = body['redirect_to'] as string
     const returnTo = body['return_to'] as string // OIDC: /authorize URL to resume
 
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first() as User | null
     if (!user || !(await verifyPassword(password, user.password_hash))) {
-        return c.html(<Login t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
+        return c.html(<Login t={t} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
     }
 
     // 2要素認証(2FA)チェック
@@ -660,7 +658,6 @@ app.post('/login', async (c) => {
         setCookie(c, 'pre_2fa_token', token, { path: '/', secure: true, httpOnly: true, maxAge: 300, sameSite: 'Lax' })
 
         const params = new URLSearchParams()
-        if (redirectTo) params.set('redirect_to', redirectTo)
         if (returnTo) params.set('return_to', returnTo)
         const qs = params.toString()
         return c.redirect('/login/2fa' + (qs ? '?' + qs : ''))
@@ -670,11 +667,7 @@ app.post('/login', async (c) => {
 
     let targetAppName = 'Tobira Dashboard';
     const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(email).first()
-    if (redirectTo) {
-        const { results } = await c.env.DB.prepare('SELECT * FROM apps WHERE status = ?').bind('active').all() as any;
-        const app = (results as any[]).find((a: any) => isAllowedRedirectUri(redirectTo, a));
-        if (app) targetAppName = app.name;
-    } else if (admin) {
+    if (admin) {
         targetAppName = 'Tobira Admin';
     }
 
@@ -682,7 +675,6 @@ app.post('/login', async (c) => {
     await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('LOGIN', details).run()
 
     if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
-    if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
 
     return c.redirect(admin ? '/admin' : '/')
 })
@@ -696,16 +688,14 @@ app.get('/signup', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const siteSubtitle = getLocalizedValue(c, config.appSubtitle)
-    const redirectTo = c.req.query('redirect_to')
     const returnTo = c.req.query('return_to')
 
     const user = await getUser(c)
     if (user) {
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
-        if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
         return c.redirect('/')
     }
-    return c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} siteName={siteName} siteSubtitle={siteSubtitle} />)
+    return c.html(<Signup t={t} returnTo={returnTo} siteName={siteName} siteSubtitle={siteSubtitle} />)
 })
 
 app.post('/signup', async (c) => {
@@ -716,15 +706,14 @@ app.post('/signup', async (c) => {
     const body = await c.req.parseBody()
     const email = ((body['email'] as string) || '').trim()
     const password = body['password'] as string
-    const redirectTo = body['redirect_to'] as string
     const returnTo = body['return_to'] as string
 
-    const view = (error: string) => c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} error={error} siteName={siteName} siteSubtitle={siteSubtitle} />)
+    const view = (error: string) => c.html(<Signup t={t} returnTo={returnTo} error={error} siteName={siteName} siteSubtitle={siteSubtitle} />)
 
     // 自動化された大量登録を抑えるための IP 別レート制限。
     const signupIp = c.req.header('CF-Connecting-IP') || 'unknown'
     if (!(await rateLimit(c.env.DB, `signup:${signupIp}`, 5, 60))) {
-        return c.html(<Signup t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
+        return c.html(<Signup t={t} returnTo={returnTo} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
     }
 
     if (!email || !password) return view(t.error_required)
@@ -753,30 +742,10 @@ app.post('/signup', async (c) => {
     await createSession(c, userId)
 
     if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
-    if (redirectTo) return issueCodeAndRedirect(c, userId, redirectTo)
     return c.redirect('/')
 })
 
-export async function issueCodeAndRedirect(c: any, userId: string, redirectTo: string) {
-    const { results } = await c.env.DB.prepare('SELECT * FROM apps WHERE status = ?').bind('active').all() as any
-    const app = (results as App[]).find(a => isAllowedRedirectUri(redirectTo, a))
 
-    if (!app) {
-        console.error(`[Auth] No app matches redirect_to: ${redirectTo}`);
-        return c.text('Invalid App: Redirect URL not registered', 400)
-    }
-
-    const check = await checkPermission(c, userId, app.id)
-    if (!check.allowed) return c.text('Access Denied: ' + (check.reason || ''), 403)
-
-    const code = generateToken()
-    const expires = Math.floor(Date.now() / 1000) + 300
-    const session = await getSessionRow(c)
-    await c.env.DB.prepare('INSERT INTO auth_codes (code, user_id, app_id, expires_at, auth_time) VALUES (?, ?, ?, ?, ?)').bind(code, userId, app.id, expires, session?.auth_time ?? null).run()
-
-    const separator = redirectTo.includes('?') ? '&' : '?'
-    return c.redirect(`${redirectTo}${separator}code=${code}`)
-}
 
 app.get('/logout', async (c) => {
     const sessionId = getCookie(c, '__Host-idp_session')
@@ -866,49 +835,6 @@ app.post('/user/profile', async (c) => {
     return c.redirect('/account?msg=msg_profile_saved')
 })
 
-// --- API トークン ---
-app.get('/api/me', async (c) => {
-    const authHeader = c.req.header('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) return bearerUnauthorized(c)
-    const token = authHeader.split(' ')[1]
-    const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?').bind(token, Math.floor(Date.now() / 1000)).first()
-    if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
-    const user = await c.env.DB.prepare('SELECT id, email, group_id, created_at FROM users WHERE id = ?').bind(session.user_id).first()
-    if (!user) return c.json({ error: 'User not found' }, 404)
-    return c.json(user)
-})
-app.post('/api/token', async (c) => {
-    const body = await c.req.json().catch(() => { })
-    const code = body['code']
-    if (!code) return c.json({ error: 'Missing code' }, 400)
-    const authCode = await c.env.DB.prepare('SELECT * FROM auth_codes WHERE code = ?').bind(code).first() as AuthCode | null
-    if (!authCode || authCode.expires_at < Date.now() / 1000 || authCode.used_at) return c.json({ error: 'Invalid code' }, 400)
-    await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ?').bind(Date.now() / 1000, code).run()
-    const token = generateToken()
-    const refreshToken = generateToken()
-    const expiresAt = Math.floor(Date.now() / 1000) + 3600
-    await c.env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at) VALUES (?, ?, ?, ?, ?)')
-        .bind(token, refreshToken, authCode.user_id, authCode.app_id, expiresAt).run()
-    return c.json({ access_token: token, refresh_token: refreshToken, expires_in: 3600 })
-})
-app.post('/api/refresh', async (c) => {
-    const body = await c.req.json().catch(() => { })
-    const refreshToken = body['refresh_token']
-    if (!refreshToken) return c.json({ error: 'Missing refresh_token' }, 400)
-    const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).first<Session & { app_id: string }>()
-    if (!session) return c.json({ error: 'Invalid refresh token' }, 400)
-    const check = await checkPermission(c, session.user_id, session.app_id)
-    if (!check.allowed) {
-        await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(refreshToken).run()
-        return c.json({ error: 'Access Denied', details: check.reason }, 403)
-    }
-    const newToken = generateToken()
-    const newRefreshToken = generateToken()
-    const newExpiresAt = Math.floor(Date.now() / 1000) + 3600
-    await c.env.DB.prepare('UPDATE app_sessions SET token=?, refresh_token=?, expires_at=? WHERE refresh_token=?')
-        .bind(newToken, newRefreshToken, newExpiresAt, refreshToken).run()
-    return c.json({ access_token: newToken, refresh_token: newRefreshToken, expires_in: 3600 })
-})
 
 // ------------------------------------------------------------------
 // OIDC (Auth0 互換のモック面)
@@ -1085,15 +1011,13 @@ app.get('/login/2fa', async (c) => {
     const token = getCookie(c, 'pre_2fa_token')
     if (!token) return c.redirect('/login')
     try { await verify(token, c.env.JWT_SECRET || 'dev_secret', "HS256") } catch (e) { return c.redirect('/login') }
-    const redirectTo = c.req.query('redirect_to')
     const returnTo = c.req.query('return_to')
-    return c.html(<Login2FA t={t} redirectTo={redirectTo} returnTo={returnTo} />)
+    return c.html(<Login2FA t={t} returnTo={returnTo} />)
 })
 app.post('/login/2fa', async (c) => {
     const t = getLang(c)
     const body = await c.req.parseBody()
     const otp = (body['token'] as string).replace(/\s+/g, '')
-    const redirectTo = body['redirect_to'] as string
     const returnTo = body['return_to'] as string
     const preToken = getCookie(c, 'pre_2fa_token')
     if (!preToken) return c.redirect('/login')
@@ -1108,11 +1032,7 @@ app.post('/login/2fa', async (c) => {
 
         let targetAppName = 'Tobira Dashboard';
         const admin = await c.env.DB.prepare('SELECT * FROM admins WHERE email = ?').bind(user.email).first()
-        if (redirectTo) {
-            const { results } = await c.env.DB.prepare('SELECT * FROM apps WHERE status = ?').bind('active').all() as any;
-            const app = (results as any[]).find((a: any) => isAllowedRedirectUri(redirectTo, a));
-            if (app) targetAppName = app.name;
-        } else if (admin) {
+        if (admin) {
             targetAppName = 'Tobira Admin';
         }
 
@@ -1120,10 +1040,9 @@ app.post('/login/2fa', async (c) => {
         await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('LOGIN', details).run()
 
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
-        if (redirectTo) return issueCodeAndRedirect(c, user.id, redirectTo)
         return c.redirect(admin ? '/admin' : '/')
     } else {
-        return c.html(<Login2FA t={t} redirectTo={redirectTo} returnTo={returnTo} error={t.err_invalid_code} />)
+        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.err_invalid_code} />)
     }
 })
 

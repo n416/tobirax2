@@ -76,6 +76,12 @@ export const AppsPage = (props: Props) => {
                     </label>
 
                     <label style="width:100%;">
+                      <span class="form-label">${t.label_initiate_login_uri}</span>
+                      <input type="url" name="initiate_login_uri" placeholder="https://app.example.com/login" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem;" />
+                      <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_initiate_login_uri}</small>
+                    </label>
+
+                    <label style="width:100%;">
                         <span class="form-label">${t.label_app_icon}</span>
                         <div style="display:flex; gap:0.5rem; align-items:center;">
                             <input type="file" name="icon_file" accept="image/*" style="font-size:0.9rem; padding: 0.4rem; height: auto;" onchange="handleIconPreview(this, 'new-icon-preview')" />
@@ -134,6 +140,7 @@ export const AppsPage = (props: Props) => {
                data-secret="${app.client_secret || ''}"
                data-redirect-uris="${app.redirect_uris || ''}"
                data-backchannel-logout-uri="${app.backchannel_logout_uri || ''}"
+               data-initiate-login-uri="${app.initiate_login_uri || ''}"
                onclick="openEditAppModal(this)">
             
             <div style="flex-grow:1;">
@@ -234,6 +241,12 @@ export const AppsPage = (props: Props) => {
                         <span class="form-label">${t.label_bcl_uri}</span>
                         <input type="url" name="backchannel_logout_uri" placeholder="https://app.example.com/backchannel-logout" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem;" />
                         <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_bcl_uri}</small>
+                    </label>
+
+                    <label style="width:100%;">
+                        <span class="form-label">${t.label_initiate_login_uri}</span>
+                        <input type="url" name="initiate_login_uri" placeholder="https://app.example.com/login" style="width:100%; padding:0.8rem; border-radius:8px; border:1px solid #cbd5e1; font-family:monospace; font-size:0.85rem;" />
+                        <small style="display:block; color:#64748b; margin-top:0.35rem;">${t.help_initiate_login_uri}</small>
                     </label>
 
                     <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
