@@ -218,7 +218,12 @@ oidcRouter.post('/oauth/token', async (c) => {
         }
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
-        await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).run()
+        
+        const delRes = await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).run()
+        if ((delRes as any)?.meta?.changes === 0) {
+            return tokenError(c, 'invalid_grant', 'refresh token already used')
+        }
+        
         // 更新をまたいで当初付与の scope と auth_time を保持し、更新後の id_token が
         // 元の認証時刻を保つようにする。
         return issueOidcTokens(c, user, session.app_id, null, (session.scope as string) || null, (session.auth_time as number) ?? null)
