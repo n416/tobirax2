@@ -4,3 +4,5 @@
 **/node_modules
 /package-lock.json
 /wrangler.toml
+# クライアントJSビルド生成物（build-client.tsで自動生成）
+/src/views/scripts/generated/

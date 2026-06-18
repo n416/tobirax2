@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html'
 import { css, keyframes } from 'hono/css'
-import { accountGroupsClientScript } from '../scripts/accountGroupsClient'
+import { accountGroupsClientScript } from '../scripts/generated/accountGroups'
 import { blinkActive, tabContainer, tabBtn, listGrid, listCard, itemTitle, itemSub, actionBtn, deleteBtn, addFormCard, formLabel, dateInput, tomSelectWrapper, quickBtnGroup } from '../styles/accountGroupsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
@@ -372,7 +372,6 @@ export const AccountGroupsPage = (props: Props) => {
           <script type="application/json" id="user-data">${raw(allUsersJson)}</script>
 
           <script>
-          window.__name = function(f) { return f; };
           ${raw(accountGroupsClientScript)}
           </script>
       </div>
