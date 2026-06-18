@@ -347,6 +347,12 @@ groupAdminRouter.post('/group-admin/api/membership/add', async (c) => {
     // 委任ゲート: 対象グループが自分の管理サブツリー内か。
     const managed = await getManagedGroupIds(c, user.id)
     if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
+
+    if (isBillingAdmin === 1) {
+        const billing = await getBillingGroupIds(c, user.id)
+        if (!billing.has(groupId)) return c.json({ error: 'Forbidden: billing role requires billing admin' }, 403)
+    }
+
     // UNIQUE(user_id, group_id) を活かして upsert(フラグ・期間を更新)。role 列は既定値('member')に任せる。
     for (const uid of userIds) {
         await c.env.DB.prepare(`
@@ -495,21 +501,24 @@ groupAdminRouter.post('/group-admin/api/grant/add', async (c) => {
         // 直接の親グループ(parent_id)の同一サービスの Grant を引き、親の枠を超えないか検証する。
         const grp = await c.env.DB.prepare('SELECT parent_id FROM groups WHERE id = ?').bind(groupId).first() as { parent_id: string | null } | null
         const parentId = grp?.parent_id || null
-        if (parentId) {
-            const parentGrant = await c.env.DB.prepare('SELECT seat_limit FROM group_service_grants WHERE group_id = ? AND service_id = ?')
-                .bind(parentId, ct.service_id).first() as { seat_limit: number | null } | null
-            // 親が枠上限を持つ場合のみオーバー検証(親が無制限なら上限なし)。
-            if (parentGrant && parentGrant.seat_limit != null) {
-                // 親の残り枠 = 親の seat_limit - 今回付与する分を除いた他兄弟グループへの配分合計。
-                const sib = await c.env.DB.prepare(`
-                    SELECT COALESCE(SUM(seat_limit), 0) AS s
-                    FROM group_service_grants
-                    WHERE service_id = ? AND group_id != ?
-                      AND group_id IN (SELECT id FROM groups WHERE parent_id = ?)
-                `).bind(ct.service_id, groupId, parentId).first() as { s: number } | null
-                const remaining = parentGrant.seat_limit - (sib?.s || 0)
-                if (seatLimit > remaining) return c.json({ error: 'over_budget' }, 400)
-            }
+        if (!parentId) return c.json({ error: 'no_parent_grant' }, 403)
+
+        const parentGrant = await c.env.DB.prepare('SELECT contract_id, seat_limit FROM group_service_grants WHERE group_id = ? AND service_id = ?')
+            .bind(parentId, ct.service_id).first() as { contract_id: string; seat_limit: number | null } | null
+        if (!parentGrant) return c.json({ error: 'no_parent_grant' }, 403)
+        if (parentGrant.contract_id !== contractId) return c.json({ error: 'contract_mismatch' }, 403)
+
+        // 親が枠上限を持つ場合のみオーバー検証(親が無制限なら上限なし)。
+        if (parentGrant.seat_limit != null) {
+            // 親の残り枠 = 親の seat_limit - 今回付与する分を除いた他兄弟グループへの配分合計。
+            const sib = await c.env.DB.prepare(`
+                SELECT COALESCE(SUM(seat_limit), 0) AS s
+                FROM group_service_grants
+                WHERE service_id = ? AND group_id != ?
+                  AND group_id IN (SELECT id FROM groups WHERE parent_id = ?)
+            `).bind(ct.service_id, groupId, parentId).first() as { s: number } | null
+            const remaining = parentGrant.seat_limit - (sib?.s || 0)
+            if (seatLimit > remaining) return c.json({ error: 'over_budget' }, 400)
         }
     } else {
         // ルート枠の場合: 契約(service_contracts)自体の上限枠数を超えていないか検証する。
