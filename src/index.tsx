@@ -43,7 +43,6 @@ const app = new Hono<{ Bindings: Env }>()
 // エンドポイント。いずれも他の OIDC エンドポイント同様に除外する。
 const oidcCsrfExempt = (path: string) =>
     path === '/oauth/token' || path === '/oauth/revoke' || path === '/oauth/introspect' ||
-    path === '/register' ||
     path === '/userinfo' || path === '/oidc/logout' ||
     path.startsWith('/entitlements/')
 app.use('*', async (c, next) => {
