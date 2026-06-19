@@ -36,10 +36,11 @@ const entries: EntryConfig[] = [
 ]
 
 async function build() {
-  // 出力ディレクトリを確保
   if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true })
   }
+
+  const isWatch = process.argv.includes('--watch')
 
   for (const entry of entries) {
     const entryPath = path.join(CLIENT_DIR, entry.file)
@@ -48,7 +49,7 @@ async function build() {
       process.exit(1)
     }
 
-    const result = await esbuild.build({
+    const buildOptions: esbuild.BuildOptions = {
       entryPoints: [entryPath],
       bundle: true,
       format: 'iife',
@@ -56,31 +57,54 @@ async function build() {
       write: false,
       target: 'es2020',
       charset: 'utf8',
-    })
+      plugins: [
+        {
+          name: 'wrap-plugin',
+          setup(buildPlugin: esbuild.PluginBuild) {
+            buildPlugin.onEnd((result) => {
+              if (result.errors.length > 0) {
+                console.error(`[build-client] ✖ ${entry.file} のビルドに失敗しました`)
+                return
+              }
+              if (!result.outputFiles || result.outputFiles.length === 0) return
+              
+              const jsCode = result.outputFiles[0].text.trim()
+              const escaped = jsCode
+                .replace(/\\/g, '\\\\')
+                .replace(/`/g, '\\`')
+                .replace(/\$/g, '\\$')
 
-    const jsCode = result.outputFiles[0].text.trim()
+              const outputContent = [
+                '// このファイルは自動生成されています。直接編集しないでください。',
+                `// ソース: src/client/${entry.file}`,
+                `// ビルド日時: ${new Date().toISOString()}`,
+                '',
+                `export const ${entry.exportName} = \`${escaped}\`;`,
+                '',
+              ].join('\n')
 
-    // エスケープ: バッククォート・ドル記号・バックスラッシュをエスケープ
-    const escaped = jsCode
-      .replace(/\\/g, '\\\\')
-      .replace(/`/g, '\\`')
-      .replace(/\$/g, '\\$')
+              const outputPath = path.join(OUTPUT_DIR, entry.file.replace(/\.ts$/, '.ts'))
+              fs.writeFileSync(outputPath, outputContent, 'utf-8')
+              console.log(`[build-client] ✓ ${entry.file} → generated/${path.basename(outputPath)} (${jsCode.length} bytes)`)
+            })
+          }
+        }
+      ]
+    }
 
-    const outputContent = [
-      '// このファイルは自動生成されています。直接編集しないでください。',
-      `// ソース: src/client/${entry.file}`,
-      `// ビルド日時: ${new Date().toISOString()}`,
-      '',
-      `export const ${entry.exportName} = \`${escaped}\`;`,
-      '',
-    ].join('\n')
-
-    const outputPath = path.join(OUTPUT_DIR, entry.file.replace(/\.ts$/, '.ts'))
-    fs.writeFileSync(outputPath, outputContent, 'utf-8')
-    console.log(`[build-client] ✓ ${entry.file} → generated/${path.basename(outputPath)} (${jsCode.length} bytes)`)
+    if (isWatch) {
+      const ctx = await esbuild.context(buildOptions)
+      await ctx.watch()
+    } else {
+      await esbuild.build(buildOptions)
+    }
   }
 
-  console.log(`[build-client] 全 ${entries.length} エントリのビルドが完了しました。`)
+  if (isWatch) {
+    console.log(`[build-client] Watch mode started for ${entries.length} entries...`)
+  } else {
+    console.log(`[build-client] 全 ${entries.length} エントリのビルドが完了しました。`)
+  }
 }
 
 build().catch((err) => {
