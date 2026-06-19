@@ -31,7 +31,7 @@ import {
 import { sendEmail } from '../utils/mail';
 import { generateToken, hashPassword, validatePassword, hashToken } from '../utils/auth';
 
-function isValidInitiateLoginUri(uri: string, baseUrl: string, redirectUris: string | null): boolean {
+function isValidAppUri(uri: string, baseUrl: string, redirectUris: string | null): boolean {
     if (!uri) return true;
     let parsedUri: URL, base: URL;
     try {
@@ -234,8 +234,11 @@ adminRouter.post('/admin/apps', async (c) => {
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
     const initiateLoginUri = ((body['initiate_login_uri'] as string) || '').trim() || null
 
-    if (initiateLoginUri && !isValidInitiateLoginUri(initiateLoginUri, body['base_url'] as string, redirectUris)) {
+    if (initiateLoginUri && !isValidAppUri(initiateLoginUri, body['base_url'] as string, redirectUris)) {
         return c.redirect('/admin/apps?error=Invalid initiate_login_uri. Must match base_url or a redirect_uri origin.')
+    }
+    if (backchannelLogoutUri && !isValidAppUri(backchannelLogoutUri, body['base_url'] as string, redirectUris)) {
+        return c.redirect('/admin/apps?error=Invalid backchannel_logout_uri. Must match base_url or a redirect_uri origin.')
     }
 
     // アプリ↔サービスの紐づけはここでは行わない(サービス構成側 service_apps で組み込む)。
@@ -297,8 +300,11 @@ adminRouter.post('/admin/apps/update', async (c) => {
     const backchannelLogoutUri = ((body['backchannel_logout_uri'] as string) || '').trim() || null
     const initiateLoginUri = ((body['initiate_login_uri'] as string) || '').trim() || null
 
-    if (initiateLoginUri && !isValidInitiateLoginUri(initiateLoginUri, body['base_url'] as string, redirectUris)) {
+    if (initiateLoginUri && !isValidAppUri(initiateLoginUri, body['base_url'] as string, redirectUris)) {
         return c.redirect('/admin/apps?error=Invalid initiate_login_uri. Must match base_url or a redirect_uri origin.')
+    }
+    if (backchannelLogoutUri && !isValidAppUri(backchannelLogoutUri, body['base_url'] as string, redirectUris)) {
+        return c.redirect('/admin/apps?error=Invalid backchannel_logout_uri. Must match base_url or a redirect_uri origin.')
     }
 
     // アプリ↔サービスの紐づけはここでは行わない(サービス構成側 service_apps で組み込む)。

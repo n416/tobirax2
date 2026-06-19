@@ -903,9 +903,25 @@ app.post('/user/profile', async (c) => {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
     const body = await c.req.parseBody()
-    const name = ((body['name'] as string) || '').trim() || null
-    const preferredUsername = ((body['preferred_username'] as string) || '').trim() || null
-    const picture = ((body['picture'] as string) || '').trim() || null
+
+    const sanitizeName = (s: string) => s.replace(/[<>]/g, '').trim()
+
+    let name = ((body['name'] as string) || '').trim() || null
+    if (name) name = sanitizeName(name) || null
+
+    let preferredUsername = ((body['preferred_username'] as string) || '').trim() || null
+    if (preferredUsername) preferredUsername = sanitizeName(preferredUsername) || null
+
+    let picture = ((body['picture'] as string) || '').trim() || null
+    if (picture) {
+        try {
+            const u = new URL(picture)
+            if (u.protocol !== 'http:' && u.protocol !== 'https:') picture = null
+        } catch {
+            picture = null
+        }
+    }
+
     const now = Math.floor(Date.now() / 1000)
     await c.env.DB.prepare('UPDATE users SET name = ?, preferred_username = ?, picture = ?, updated_at = ? WHERE id = ?')
         .bind(name, preferredUsername, picture, now, user.id).run()
