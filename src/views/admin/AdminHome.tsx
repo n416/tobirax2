@@ -8,7 +8,7 @@ import { Button } from '../components/Button'
 interface Props {
   t: typeof dict.en
   userEmail: string
-  stats: { apps: number, users: number, logs: number }
+  stats: { apps: number, users: number }
   siteName: string
   appConfig: SystemConfig
 }
@@ -45,16 +45,6 @@ export const AdminHome = (props: Props) => {
             </div>
             <div style="width:100%;">
                 ${Button({ variant: 'outline', onclick: "window.location.href='/admin/users'", children: t.nav_users })}
-            </div>
-        </div>
-        
-        <div class="${amListCard}" style="display:flex; flex-direction:column; align-items:center; padding: 2rem;">
-            <div style="font-weight:700; color:#334155; margin-bottom:1rem;">${t.stat_logs}</div>
-            <div style="font-size: 3rem; font-weight: 800; color: #fb8c00; margin-bottom: 1.5rem; line-height:1;">
-                ${props.stats.logs}
-            </div>
-            <div style="width:100%;">
-                ${Button({ variant: 'outline', onclick: "window.location.href='/admin/logs'", children: t.nav_logs })}
             </div>
         </div>
       </div>

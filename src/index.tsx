@@ -10,6 +10,7 @@ import { encryptSecret, decryptSecret } from './utils/secretbox'
 import { sendEmail } from './utils/mail'
 import { fetchAppIcon } from './utils/icon'
 import { requireSecret } from './utils/env'
+import { writeAuditLog } from './utils/logger'
 import { signRS256, verifyPkce, verifyRS256 } from './oidc/jwt'
 import { getJwksKeys } from './oidc/keys'
 import { Login } from './views/Login'
@@ -31,7 +32,7 @@ import { AccountGroupsPage } from './views/admin/AccountGroupsPage'
 import { AccountServicesPage } from './views/admin/AccountServicesPage'
 
 import { UsersPage } from './views/admin/UsersPage'
-import { LogsPage } from './views/admin/LogsPage'
+
 
 import { dict } from './i18n'
 
@@ -398,9 +399,8 @@ export async function getEntitlements(c: any, userId: string, serviceId: string)
 }
 
 // 監査ログを1行記録する。details は i18n キー方式({ key, params }) で保存する。
-export async function logAudit(c: any, eventType: string, details: object) {
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)')
-        .bind(eventType, JSON.stringify(details)).run()
+export async function logAudit(c: any, eventType: string, details: object, userId?: string | null, appId?: string | null) {
+    await writeAuditLog(c, eventType, details, userId, appId)
 }
 
 // サービス削除の連鎖。サービスに紐づく契約・利用枠・役割マスタ・割当をまとめて掃除する。
@@ -708,7 +708,7 @@ app.post('/login', async (c) => {
     }
 
     const details = JSON.stringify({ key: 'log_login_app', params: { email, appName: targetAppName } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('LOGIN', details).run()
+    await logAudit(c, '', JSON.parse(details))
 
     if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
 
@@ -775,7 +775,7 @@ app.post('/signup', async (c) => {
         ).bind(userId, email, pwHash, groupId, now, now).run()
 
         const details = JSON.stringify({ key: 'log_signup', params: { email } })
-        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SIGNUP', details).run()
+        await logAudit(c, '', JSON.parse(details))
     } catch (e) {
         // UNIQUE制約違反等の場合もタイミング差を出さずに同じ応答を返す
         return c.redirect(successRedirect)
@@ -825,7 +825,7 @@ app.post('/user/2fa/setup', async (c) => {
         const encryptedSecret = await encryptSecret(secret, kek);
         await c.env.DB.prepare('UPDATE users SET two_factor_secret = ? WHERE id = ?').bind(encryptedSecret, user.id).run()
         const details = JSON.stringify({ key: 'log_2fa_enable', params: { email: user.email } });
-        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('2FA_ENABLE', details).run()
+        await logAudit(c, '', JSON.parse(details))
         return c.redirect('/account?msg=msg_2fa_enabled')
     } else {
         const config = await getSystemConfig(c.env.DB)
@@ -847,7 +847,7 @@ app.post('/user/2fa/disable', async (c) => {
 
     await c.env.DB.prepare('UPDATE users SET two_factor_secret = NULL WHERE id = ?').bind(user.id).run()
     const details = JSON.stringify({ key: 'log_2fa_disable', params: { email: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('2FA_DISABLE', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/account?msg=msg_2fa_disabled')
 })
 app.get('/change-password', async (c) => {
@@ -883,7 +883,7 @@ app.post('/change-password', async (c) => {
     const pwHash = await hashPassword(newPassword)
     await c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(pwHash, user.id).run()
     const details = JSON.stringify({ key: 'log_password_change', params: { email: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PASSWORD_CHANGE', details).run()
+    await logAudit(c, '', JSON.parse(details))
 
     // Clear other sessions and app_sessions
     const sessionId = getCookie(c, '__Host-idp_session')
@@ -1152,7 +1152,7 @@ app.post('/login/2fa', async (c) => {
         }
 
         const details = JSON.stringify({ key: 'log_login_app', params: { email: user.email, method: '2FA', appName: targetAppName } });
-        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('LOGIN', details).run()
+        await logAudit(c, '', JSON.parse(details))
 
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
         return c.redirect(admin ? '/admin' : '/')

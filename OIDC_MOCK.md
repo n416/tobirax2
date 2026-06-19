@@ -7,11 +7,7 @@ stand in for **Auth0** during local development. You get tobira's nice
 login UI, user/group management and 2FA, while Auth0 SDKs talk to it as
 if it were a real OIDC provider.
 
-> ⚠️ **Development mock only.** There is no rate limiting or other
-> hardening (put Cloudflare Rate Limiting / WAF in front for that). The RSA
-> signing key is generated per database (not stored in the repo), so repo
-> access alone can't forge tokens — but this is still a mock. Never use it
-> as a real IdP.
+
 
 ## What it implements
 

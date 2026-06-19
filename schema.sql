@@ -175,12 +175,17 @@ CREATE TABLE IF NOT EXISTS password_resets (
     expires_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS audit_logs (
+CREATE TABLE IF NOT EXISTS recent_audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type TEXT NOT NULL,
     details TEXT,
+    user_id TEXT,
+    app_id TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
+
 
 -- システム設定(新規)
 CREATE TABLE IF NOT EXISTS system_config (

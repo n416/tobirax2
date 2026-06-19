@@ -3,6 +3,7 @@ import type { Env, User, App, AuthCode, Session } from '../types';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { getJwksKeys } from '../oidc/keys';
 import { requireSecret } from '../utils/env';
+import { writeAuditLog } from '../utils/logger';
 import { signRS256, verifyPkce, verifyRS256 } from '../oidc/jwt';
 import { generateToken, hashToken } from '../utils/auth';
 import {
@@ -66,13 +67,23 @@ oidcRouter.get('/authorize', async (c) => {
     const responseType = q.response_type
     const scope = q.scope || 'openid'
 
-    if (!clientId || !redirectUri) return c.text('invalid_request: client_id and redirect_uri are required', 400)
+    if (!clientId || !redirectUri) {
+        await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'invalid_request', reason: 'client_id and redirect_uri are required' });
+        return c.text('invalid_request: client_id and redirect_uri are required', 400)
+    }
 
     const app = await c.env.DB.prepare('SELECT * FROM apps WHERE id = ?').bind(clientId).first() as App | null
-    if (!app) return c.text('invalid_client: unknown client_id', 400)
-    if (!isAllowedRedirectUri(redirectUri, app)) return c.text('invalid_request: redirect_uri is not registered for this client', 400)
+    if (!app) {
+        await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'invalid_client', reason: 'unknown client_id' }, null, clientId as string);
+        return c.text('invalid_client: unknown client_id', 400)
+    }
+    if (!isAllowedRedirectUri(redirectUri, app)) {
+        await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'invalid_request', reason: 'redirect_uri is not registered' }, null, app.id);
+        return c.text('invalid_request: redirect_uri is not registered for this client', 400)
+    }
 
     if (responseType && responseType !== 'code') {
+        await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'unsupported_response_type' }, null, app.id);
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'unsupported_response_type', error_description: 'only response_type=code is supported', state }))
     }
 
@@ -80,6 +91,7 @@ oidcRouter.get('/authorize', async (c) => {
     // code_challenge を渡す場合は明示的に S256 メソッドを伴う必要がある — メソッド省略は
     // 従来 `plain` の既定だった(RFC 7636 §4.3)が、それも許可しない。
     if (q.code_challenge && q.code_challenge_method !== 'S256') {
+        await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'invalid_request', reason: 'code_challenge_method must be S256' }, null, app.id);
         return c.redirect(buildRedirect(redirectUri, responseMode, {
             error: 'invalid_request',
             error_description: 'code_challenge_method must be S256 (plain is not supported)',
@@ -108,6 +120,7 @@ oidcRouter.get('/authorize', async (c) => {
     if (needReauth) {
         // prompt=none は一切の UI を禁止する: ログインフォームを出さずエラーを返す。
         if (promptNone) {
+            await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'login_required' }, user?.id, app.id);
             return c.redirect(buildRedirect(redirectUri, responseMode, {
                 error: 'login_required',
                 error_description: user ? 're-authentication required but prompt=none' : 'no active session and prompt=none',
@@ -129,6 +142,7 @@ oidcRouter.get('/authorize', async (c) => {
     // tobira のアプリ別権限ゲートを適用する。
     const check = await checkPermission(c, user.id, app.id)
     if (!check.allowed) {
+        await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'access_denied', reason: check.reason }, user.id, app.id);
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'access_denied', error_description: check.reason || 'access denied', state }))
     }
 
@@ -141,6 +155,7 @@ oidcRouter.get('/authorize', async (c) => {
         'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(hashedCode, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope, session?.auth_time ?? null).run()
 
+    await writeAuditLog(c, 'OIDC_AUTHORIZE_SUCCESS', { redirect_uri: redirectUri, scope }, user.id, app.id);
     return c.redirect(buildRedirect(redirectUri, responseMode, { code, state }))
 })
 
@@ -172,33 +187,53 @@ oidcRouter.post('/oauth/token', async (c) => {
         const hashedCode = await hashToken(code)
         const ac = await c.env.DB.prepare('SELECT * FROM auth_codes WHERE code = ?').bind(hashedCode).first() as AuthCode | null
         const nowSec = Math.floor(Date.now() / 1000)
-        if (!ac || ac.used_at || ac.expires_at < nowSec) return tokenError(c, 'invalid_grant', 'authorization code is invalid or expired')
+        if (!ac || ac.used_at || ac.expires_at < nowSec) {
+            await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'code invalid or expired' });
+            return tokenError(c, 'invalid_grant', 'authorization code is invalid or expired')
+        }
         
         const updateRes = await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at >= ?').bind(nowSec, hashedCode, nowSec).run()
         if ((updateRes as any)?.meta?.changes === 0) {
+            await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'code already used or expired' });
             return tokenError(c, 'invalid_grant', 'authorization code is already used or expired')
         }
 
         const clientId = body.client_id || basicClientId
-        if (clientId && clientId !== ac.app_id) return tokenError(c, 'invalid_grant', 'client_id does not match the authorization code')
+        if (clientId && clientId !== ac.app_id) {
+            await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'client_id mismatch' }, null, clientId as string);
+            return tokenError(c, 'invalid_grant', 'client_id does not match the authorization code')
+        }
         // RFC 6749 §4.1.3 / OIDC: 認可リクエストで redirect_uri が使われた場合
         // (/authorize では常に該当)、トークンリクエストにも同一のものを含めなければ
         // ならない。以前はクライアントが送る選択をしたときだけ検証していたため、
         // redirect_uri を省略すると検証を素通りしていた。
         if (ac.redirect_uri) {
-            if (!body.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri is required')
-            if (body.redirect_uri !== ac.redirect_uri) return tokenError(c, 'invalid_grant', 'redirect_uri does not match')
+            if (!body.redirect_uri) {
+                await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'redirect_uri is required' }, null, ac.app_id);
+                return tokenError(c, 'invalid_grant', 'redirect_uri is required')
+            }
+            if (body.redirect_uri !== ac.redirect_uri) {
+                await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'redirect_uri mismatch' }, null, ac.app_id);
+                return tokenError(c, 'invalid_grant', 'redirect_uri does not match')
+            }
         }
 
         const pkceOk = await verifyPkce(body.code_verifier, ac.code_challenge as any, ac.code_challenge_method as any)
-        if (!pkceOk) return tokenError(c, 'invalid_grant', 'PKCE verification failed')
+        if (!pkceOk) {
+            await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'PKCE verification failed' }, null, ac.app_id);
+            return tokenError(c, 'invalid_grant', 'PKCE verification failed')
+        }
 
         const auth = await authenticateClient(c, ac.app_id, providedSecret, !!ac.code_challenge)
         if (!auth.ok) return auth.res
 
         const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(ac.user_id).first() as User | null
-        if (!user) return tokenError(c, 'invalid_grant', 'user not found')
+        if (!user) {
+            await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'user not found' }, ac.user_id, ac.app_id);
+            return tokenError(c, 'invalid_grant', 'user not found')
+        }
 
+        await writeAuditLog(c, 'OIDC_TOKEN_GRANTED', { grant_type: 'authorization_code' }, user.id, ac.app_id);
         return issueOidcTokens(c, user, ac.app_id, (ac.nonce as any) || null, (ac.scope as any) || null, (ac.auth_time as any) ?? null)
     }
 
@@ -226,6 +261,7 @@ oidcRouter.post('/oauth/token', async (c) => {
         
         // 更新をまたいで当初付与の scope と auth_time を保持し、更新後の id_token が
         // 元の認証時刻を保つようにする。
+        await writeAuditLog(c, 'OIDC_TOKEN_GRANTED', { grant_type: 'refresh_token' }, user.id, session.app_id);
         return issueOidcTokens(c, user, session.app_id, null, (session.scope as string) || null, (session.auth_time as number) ?? null)
     }
 

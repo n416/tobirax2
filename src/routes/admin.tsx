@@ -67,8 +67,7 @@ adminRouter.get('/admin', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const stats = {
         apps: await c.env.DB.prepare('SELECT COUNT(*) as c FROM apps').first('c'),
-        users: await c.env.DB.prepare('SELECT COUNT(*) as c FROM users').first('c'),
-        logs: await c.env.DB.prepare('SELECT COUNT(*) as c FROM audit_logs').first('c'),
+        users: await c.env.DB.prepare('SELECT COUNT(*) as c FROM users').first('c')
     }
     return c.html(<AdminHome t={t} userEmail={user.email} stats={stats as any} siteName={siteName} appConfig={config} />)
 })
@@ -244,7 +243,7 @@ adminRouter.post('/admin/apps', async (c) => {
         .bind(body['id'], body['name'], body['base_url'], 'active', now, body['description'], iconUrl, hashedSecret, redirectUris, backchannelLogoutUri, initiateLoginUri).run()
 
     const details = JSON.stringify({ key: 'log_app_created', params: { appName: body['name'], id: body['id'], admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_CREATED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/apps')
 })
 
@@ -272,7 +271,7 @@ adminRouter.post('/admin/apps/secret', async (c) => {
     const hashedSecret = plainSecret ? await hashPassword(plainSecret) : null
     await c.env.DB.prepare('UPDATE apps SET client_secret = ? WHERE id = ?').bind(hashedSecret, id).run()
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: id, status: action === 'clear' ? 'secret cleared' : 'secret regenerated', admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     
     if (c.req.header('Accept')?.includes('application/json')) {
         return c.json({ success: true, new_secret: plainSecret })
@@ -307,7 +306,7 @@ adminRouter.post('/admin/apps/update', async (c) => {
         .bind(body['name'], body['base_url'], body['description'], iconUrl, redirectUris, backchannelLogoutUri, initiateLoginUri, id).run()
         
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: body['name'], status: 'Updated', admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/apps')
 })
 
@@ -319,7 +318,7 @@ adminRouter.post('/admin/apps/toggle', async (c) => {
     const status = body['status']
     await c.env.DB.prepare('UPDATE apps SET status = ? WHERE id = ?').bind(status, id).run()
     const details = JSON.stringify({ key: 'log_app_updated', params: { appName: id, status: status, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_UPDATED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/apps')
 })
 
@@ -358,7 +357,7 @@ adminRouter.post('/admin/apps/delete', async (c) => {
         c.env.DB.prepare('DELETE FROM apps WHERE id = ?').bind(id)
     ])
     const details = JSON.stringify({ key: 'log_app_deleted', params: { id: id, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('APP_DELETED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/apps')
 })
 
@@ -400,7 +399,7 @@ adminRouter.post('/admin/groups/delete', async (c) => {
         c.env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(id)
     ])
     const details = JSON.stringify({ key: 'log_group_deleted', params: { id: id, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_DELETED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/groups')
 })
 adminRouter.get('/admin/users', async (c) => {
@@ -446,7 +445,7 @@ adminRouter.post('/admin/users/delete', async (c) => {
         c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id)
     ])
     const details = JSON.stringify({ key: 'log_user_deleted', params: { id: id, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('USER_DELETED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/users')
 })
 adminRouter.post('/admin/users/bulk', async (c) => {
@@ -489,7 +488,7 @@ adminRouter.post('/admin/users/bulk', async (c) => {
         key: 'log_bulk_update',
         params: { count: ids.length, admin: user.email, group: gName || '-', app: aName || '-' }
     });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('USER_UPDATE', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/users')
 })
 adminRouter.get('/admin/api/user-details/:id', async (c) => {
@@ -539,7 +538,7 @@ adminRouter.post('/admin/api/user/group', async (c) => {
             if (g) gName = g.name;
         }
         const details = JSON.stringify({ key: 'log_user_group_update', params: { user: userId, group: gName, admin: user.email } });
-        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('USER_UPDATE', details).run()
+        await logAudit(c, '', JSON.parse(details))
         return c.json({ success: true })
     } catch (e: any) {
         console.error(e)
@@ -554,7 +553,7 @@ adminRouter.post('/admin/api/user/permission/revoke', async (c) => {
     const id = body['id']
     await c.env.DB.prepare('DELETE FROM permissions WHERE id = ?').bind(id).run()
     const details = JSON.stringify({ key: 'log_permission_revoke', params: { id: id, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PERMISSION_REVOKE', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true })
 })
 adminRouter.post('/admin/api/user/permission/grant', async (c) => {
@@ -579,7 +578,7 @@ adminRouter.post('/admin/api/user/permission/grant', async (c) => {
         if (a) appNames.push(a.name);
     }
     const details = JSON.stringify({ key: 'log_permission_grant', params: { apps: appNames.join(', '), user: userId, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('PERMISSION_GRANT', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true })
 })
 adminRouter.get('/admin/api/group-details/:id', async (c) => {
@@ -616,7 +615,7 @@ adminRouter.post('/admin/api/group/permission/grant', async (c) => {
     const g = await c.env.DB.prepare('SELECT name FROM groups WHERE id = ?').bind(groupId).first<{ name: string }>();
     const gName = g ? g.name : groupId;
     const details = JSON.stringify({ key: 'log_group_permission_grant', params: { apps: appNames.join(', '), group: gName, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_PERMISSION_GRANT', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true })
 })
 adminRouter.post('/admin/api/group/permission/revoke', async (c) => {
@@ -626,7 +625,7 @@ adminRouter.post('/admin/api/group/permission/revoke', async (c) => {
     const id = body['id']
     await c.env.DB.prepare('DELETE FROM group_permissions WHERE id = ?').bind(id).run()
     const details = JSON.stringify({ key: 'log_group_permission_revoke', params: { id: id, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_PERMISSION_REVOKE', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true })
 })
 
@@ -731,7 +730,7 @@ adminRouter.post('/admin/am/groups/parent', async (c) => {
     }
 
     const details = JSON.stringify({ key: 'log_group_parent_changed', params: { id, parent: parentId || '(root)', revoked, admin: user.email } })
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_PARENT_CHANGED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true, revoked })
 })
 adminRouter.post('/admin/am/groups/delete', async (c) => {
@@ -771,7 +770,7 @@ adminRouter.post('/admin/am/groups/delete', async (c) => {
         c.env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(id)
     ])
     const details = JSON.stringify({ key: 'log_group_deleted', params: { id: id, admin: user.email, revoked_subtree_size: subtree.length } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('GROUP_DELETED', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.redirect('/admin/am/groups')
 })
 adminRouter.get('/admin/api/am/group-members/:id', async (c) => {
@@ -811,7 +810,7 @@ adminRouter.post('/admin/api/am/membership/add', async (c) => {
     }
     const roleLabel = [isGroupAdmin && 'group_admin', isBillingAdmin && 'billing_admin', isDeveloper && 'developer'].filter(Boolean).join(',') || 'member'
     const details = JSON.stringify({ key: 'log_membership_add', params: { count: userIds.length, group: groupId, role: roleLabel, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_ADD', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true })
 })
 adminRouter.post('/admin/api/am/membership/remove', async (c) => {
@@ -821,7 +820,7 @@ adminRouter.post('/admin/api/am/membership/remove', async (c) => {
     const id = body['id']
     await c.env.DB.prepare('DELETE FROM group_memberships WHERE id = ?').bind(id).run()
     const details = JSON.stringify({ key: 'log_membership_remove', params: { id: id, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('MEMBERSHIP_REMOVE', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true })
 })
 
@@ -905,7 +904,7 @@ adminRouter.post('/admin/api/service/app/add', async (c) => {
         await c.env.DB.prepare('INSERT INTO service_apps (service_id, app_id, created_at) VALUES (?, ?, ?)')
             .bind(serviceId, appId, now).run()
         const details = JSON.stringify({ key: 'log_service_app_add', params: { service: serviceId, app: appId, admin: user.email } });
-        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SERVICE_APP_ADD', details).run()
+        await logAudit(c, '', JSON.parse(details))
         return c.json({ success: true })
     } catch (e: any) {
         if (e.message.includes('UNIQUE')) return c.json({ success: true }) // 既に紐づいている
@@ -921,7 +920,7 @@ adminRouter.post('/admin/api/service/app/remove', async (c) => {
     const appId = (body['app_id'] as string) || ''
     await c.env.DB.prepare('DELETE FROM service_apps WHERE service_id = ? AND app_id = ?').bind(serviceId, appId).run()
     const details = JSON.stringify({ key: 'log_service_app_remove', params: { service: serviceId, app: appId, admin: user.email } });
-    await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SERVICE_APP_REMOVE', details).run()
+    await logAudit(c, '', JSON.parse(details))
     return c.json({ success: true })
 })
 adminRouter.post('/admin/am/providers', async (c) => {
@@ -1010,10 +1009,9 @@ adminRouter.post('/admin/am/services/approve', async (c) => {
         }
     }
     
-    const details = JSON.stringify({ key: 'log_service_add', params: { name: id, admin: user.email } })
-    statements.push(c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('SERVICE_APPROVED', details))
-
     await c.env.DB.batch(statements)
+    
+    await logAudit(c, 'SERVICE_APPROVED', { key: 'log_service_add', params: { name: id, admin: user.email } })
     
     return c.redirect('/admin/am/services')
 })
@@ -1263,34 +1261,11 @@ adminRouter.get('/admin/logs', async (c) => {
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
-    const page = parseInt(c.req.query('page') || '1');
-    const filterEvent = c.req.query('event') || '';
-    const pageSize = 50;
-    const offset = (page - 1) * pageSize;
-    let query = 'SELECT * FROM audit_logs';
-    let countQuery = 'SELECT COUNT(*) as c FROM audit_logs';
-    const params = [];
-    if (filterEvent) {
-        const where = ' WHERE event_type = ?';
-        query += where;
-        countQuery += where;
-        params.push(filterEvent);
-    }
-    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(pageSize, offset);
-    const { results } = await c.env.DB.prepare(query).bind(...params).all();
-    const countParams = filterEvent ? [filterEvent] : [];
-    const totalRes = await c.env.DB.prepare(countQuery).bind(...countParams).first<{ c: number }>();
-    const totalCount = totalRes?.c || 0;
-    const totalPages = Math.ceil(totalCount / pageSize);
+    const { results } = await c.env.DB.prepare('SELECT * FROM recent_audit_logs ORDER BY id DESC LIMIT 500').all()
     return c.html(<LogsPage
         t={getLang(c)}
         userEmail={user.email}
         logs={results as any}
-        currentPage={page}
-        totalPages={totalPages}
-        totalCount={totalCount}
-        currentFilter={filterEvent}
         siteName={siteName}
         appConfig={config}
     />)
@@ -1410,7 +1385,7 @@ adminRouter.post('/admin/config', async (c) => {
         if (app_subtitle_ja) await c.env.DB.prepare('INSERT INTO system_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=?').bind('app_subtitle_ja', app_subtitle_ja, app_subtitle_ja).run()
         if (app_subtitle_en) await c.env.DB.prepare('INSERT INTO system_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=?').bind('app_subtitle_en', app_subtitle_en, app_subtitle_en).run()
         const details = JSON.stringify({ key: 'log_config_update', params: { admin: user.email } });
-        await c.env.DB.prepare('INSERT INTO audit_logs (event_type, details) VALUES (?, ?)').bind('CONFIG_UPDATE', details).run()
+        await logAudit(c, '', JSON.parse(details))
         return c.redirect('/admin')
     } catch (e: any) {
         return c.text('Error updating config: ' + e.message, 500)
