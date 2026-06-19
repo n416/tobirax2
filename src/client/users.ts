@@ -4,6 +4,11 @@
  */
 
 declare global {
+
+  interface CustomModalElement extends HTMLDialogElement {
+    showModal: () => void;
+    close: () => void;
+  }
   interface Window {
     showAlert: (msg: string) => void;
     showConfirm: (msg: string, cb: () => void) => void;
@@ -83,8 +88,8 @@ let currentUserPermissions: PermData[] = [];
 window.isBulkMode = false;
 
 document.addEventListener('DOMContentLoaded', () => {
-  if (typeof TomSelect !== 'undefined') {
-    tsControl = new TomSelect('#perm-app-id', {
+  if (typeof window.TomSelect !== 'undefined') {
+    tsControl = new window.TomSelect('#perm-app-id', {
       controlInput: '<input type="text" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />',
       plugins: ['remove_button'],
       create: false,
@@ -348,8 +353,7 @@ window.addAssignment = () => {
   const rid = (document.getElementById('a-role-id') as HTMLSelectElement).value;
   const vf = (document.getElementById('a-valid-from') as HTMLInputElement).value;
   const vt = (document.getElementById('a-valid-to') as HTMLInputElement).value;
-  // TODO: alertを専用UIに置き換える
-  if (!sid || !fid || !rid) { console.error('必須項目が入力されていません'); return; }
+  if (!sid || !fid || !rid) { window.showAlert('必須項目が入力されていません'); return; }
 
   fetch('/admin/api/am/assignment/add', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -408,8 +412,7 @@ window.grantPermission = () => {
   if (tsControl) { appIds = tsControl.getValue(); if (!Array.isArray(appIds)) appIds = [appIds]; }
   else { const appSelect = document.getElementById('perm-app-id') as HTMLSelectElement; if (appSelect.value) appIds = [appSelect.value]; }
   appIds = appIds.filter((id: string) => id !== '');
-  // TODO: alertを専用UIに置き換える
-  if (appIds.length === 0) { console.error(i18n.alertSelectApp || 'Select at least one App'); return; }
+  if (appIds.length === 0) { window.showAlert(i18n.alertSelectApp || 'Select at least one App'); return; }
   const warningMessages: string[] = [];
   appIds.forEach((id) => {
     const existing = currentUserPermissions.find((p) => p.app_id === id && p.source === 'user');
