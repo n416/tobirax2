@@ -50,10 +50,10 @@ window.applyDeveloper = function() {
     }
     if (!window.currentGroupId) return;
     
-    fetch('/group-admin/api/developer/apply', {
+    fetch('/group-admin/api/roles/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ group_id: window.currentGroupId, reason: reason.trim() })
+        body: JSON.stringify({ group_id: window.currentGroupId, role_type: 'developer', reason: reason.trim() })
     })
     .then(function(r) {
         if (!r.ok) throw new Error('Error ' + r.status);
