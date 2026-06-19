@@ -45,7 +45,6 @@ export const Layout = (props: LayoutProps) => {
         display: grid; 
         grid-template-columns: 260px 1fr; 
         min-height: 100vh;
-        max-width: 1400px;
         margin: 0 auto;
         background: rgba(255, 255, 255, 0.4);
         backdrop-filter: blur(10px);

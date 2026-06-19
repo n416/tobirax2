@@ -132,10 +132,16 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
     <script>
       (function(){
         var el = document.getElementById('${id}');
-        if (el && !el.showModal) {
-          el.showModal = function() { this.classList.add('open'); };
-          el.close = function() { this.classList.remove('open'); };
-          Object.defineProperty(el, 'open', { get: function() { return this.classList.contains('open'); }, configurable: true });
+        if (el) {
+          // CSSのtransformやbackdrop-filterによるposition: fixedの閉じ込めを回避するためbody直下へ移動
+          if (el.parentElement !== document.body) {
+            document.body.appendChild(el);
+          }
+          if (!el.showModal) {
+            el.showModal = function() { this.classList.add('open'); };
+            el.close = function() { this.classList.remove('open'); };
+            Object.defineProperty(el, 'open', { get: function() { return this.classList.contains('open'); }, configurable: true });
+          }
         }
       })();
     </script>
