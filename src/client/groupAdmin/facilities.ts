@@ -2,7 +2,7 @@ import './types';
 
 let tsControlMoveFacility: any = null;
 
-window.loadAllFacilitiesForMove = function(groupIdToExclude: string) {
+window.loadAllFacilitiesForMove = function(groupIdToExclude?: string) {
     fetch('/group-admin/api/facilities/all')
         .then(function(r) { return r.json(); })
         .then(function(facs: any[]) {
@@ -119,7 +119,7 @@ window.removeFacility = function(fid: string) {
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.error) {
-                    alert('エラー: ' + data.error);
+                    if (window.showAlert) window.showAlert('エラー: ' + data.error);
                 } else {
                     window.location.reload();
                 }

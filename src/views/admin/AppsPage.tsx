@@ -177,7 +177,7 @@ export const AppsPage = (props: Props) => {
                             <span class="material-symbols-outlined" style="font-size:12px;">label</span>
                             ${at.tag_name}
                             ${at.app_tag_status === 'pending' ? html`<span style="color:#c2410c; margin-left:4px;">(申請中)</span>` : ''}
-                            <button type="button" onclick="event.stopPropagation(); if(confirm('タグを外しますか？')) { document.getElementById('remove-app-tag-form').querySelector('input[name=app_id]').value='${app.id}'; document.getElementById('remove-app-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-app-tag-form').submit(); }" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; display:flex; align-items:center; padding:0; margin-left:4px;" title="タグを外す"><span class="material-symbols-outlined" style="font-size:14px;">close</span></button>
+                            <button type="button" onclick="event.stopPropagation(); window.showConfirm('タグを外しますか？', () => { document.getElementById('remove-app-tag-form').querySelector('input[name=app_id]').value='${app.id}'; document.getElementById('remove-app-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-app-tag-form').submit(); })" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; display:flex; align-items:center; padding:0; margin-left:4px;" title="タグを外す"><span class="material-symbols-outlined" style="font-size:14px;">close</span></button>
                         </span>
                     `)}
                     ${(props.availableTags && props.availableTags.length > 0) ? html`

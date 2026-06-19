@@ -290,18 +290,21 @@ window.applyServiceTag = function() {
 };
 
 window.removeServiceTag = function(serviceId: string, tagId: string) {
-    if (!confirm('このタグをサービスから外しますか？')) return;
-    fetch('/group-admin/api/service_tags/remove', {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service_id: serviceId, tag_id: tagId })
-    })
-    .then(function(r) { 
-        if (!r.ok) throw new Error('Error ' + r.status); 
-        return r.json(); 
-    })
-    .then(function() { window.location.reload(); })
-    .catch(function(e) { console.error('Error:', e.message); });
+    if (window.showConfirm) {
+        window.showConfirm('このタグをサービスから外しますか？', function() {
+            fetch('/group-admin/api/service_tags/remove', {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service_id: serviceId, tag_id: tagId })
+            })
+            .then(function(r) { 
+                if (!r.ok) throw new Error('Error ' + r.status); 
+                return r.json(); 
+            })
+            .then(function() { window.location.reload(); })
+            .catch(function(e) { console.error('Error:', e.message); });
+        });
+    }
 };
 
 window.requestCustomTag = function() {

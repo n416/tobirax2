@@ -5,6 +5,8 @@
 
 declare global {
   interface Window {
+    showAlert: (msg: string) => void;
+    showConfirm: (msg: string, cb: () => void) => void;
     handleIconPreview: (input: HTMLInputElement, previewId: string) => void
     openEditAppModal: (btn: HTMLElement) => void
     closeEditAppModal: () => void
@@ -167,13 +169,12 @@ window.executeDelete = () => {
   }
 };
 
-// Approve app registration request
 window.approveApp = (id: string) => {
   const i18nDataEl = document.getElementById('i18n-data') as HTMLElement | null;
-  // TODO: window.confirm を専用モーダルに置き換える
-  if (!confirm((i18nDataEl && i18nDataEl.dataset.confirmApprove) || 'Approve?')) return;
-  const f = document.getElementById('approve-app-form') as HTMLFormElement | null;
-  if (f) { (f.querySelector('input[name="id"]') as HTMLInputElement).value = id; f.submit(); }
+  window.showConfirm((i18nDataEl && i18nDataEl.dataset.confirmApprove) || 'Approve?', () => {
+    const f = document.getElementById('approve-app-form') as HTMLFormElement | null;
+    if (f) { (f.querySelector('input[name="id"]') as HTMLInputElement).value = id; f.submit(); }
+  });
 };
 
 // Client secret: regenerate / clear (make public)

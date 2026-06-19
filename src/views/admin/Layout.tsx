@@ -4,6 +4,7 @@ import { dict } from '../../i18n'
 import { SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { filterSelectGlobalStyles, FilterSelectScript } from '../components/FilterSelect'
+import { confirmDialogStyles, ConfirmDialogScript } from '../components/ConfirmDialogScript'
 import { Button } from '../components/Button'
 
 interface LayoutProps {
@@ -228,6 +229,8 @@ export const Layout = (props: LayoutProps) => {
       ${globalOverrides}
       ${filterSelectGlobalStyles}
       ${FilterSelectScript}
+      ${confirmDialogStyles}
+      ${ConfirmDialogScript}
       ${Style()}
     </head>
     <body>

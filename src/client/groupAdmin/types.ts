@@ -97,6 +97,9 @@ declare global {
 
         // ライブラリ
         tsCtrl: any;
+        TomSelect?: any;
+        showAlert: (msg: string) => void;
+        closeRemoveMemberModal: () => void;
         
         // 関数群（各モジュールで実装・アサインする）
         switchTab: (tab: string) => void;
@@ -104,6 +107,8 @@ declare global {
         showConfirm: (message: string, callback: () => void) => void;
         closeConfirmModal: () => void;
         renderAll: () => void;
+        loadRoleApprovals?: () => void;
+        renderPerms: (list?: any) => void;
         // 共通ユーティリティ
         escapeHtml: (v: any) => string;
         fmt: (unixSec: any) => string;
@@ -111,7 +116,8 @@ declare global {
         childDistributedSeats: (groupId: string, serviceId: string) => number;
         
         // Member
-        renderMembers: () => void;
+        // Member
+        renderMembers: (list?: any) => void;
         openAddModal: () => void;
         addMember: () => void;
         openCreateChildGroupModal: () => void;
@@ -125,25 +131,25 @@ declare global {
         refreshAssignRoles: () => void;
         openAssignModal: () => void;
         addAssignment: () => void;
-        removeAssignment: (aid: number) => void;
+        removeAssignment: (aid: any) => void;
         closeRemoveAssignModal: () => void;
         executeRemoveAssignment: () => void;
 
         // Grants
-        renderGrants: () => void;
+        renderGrants: (list?: any) => void;
         openGrantModal: () => void;
         onGrantTargetChange: () => void;
         addGrant: () => void;
-        removeGrant: (gid: number) => void;
+        removeGrant: (gid: any) => void;
         closeRemoveGrantModal: () => void;
         executeRemoveGrant: () => void;
         
         // Facilities
-        renderFacilities?: () => void;
-        addFacility?: () => void;
-        moveFacility?: () => void;
-        removeFacility?: (fid: string) => void;
-        loadAllFacilitiesForMove?: (groupIdToExclude: string) => void;
+        renderFacilities: (list?: any) => void;
+        addFacility: () => void;
+        moveFacility: () => void;
+        removeFacility: (fid: any) => void;
+        loadAllFacilitiesForMove: (groupIdToExclude?: string) => void;
 
         // Developer / Apps / Services
         renderDeveloperUI?: () => void;
@@ -155,8 +161,8 @@ declare global {
         reapplyService: (id: string) => void;
         
         manageServiceApps: (serviceId: string, serviceNameEnc: string) => void;
-        removeServiceApp: (serviceId: string, appId: string) => void;
-        openServiceAppsModal: (serviceDataEnc: string, availableApps: any[]) => void;
+        removeServiceApp: (serviceId: any, appId: any) => void;
+        openServiceAppsModal: (enc: any, availableApps: any, appsDataId?: string) => void;
         
         manageRoles: (serviceId: string, serviceNameEnc: string) => void;
         addRole: () => void;

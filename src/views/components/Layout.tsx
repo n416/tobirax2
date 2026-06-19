@@ -1,6 +1,7 @@
 import { html } from 'hono/html'
 import { Style, css } from 'hono/css'
 import { filterSelectGlobalStyles, FilterSelectScript } from './FilterSelect'
+import { confirmDialogStyles, ConfirmDialogScript } from './ConfirmDialogScript'
 
 interface LayoutProps {
   title: string
@@ -160,6 +161,8 @@ export const Layout = (props: LayoutProps) => {
       ${utils}
       ${filterSelectGlobalStyles}
       ${FilterSelectScript}
+      ${confirmDialogStyles}
+      ${ConfirmDialogScript}
       ${Style()} 
     </head>
     <body>

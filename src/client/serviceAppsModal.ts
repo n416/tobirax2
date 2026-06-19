@@ -5,12 +5,12 @@
 
 declare global {
   interface Window {
-    i18n?: Record<string, string>
-    openServiceAppsModal: (enc: string, availableApps: AppItem[], appsDataId?: string) => void
+    i18n: any
+    openServiceAppsModal: (enc: any, availableApps: any, appsDataId?: string) => void
     addServiceApp: () => void
-    removeServiceApp: (serviceId: string, appId: string) => void
+    removeServiceApp: (serviceId: any, appId: any) => void
     initFilterSelect?: (id: string) => void
-    showConfirm?: (msg: string, cb: () => void) => void
+    showConfirm: (msg: string, cb: () => void) => void
   }
 }
 

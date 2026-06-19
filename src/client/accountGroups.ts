@@ -8,6 +8,9 @@
 // サーバー側HTMLが埋め込むグローバル変数・DOM型の拡張
 declare global {
   interface Window {
+    showAlert: (msg: string) => void;
+    showConfirm: (msg: string, cb: () => void) => void;
+    TomSelect?: any;
     tomSelects?: Record<string, any>
     openGroupModal: (id: string, name: string, parentId?: string) => void
     closeGroupModal: () => void
@@ -16,20 +19,20 @@ declare global {
     highlightAddForm: () => void
     editMember: (userId: string, ga: number, ba: number, dev: number, startTs: number, endTs: number) => void
     loadMembers: (id: string) => void
-    renderMembers: (list: MemberData[]) => void
+    renderMembers: (list?: any) => void
     switchTab: (tab: string) => void
-    loadAllFacilitiesForMove: () => void
+    loadAllFacilitiesForMove: (groupIdToExclude?: string) => void
     loadFacilities: (id: string) => void
-    renderFacilities: (list: FacilityData[]) => void
+    renderFacilities: (list?: any) => void
     addFacility: () => void
     moveFacility: () => void
-    removeFacility: (fid: string) => void
+    removeFacility: (fid: any) => void
     closeRemoveFacModal: () => void
     executeRemoveFac: () => void
-    removeGrant: (gid: string) => void
+    removeGrant: (gid: any) => void
     addGrant: () => void
     loadGrants: (id: string) => void
-    renderGrants: (list: GrantData[]) => void
+    renderGrants: (list?: any) => void
     addMembers: () => void
     removeMember: (mid: string) => void
     closeRemoveModal: () => void
@@ -176,16 +179,15 @@ window.saveParent = () => {
   const pid = tsControlParentEdit
     ? tsControlParentEdit.getValue()
     : ((document.getElementById('m-parent') as HTMLSelectElement | null)?.value ?? '');
-  // 移動するとサブツリーの利用枠は強制没収される。誤操作で予算を消さないよう確認する。
-  // TODO: window.confirm を専用モーダルに置き換える
-  if (!confirm(i18n.moveWarn || 'Moving this group revokes all license grants held by it and its descendants. They must be re-distributed from the new parent. Continue?')) return;
-  fetch('/admin/am/groups/parent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: currentGroupId, parent_id: pid }) })
-    .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((e: any) => { throw new Error(e.error || 'err'); }); } return r.json(); })
-    .then(() => { window.location.reload(); })
-    .catch((e) => {
-      if (e.message === 'cycle' || e.message === 'self') { console.error(i18n.alertCycle || 'Cannot set this parent.'); }
-      else { console.error('Error: ' + e.message); }
-    });
+  window.showConfirm(i18n.moveWarn || 'Moving this group revokes all license grants held by it and its descendants. They must be re-distributed from the new parent. Continue?', () => {
+    fetch('/admin/am/groups/parent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: currentGroupId, parent_id: pid }) })
+      .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((e: any) => { throw new Error(e.error || 'err'); }); } return r.json(); })
+      .then(() => { window.location.reload(); })
+      .catch((e) => {
+        if (e.message === 'cycle' || e.message === 'self') { console.error(i18n.alertCycle || 'Cannot set this parent.'); }
+        else { console.error('Error: ' + e.message); }
+      });
+  });
 };
 
 window.resetAddButton = () => {
@@ -493,12 +495,12 @@ window.executeRemoveFac = () => {
 };
 
 window.removeGrant = (gid: string) => {
-  // TODO: window.confirm を専用モーダルに置き換える
-  if (!confirm('本当にこの利用枠を削除しますか？')) return;
-  fetch('/admin/api/am/grant/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: gid }) })
-    .then((r) => { if (!r.ok) throw new Error('err'); return r.json(); })
-    .then(() => { window.loadGrants(currentGroupId); })
-    .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+  window.showConfirm('本当にこの利用枠を削除しますか？', () => {
+    fetch('/admin/api/am/grant/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: gid }) })
+      .then((r) => { if (!r.ok) throw new Error('err'); return r.json(); })
+      .then(() => { window.loadGrants(currentGroupId); })
+      .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+  });
 };
 
 window.addGrant = () => {

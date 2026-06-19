@@ -95,10 +95,10 @@ export const AccountServicesPage = (props: Props) => {
               </div>
               <div style="display:flex; align-items:center; gap:0.5rem;">
                 ${s.status === 'pending' ? html`
-                  <form method="POST" action="/admin/am/services/approve" style="margin:0;" onsubmit="return confirm('${t.confirm_approve_service}');">
+                  <form method="POST" action="/admin/am/services/approve" style="margin:0;">
                     <input type="hidden" name="id" value="${s.id}" />
                     <input type="hidden" name="expected_apps" value="${s.app_ids || ''}" />
-                    <button type="submit" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_approve}</button>
+                    <button type="button" onclick="window.showConfirm('${t.confirm_approve_service}', () => this.closest('form').submit())" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_approve}</button>
                   </form>
                   <button type="button" onclick="openRejectModal('/admin/am/services/reject', '${s.id}', '${s.app_ids || ''}')" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_reject}</button>
                 ` : ''}

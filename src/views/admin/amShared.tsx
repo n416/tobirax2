@@ -52,9 +52,9 @@ export const amSectionHead = (title: string, subtitle: string, action?: any) => 
 
 // 削除フォーム(POST + ネイティブ確認)。confirmMsg は改行を含みうる。
 export const amDeleteForm = (action: string, id: string, confirmMsg: string, deleteTitle: string) => html`
-  <form method="POST" action="${action}" style="margin:0;" onsubmit="return confirm(${JSON.stringify(confirmMsg)});">
+  <form method="POST" action="${action}" style="margin:0;">
     <input type="hidden" name="id" value="${id}" />
-    <button type="submit" class="${amDeleteBtn}" title="${deleteTitle}">
+    <button type="button" class="${amDeleteBtn}" title="${deleteTitle}" onclick="window.showConfirm(${JSON.stringify(confirmMsg)}, () => this.closest('form').submit())">
       <span class="material-symbols-outlined">delete</span>
     </button>
   </form>

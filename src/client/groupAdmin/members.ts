@@ -96,7 +96,7 @@ window.addMember = function() {
     })
     .catch(function(e) {
         console.error('Error: ' + e.message);
-        alert(e.message);
+        if (window.showAlert) window.showAlert(e.message);
     });
 };
 

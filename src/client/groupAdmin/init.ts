@@ -189,26 +189,3 @@ window.renderAll = function() {
     try { if (typeof window.renderDeveloperUI === 'function') window.renderDeveloperUI(); } catch(e) { console.error('renderDeveloperUI', e); }
 };
 
-var pendingConfirmCallback: (() => void) | null = null;
-
-window.showConfirm = function(message: string, callback: () => void) {
-    var modal = document.getElementById('custom-confirm-modal') as any;
-    var msgEl = document.getElementById('custom-confirm-message');
-    var execBtn = document.getElementById('custom-confirm-execute-btn');
-    if (modal && msgEl && execBtn) {
-        msgEl.innerText = message;
-        pendingConfirmCallback = callback;
-        execBtn.onclick = function() {
-            var cb = pendingConfirmCallback;
-            window.closeConfirmModal();
-            if (cb) cb();
-        };
-        modal.showModal();
-    }
-};
-
-window.closeConfirmModal = function() {
-    var modal = document.getElementById('custom-confirm-modal') as any;
-    if (modal) modal.close();
-    pendingConfirmCallback = null;
-};

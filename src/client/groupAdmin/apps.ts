@@ -178,7 +178,7 @@ window.appSecretActionGa = function(action: string) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.error) {
-            alert('Error: ' + data.error);
+            if (window.showAlert) window.showAlert('Error: ' + data.error);
             return;
         }
         if (action === 'clear') {
@@ -209,6 +209,6 @@ window.appSecretActionGa = function(action: string) {
     })
     .catch(function(err) { 
         console.error('Error:', err); 
-        alert('Failed to update secret'); 
+        if (window.showAlert) window.showAlert('Failed to update secret'); 
     });
 };

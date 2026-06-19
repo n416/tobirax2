@@ -5,18 +5,25 @@
 
 declare global {
   interface Window {
+    showAlert: (msg: string) => void;
+    showConfirm: (msg: string, cb: () => void) => void;
+    TomSelect?: any;
+    appSelect?: any
+    appIds?: string[]
+    currentUserId?: string | null
     isBulkMode: boolean
     openUserModal: (id: string) => void
     closeUserModal: () => void
+    renderUserDetails: (data: any) => void
     refreshUserDetails: () => void
     resetGrantButton: () => void
     highlightGrantForm: () => void
     editPerm: (appId: string, startTs: number, endTs: number) => void
-    renderPerms: (list: PermData[]) => void
+    renderPerms: (list?: any) => void
     switchUserTab: (tab: string) => void
     loadAssignments: (list: AssignmentData[]) => void
     addAssignment: () => void
-    removeAssignment: (id: string) => void
+    removeAssignment: (id: any) => void
     updateRoleOptions: () => void
     grantPermission: () => void
     revokePerm: (pid: string) => void
@@ -121,13 +128,13 @@ window.handleUserCardClick = (e: Event, id: string) => {
 };
 
 window.deleteUser = (id: string) => {
-  // TODO: confirmを専用モーダルに置き換える
-  if (!confirm(i18n.deleteConfirm || 'Delete?')) return;
-  const form = document.getElementById('delete-user-form') as HTMLFormElement | null;
-  if (!form) return;
-  const input = form.querySelector('input[name="id"]') as HTMLInputElement;
-  input.value = id;
-  form.submit();
+  window.showConfirm(i18n.deleteConfirm || 'Delete?', () => {
+    const form = document.getElementById('delete-user-form') as HTMLFormElement | null;
+    if (!form) return;
+    const input = form.querySelector('input[name="id"]') as HTMLInputElement;
+    input.value = id;
+    form.submit();
+  });
 };
 
 const modal = document.getElementById('user-modal') as CustomModalElement | null;
@@ -357,15 +364,15 @@ window.addAssignment = () => {
 };
 
 window.removeAssignment = (id: string) => {
-  // TODO: confirmを専用モーダルに置き換える
-  if (!confirm('本当にこの割当を削除しますか？')) return;
-  fetch('/admin/api/am/assignment/remove', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: id })
-  })
-    .then((r) => r.json())
-    .then(() => { window.refreshUserDetails(); })
-    .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+  window.showConfirm('本当にこの割当を削除しますか？', () => {
+    fetch('/admin/api/am/assignment/remove', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    })
+      .then((r) => r.json())
+      .then(() => { window.refreshUserDetails(); })
+      .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+  });
 };
 
 window.updateRoleOptions = () => {
@@ -417,19 +424,25 @@ window.grantPermission = () => {
     const msgTemplate = i18n.msgOverwriteConfirm || 'Overwrite?\\n{list}';
     const listStr = warningMessages.join('\\n');
     const msg = msgTemplate.replace('{start}', dateStrStart).replace('{end}', dateStrEnd).replace('{list}', listStr);
-    // TODO: confirmを専用モーダルに置き換える
-    if (!confirm(msg)) return;
-  }
-  const validTo = dateVal ? Math.floor(new Date(dateVal).getTime() / 1000) : Math.floor(Date.now() / 1000) + 315360000;
-  const validFrom = startVal ? Math.floor(new Date(startVal).getTime() / 1000) : Math.floor(Date.now() / 1000);
-  fetch('/admin/api/user/permission/grant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: currentUserId, app_ids: appIds, valid_from: validFrom, valid_to: validTo }) })
-    .then((r) => r.json())
-    .then(() => { window.openUserModal(currentUserId); window.resetGrantButton(); })
-    .catch((e) => {
-      console.error(e);
-      const tmpl = i18n.alertError || 'Error: {message}';
-      console.error(tmpl.replace('{message}', e));
+    window.showConfirm(msg, () => {
+      executeGrant();
     });
+    return;
+  }
+  executeGrant();
+
+  function executeGrant() {
+    const validTo = dateVal ? Math.floor(new Date(dateVal).getTime() / 1000) : Math.floor(Date.now() / 1000) + 315360000;
+    const validFrom = startVal ? Math.floor(new Date(startVal).getTime() / 1000) : Math.floor(Date.now() / 1000);
+    fetch('/admin/api/user/permission/grant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: currentUserId, app_ids: appIds, valid_from: validFrom, valid_to: validTo }) })
+      .then((r) => r.json())
+      .then(() => { window.openUserModal(currentUserId); window.resetGrantButton(); })
+      .catch((e) => {
+        console.error(e);
+        const tmpl = i18n.alertError || 'Error: {message}';
+        console.error(tmpl.replace('{message}', e));
+      });
+  }
 };
 
 let revokeTargetId: string | null = null;

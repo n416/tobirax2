@@ -5,7 +5,7 @@
 
 declare global {
   interface Window {
-    openRejectModal: (actionUrlOrId: string, targetId?: string, expectedApps?: string) => void
+    openRejectModal: (actionUrlOrId: any, targetId?: any, expectedApps?: any) => void
     closeRejectModal: () => void
   }
 }

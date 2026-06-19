@@ -153,7 +153,7 @@ export const TagsPage = (props: Props) => {
                         </button>`
                     : ''}
 
-                <button type="button" onclick="if(confirm('削除しますか？紐付けも解除されます。')) { document.getElementById('delete-tag-form').querySelector('input[name=id]').value='${tag.id}'; document.getElementById('delete-tag-form').submit(); }" style="background:transparent; color:#ef4444; border:none; border-radius:8px; padding:0.4rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center;" title="${t.delete || 'Delete'}">
+                <button type="button" onclick="window.showConfirm('削除しますか？紐付けも解除されます。', () => { document.getElementById('delete-tag-form').querySelector('input[name=id]').value='${tag.id}'; document.getElementById('delete-tag-form').submit(); })" style="background:transparent; color:#ef4444; border:none; border-radius:8px; padding:0.4rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center;" title="${t.delete || 'Delete'}">
                     <span class="material-symbols-outlined">delete</span>
                 </button>
             </div>
@@ -168,7 +168,7 @@ export const TagsPage = (props: Props) => {
                     ${props.serviceTagsMap.filter((at:any) => at.tag_id === tag.id).map((at:any) => html`
                         <span style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.75rem; padding:2px 6px; border-radius:999px; background:${at.status === 'active' ? '#f1f5f9' : '#fff7ed'}; color:#334155; border:1px solid #cbd5e1;">
                             ${at.service_name} ${at.status === 'pending' ? '(申請中)' : ''}
-                            <button type="button" onclick="if(confirm('このサービスからタグを外しますか？')) { document.getElementById('remove-service-tag-form').querySelector('input[name=service_id]').value='${at.service_id}'; document.getElementById('remove-service-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-service-tag-form').submit(); }" style="background:none; border:none; color:#94a3b8; cursor:pointer; padding:0; font-size:1rem; line-height:1;">×</button>
+                            <button type="button" onclick="window.showConfirm('このサービスからタグを外しますか？', () => { document.getElementById('remove-service-tag-form').querySelector('input[name=service_id]').value='${at.service_id}'; document.getElementById('remove-service-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-service-tag-form').submit(); })" style="background:none; border:none; color:#94a3b8; cursor:pointer; padding:0; font-size:1rem; line-height:1;">×</button>
                         </span>
                     `)}
                     </div>
