@@ -87,6 +87,10 @@ export function getLocalizedValue(c: any, text: LocalizedText): string {
 export async function handleIconUpload(body: any): Promise<string | null> {
     const file = body['icon_file'];
     if (file && file instanceof File && file.size > 0) {
+        const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            return null;
+        }
         // D1 のサイズ上限チェック(安全マージン)
         if (file.size > 1024 * 150) {
             console.warn('Icon file too large:', file.size);
