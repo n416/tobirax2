@@ -147,6 +147,7 @@ declare global {
 
         // Developer / Apps / Services
         renderDeveloperUI?: () => void;
+        applyDeveloper?: () => void;
         renderServices: () => void;
         openServiceModal: () => void;
         addService: () => void;

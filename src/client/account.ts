@@ -47,4 +47,8 @@ function submitApply(): void {
     .catch((e) => { if (err) { err.style.display = 'block'; err.textContent = e.message; } });
 }
 
+window.openApplyModal = openApplyModal;
+window.closeApplyModal = closeApplyModal;
+window.submitApply = submitApply;
+
 export {}

@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html'
 import { css, keyframes } from 'hono/css'
-import { groupsClientScript } from '../scripts/groupsClient'
+import { groupsClientScript } from '../scripts/generated/groups'
 import { blinkActive, listGrid, listCard, itemTitle, actionBtn, deleteBtn, grantFormCard, formLabel, dateInput, quickBtnGroup, pageWrapper } from '../styles/groupsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'

@@ -1,4 +1,4 @@
-import { accountAssignmentsClientScript } from '../scripts/accountAssignmentsClient';
+import { accountAssignmentsClientScript } from '../scripts/generated/accountAssignments';
 import { html, raw } from 'hono/html'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'

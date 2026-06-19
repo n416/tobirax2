@@ -10,7 +10,7 @@ import { MultiSelect } from './components/MultiSelect'
 import { ServiceAppsModal } from './components/ServiceAppsModal'
 
 import { sectionTitle, card, tabBar, groupSelectWrapper, badge, tableWrap, formLabel, dateInput, selectInput, infoBox, actionBtn, tabStyles } from './styles/groupAdminStyles'
-import { groupAdminClientScript } from './scripts/groupAdminClient'
+import { groupAdminClientScript } from './scripts/generated/groupAdmin'
 import { GroupAdminModals } from './components/GroupAdminModals'
 import { safeJsonStringify } from '../utils/json'
 

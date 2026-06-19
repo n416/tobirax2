@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html'
 import { css, keyframes } from 'hono/css'
-import { usersClientScript } from '../scripts/usersClient'
+import { usersClientScript } from '../scripts/generated/users'
 import { blinkActive, listGrid, listCard, itemTitle, itemSub, grantFormCard, formLabel, dateInput, quickBtnGroup, actionBtn, deleteBtn, checkboxLabel, selectAllLabel, tabContainer, tabBtn, pageWrapper } from '../styles/usersStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'

@@ -47,4 +47,9 @@ function executeReject(): void {
   }).catch(err => console.error(err.message));
 }
 
+window.approveRequest = approveRequest;
+window.openRejectModal = openRejectModal;
+window.closeRejectModal = closeRejectModal;
+window.executeReject = executeReject;
+
 export {}

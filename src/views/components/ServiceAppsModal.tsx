@@ -2,7 +2,7 @@ import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 import { Modal } from './Modal'
 import { Button } from './Button'
-import { serviceAppsModalClientScript } from '../scripts/serviceAppsModalClient'
+import { serviceAppsModalClientScript } from '../scripts/generated/serviceAppsModal'
 
 const formLabel = css`display: block; font-weight: 700; font-size: 0.9rem; color: #1e293b; margin-bottom: 0.4rem;`
 const selectInput = css`

@@ -24,4 +24,4 @@ export const RejectReasonModal = () => {
 }
 
 // スクリプトは scripts/rejectReasonModalClient.ts に分離
-export { RejectReasonModalScript } from '../scripts/rejectReasonModalClient'
+export { RejectReasonModalScript } from '../scripts/generated/rejectReasonModal'

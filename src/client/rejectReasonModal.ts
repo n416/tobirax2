@@ -40,4 +40,7 @@ function closeRejectModal(): void {
   }
 }
 
+window.openRejectModal = openRejectModal;
+window.closeRejectModal = closeRejectModal;
+
 export {}

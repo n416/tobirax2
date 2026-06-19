@@ -175,18 +175,18 @@ window.switchTab = function(tab: string) {
     window.currentTab = tab;
     try { localStorage.setItem('ga_current_tab', tab); } catch(e) {}
     document.documentElement.setAttribute('data-active-tab', tab);
+    if (window.renderAll) window.renderAll();
 };
 
 window.renderAll = function() {
-    if (window.renderMembers) window.renderMembers();
-    if (window.renderAssignments) window.renderAssignments();
-    if (window.renderGrants) window.renderGrants();
-    // renderPerms is handled in developer UI or other scripts
-    if (typeof window.renderPerms === 'function') window.renderPerms();
-    if (window.renderServices) window.renderServices();
-    if (window.renderApps) window.renderApps();
-    if (typeof window.renderFacilities === 'function') window.renderFacilities();
-    if (typeof window.renderDeveloperUI === 'function') window.renderDeveloperUI();
+    try { if (window.renderMembers) window.renderMembers(); } catch(e) { console.error('renderMembers', e); }
+    try { if (window.renderAssignments) window.renderAssignments(); } catch(e) { console.error('renderAssignments', e); }
+    try { if (window.renderGrants) window.renderGrants(); } catch(e) { console.error('renderGrants', e); }
+    try { if (typeof window.renderPerms === 'function') window.renderPerms(); } catch(e) { console.error('renderPerms', e); }
+    try { if (window.renderServices) window.renderServices(); } catch(e) { console.error('renderServices', e); }
+    try { if (window.renderApps) window.renderApps(); } catch(e) { console.error('renderApps', e); }
+    try { if (typeof window.renderFacilities === 'function') window.renderFacilities(); } catch(e) { console.error('renderFacilities', e); }
+    try { if (typeof window.renderDeveloperUI === 'function') window.renderDeveloperUI(); } catch(e) { console.error('renderDeveloperUI', e); }
 };
 
 var pendingConfirmCallback: (() => void) | null = null;

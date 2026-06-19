@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
-import { getAppsClientScript } from '../scripts/appsClient'
+import { getAppsClientScript } from '../scripts/generated/apps'
 import { listGrid, listCard, itemTitle, itemSub, actionBtn, deleteBtn } from '../styles/appsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
@@ -337,7 +337,7 @@ export const AppsPage = (props: Props) => {
 
       <script>
       window.__name = function(f) { return f; };
-          ${raw(getAppsClientScript(t))}
+          ${raw(getAppsClientScript)}
       ${raw(RejectReasonModalScript)}
       </script>
     `

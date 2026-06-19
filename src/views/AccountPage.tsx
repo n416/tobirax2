@@ -1,4 +1,4 @@
-import { accountClientScript } from './scripts/accountClient';
+import { accountClientScript } from './scripts/generated/account';
 import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 import { dict } from '../i18n'
