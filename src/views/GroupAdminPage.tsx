@@ -3,7 +3,7 @@ import { css } from 'hono/css'
 import { dict } from '../i18n'
 import { Layout } from './components/Layout'
 import { UserTopbar } from './components/UserTopbar'
-import { Group, App } from '../types'
+import { Group, App, Tag, User, Facility, ServiceContract, ServiceRole } from '../types'
 import { Button } from './components/Button'
 import { Modal } from './components/Modal'
 import { MultiSelect } from './components/MultiSelect'
@@ -14,11 +14,27 @@ import { groupAdminClientScript } from './scripts/generated/groupAdmin'
 import { GroupAdminModals } from './components/GroupAdminModals'
 import { safeJsonStringify } from '../utils/json'
 
-interface ManagedGroup extends Group {
-  member_count: number
+export interface ServiceTagDetail {
+  id: number
+  service_id: string
+  service_name: string
+  tag_id: string
+  tag_name: string
+  status: string
+  created_at: number
 }
 
-interface GroupMember {
+export interface ManagedGroup {
+  id: string
+  name: string
+  parent_id?: string | null
+  member_count: number
+  depth?: number
+  original_name?: string
+  full_name?: string
+}
+
+export interface GroupMember {
   id: number
   user_id: string
   email: string
@@ -31,7 +47,7 @@ interface GroupMember {
   valid_to: number
 }
 
-interface Assignment {
+export interface Assignment {
   id: number
   user_id: string
   service_id: string
@@ -46,7 +62,7 @@ interface Assignment {
   valid_to: number
 }
 
-interface AppPermission {
+export interface AppPermission {
   app_id: string
   app_name: string
   source: 'user' | 'group'
@@ -62,18 +78,18 @@ interface Props {
   profileName?: string | null
   profilePicture?: string | null
   managedGroups: ManagedGroup[]
-  allUsers: { id: string; email: string; name: string | null }[]
+  allUsers: Pick<User, 'id' | 'email' | 'name'>[]
   // グループIDをキーとした各種データ
   membersByGroup: Record<string, GroupMember[]>
   assignmentsByGroup: Record<string, Assignment[]>
   permissionsByGroup: Record<string, AppPermission[]>
   // 割当作成(ゲート③)用
   grantsByGroup: Record<string, { service_id: string; service_name: string }[]>
-  facilities: { id: string; structure_no: string | null; building_use: string | null; managing_group_id: string }[]
-  rolesByService: Record<string, { id: number; service_id: string; facility_type: string | null; role_name: string }[]>
+  facilities: Omit<Facility, 'created_at'>[]
+  rolesByService: Record<string, ServiceRole[]>
   // 利用枠(ゲート②)用
   grantsDetailByGroup: Record<string, { id: number; service_id: string; service_name: string; contract_id: string; seat_limit: number | null; valid_from: number; valid_to: number }[]>
-  availableContracts: { id: string; service_id: string; customer_group_id: string; seat_limit: number | null; service_name: string; group_name: string | null }[]
+  availableContracts: (Pick<ServiceContract, 'id' | 'service_id' | 'customer_group_id' | 'seat_limit'> & { service_name: string; group_name: string | null })[]
   // 決済権者(billing_admin)か。利用枠タブの表示可否を制御する。
   isBillingAdmin: boolean
   // 各グループの直接の子グループ(管理サブツリー内)。子枠の分配先・配分済み一覧に使う。
@@ -85,9 +101,9 @@ interface Props {
   approvedAppsByGroup: Record<string, { id: string; name: string }[]>
   devStatuses?: Record<string, { status: string; reason: string | null; admin_reason?: string | null }>
   apps: App[]
-  serviceTagsByGroup: Record<string, any[]>
-  customTagsByGroup: Record<string, any[]>
-  availableTags: any[]
+  serviceTagsByGroup: Record<string, ServiceTagDetail[]>
+  customTagsByGroup: Record<string, Pick<Tag, 'id' | 'name' | 'status' | 'created_at'>[]>
+  availableTags: Pick<Tag, 'id' | 'name'>[]
 }
 
 export const GroupAdminPage = (props: Props) => {
@@ -168,7 +184,7 @@ export const GroupAdminPage = (props: Props) => {
             <span class="material-symbols-outlined" style="color:var(--primary);">group</span>
             <div class="${groupSelectWrapper}">
               <select id="group-select" style="display:none;">
-                ${groups.map(g => html`<option value="${g.id}" data-depth="${(g as any).depth || 0}" data-origname="${(g as any).original_name || g.name}">${g.name}</option>`)}
+                ${groups.map(g => html`<option value="${g.id}" data-depth="${g.depth || 0}" data-origname="${g.original_name || g.name}">${g.name}</option>`)}
               </select>
             </div>
           </div>

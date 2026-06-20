@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import type { Env, User, App, Session, AppContext } from '../types';
+import type { Env, User, App, Session, AppContext, Tag, GroupMembership, ServiceUserAssignment, Permission, GroupServiceGrant, ServiceContract, RoleApplication, Facility, ServiceRole, Group } from '../types';
 import { Layout } from '../views/admin/Layout';
-import { GroupAdminPage } from '../views/GroupAdminPage';
+import { GroupAdminPage, ManagedGroup, GroupMember, Assignment, AppPermission, ServiceTagDetail } from '../views/GroupAdminPage';
 import { dict, getLang, getLocalizedValue } from '../i18n';
 import { generateToken, hashPassword } from '../utils/auth';
 import {
@@ -43,12 +43,12 @@ groupAdminRouter.get('/group-admin', async (c) => {
     const billingIds = await getBillingGroupIds(c, user.id)
     const isBillingAdmin = billingIds.size > 0
 
-    const { results: allGroups } = await c.env.DB.prepare('SELECT id, name, parent_id FROM groups').all()
-    const groupMap = new Map((allGroups as any[]).map(g => [g.id, g]))
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, name, parent_id FROM groups').all<Pick<Group, 'id' | 'name' | 'parent_id'>>()
+    const groupMap = new Map(allGroups.map(g => [g.id, g]))
 
     // 配下グループそれぞれの(有効)メンバー数を引いて一覧を組み立てる。
-    const managedGroupsRaw: any[] = []
-    for (const g of allGroups as any[]) {
+    const managedGroupsRaw: (Pick<Group, 'id' | 'name' | 'parent_id'> & { member_count: number })[] = []
+    for (const g of allGroups) {
         if (!managedIds.has(g.id)) continue
         const cnt = await c.env.DB.prepare(
             `SELECT COUNT(*) AS c FROM group_memberships WHERE group_id = ? AND valid_from <= ? AND valid_to >= ?`
@@ -56,14 +56,14 @@ groupAdminRouter.get('/group-admin', async (c) => {
         managedGroupsRaw.push({ ...g, member_count: cnt?.c || 0 })
     }
 
-    const managedGroups = (managedGroupsRaw as any[]).map((g: any) => {
+    const managedGroups = managedGroupsRaw.map(g => {
         const parts = [g.name]
-        let current = g
+        let current: Pick<Group, 'id' | 'name' | 'parent_id'> | undefined = g
         const visited = new Set([current.id])
         let depth = 0
         while (current.parent_id && groupMap.has(current.parent_id)) {
             current = groupMap.get(current.parent_id)
-            if (visited.has(current.id)) break
+            if (!current || visited.has(current.id)) break
             visited.add(current.id)
             parts.unshift(current.name)
             depth++
@@ -78,7 +78,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
     }).sort((a, b) => a.full_name.localeCompare(b.full_name, 'ja'))
 
     if (!managedGroups || managedGroups.length === 0) {
-        const allUsers: any[] = []
+        const allUsers: Pick<User, 'id' | 'email' | 'name'>[] = []
         return c.html(<GroupAdminPage t={t} userEmail={user.email} siteName={siteName}
             profileName={user.name} profilePicture={user.picture}
             managedGroups={[]} allUsers={allUsers} membersByGroup={{}} assignmentsByGroup={{}} permissionsByGroup={{}}
@@ -89,12 +89,12 @@ groupAdminRouter.get('/group-admin', async (c) => {
 
     }
 
-    const groupIds = managedGroups.map((g: any) => g.id as string)
+    const groupIds = managedGroups.map(g => g.id)
 
     // 各グループの「直接の子グループ」(管理サブツリー内)。利用枠の分配先セレクトと
     //   「子グループへ配分済みの枠」テーブルの両方で使う。childrenByGroup[親id] = [{id, name}]。
     const childrenByGroup: Record<string, { id: string; name: string }[]> = {}
-    for (const g of managedGroups as any[]) {
+    for (const g of managedGroups) {
         if (!g.parent_id) continue
         if (!childrenByGroup[g.parent_id]) childrenByGroup[g.parent_id] = []
         childrenByGroup[g.parent_id].push({ id: g.id, name: g.original_name })
@@ -109,10 +109,10 @@ groupAdminRouter.get('/group-admin', async (c) => {
         JOIN group_memberships m ON u.id = m.user_id
         WHERE m.group_id IN (${groupIdsStr})
         ORDER BY u.email
-    `).bind(...groupIds).all()
+    `).bind(...groupIds).all<Pick<User, 'id' | 'email' | 'name'>>()
 
     // グループ別メンバー一覧
-    const membersByGroup: Record<string, any[]> = {}
+    const membersByGroup: Record<string, GroupMember[]> = {}
     for (const gid of groupIds) {
         const { results } = await c.env.DB.prepare(`
             SELECT m.id, m.user_id, u.email, u.name,
@@ -120,12 +120,12 @@ groupAdminRouter.get('/group-admin', async (c) => {
                    m.valid_from, m.valid_to
             FROM group_memberships m JOIN users u ON m.user_id = u.id
             WHERE m.group_id = ? ORDER BY m.is_group_admin DESC, m.is_billing_admin DESC, u.email
-        `).bind(gid).all()
+        `).bind(gid).all<GroupMember>()
         membersByGroup[gid] = results || []
     }
 
     // グループ別サービス割当
-    const assignmentsByGroup: Record<string, any[]> = {}
+    const assignmentsByGroup: Record<string, Assignment[]> = {}
     for (const gid of groupIds) {
         const { results } = await c.env.DB.prepare(`
             SELECT a.id, a.user_id, a.service_id, u.email AS user_email, u.name AS user_name,
@@ -139,14 +139,14 @@ groupAdminRouter.get('/group-admin', async (c) => {
             LEFT JOIN service_role_master r ON a.service_role_id = r.id
             WHERE a.group_id = ?
             ORDER BY u.email, s.name
-        `).bind(gid).all()
+        `).bind(gid).all<Assignment>()
         assignmentsByGroup[gid] = results || []
     }
 
     // グループ別アプリアクセス権（グループメンバー全員の有効権限を集約）
-    const permissionsByGroup: Record<string, any[]> = {}
+    const permissionsByGroup: Record<string, AppPermission[]> = {}
     for (const gid of groupIds) {
-        const perms: any[] = []
+        const perms: AppPermission[] = []
         const members = membersByGroup[gid] || []
         // ユーザー個別権限
         for (const m of members) {
@@ -154,9 +154,9 @@ groupAdminRouter.get('/group-admin', async (c) => {
                 SELECT p.app_id, a.name AS app_name, p.valid_from, p.valid_to
                 FROM permissions p JOIN apps a ON p.app_id = a.id
                 WHERE p.user_id = ? AND p.valid_from <= ? AND p.valid_to >= ?
-            `).bind((m as any).user_id, now, now).all()
+            `).bind(m.user_id, now, now).all<Pick<Permission, 'app_id' | 'valid_from' | 'valid_to'> & { app_name: string }>()
             for (const p of (userPerms || [])) {
-                perms.push({ ...(p as any), source: 'user', user_email: (m as any).email })
+                perms.push({ ...p, source: 'user', user_email: m.email })
             }
         }
         // グループ共通権限（メンバー全員に適用）
@@ -164,9 +164,9 @@ groupAdminRouter.get('/group-admin', async (c) => {
             SELECT p.app_id, a.name AS app_name, p.valid_from, p.valid_to
             FROM group_permissions p JOIN apps a ON p.app_id = a.id
             WHERE p.group_id = ? AND p.valid_from <= ? AND p.valid_to >= ?
-        `).bind(gid, now, now).all()
+        `).bind(gid, now, now).all<Pick<Permission, 'app_id' | 'valid_from' | 'valid_to'> & { app_name: string }>()
         for (const p of (grpPerms || [])) {
-            perms.push({ ...(p as any), source: 'group', user_email: '(グループ共通)' })
+            perms.push({ ...p, source: 'group', user_email: '(グループ共通)' })
         }
         permissionsByGroup[gid] = perms
     }
@@ -175,7 +175,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
     //   - grantsByGroup: 各グループに開放済(有効)のサービス = サービス選択肢(ゲート②)
     //   - facilities: 管理サブツリー配下の施設(建物用途で役割を絞る)
     //   - rolesByService: サービス→役割マスタ(クライアントで建物用途フィルタ)
-    const grantsByGroup: Record<string, any[]> = {}
+    const grantsByGroup: Record<string, { service_id: string; service_name: string }[]> = {}
     for (const gid of groupIds) {
         const { results } = await c.env.DB.prepare(`
             SELECT gs.service_id, s.name AS service_name
@@ -186,14 +186,14 @@ groupAdminRouter.get('/group-admin', async (c) => {
             FROM services
             WHERE owner_group_id = ? AND status = 'active'
             ORDER BY service_name
-        `).bind(gid, now, now, gid).all()
+        `).bind(gid, now, now, gid).all<{ service_id: string; service_name: string }>()
         grantsByGroup[gid] = results || []
     }
-    const { results: allFacilities } = await c.env.DB.prepare('SELECT id, structure_no, building_use, managing_group_id FROM facilities').all()
-    const facilities = (allFacilities as any[]).filter(f => managedIds.has(f.managing_group_id))
-    const { results: allRoles } = await c.env.DB.prepare('SELECT id, service_id, facility_type, role_code, role_name FROM service_role_master ORDER BY role_name').all()
-    const rolesByService: Record<string, any[]> = {}
-    for (const r of allRoles as any[]) {
+    const { results: allFacilities } = await c.env.DB.prepare('SELECT id, structure_no, building_use, managing_group_id FROM facilities').all<Omit<Facility, 'created_at'>>()
+    const facilities = allFacilities.filter(f => managedIds.has(f.managing_group_id))
+    const { results: allRoles } = await c.env.DB.prepare('SELECT id, service_id, facility_type, role_code, role_name FROM service_role_master ORDER BY role_name').all<ServiceRole>()
+    const rolesByService: Record<string, ServiceRole[]> = {}
+    for (const r of allRoles) {
         if (!rolesByService[r.service_id]) rolesByService[r.service_id] = []
         rolesByService[r.service_id].push(r)
     }
@@ -201,13 +201,13 @@ groupAdminRouter.get('/group-admin', async (c) => {
     // 利用枠(ゲート②)タブ用データ:
     //   - grantsDetailByGroup: 各グループの利用枠一覧(取消ボタン・契約・席数・期間つき)
     //   - availableContracts: 配布可能な契約 = 顧客組織が自分の管理サブツリーにある契約
-    const grantsDetailByGroup: Record<string, any[]> = {}
+    const grantsDetailByGroup: Record<string, { id: number; service_id: string; service_name: string; contract_id: string; seat_limit: number | null; valid_from: number; valid_to: number }[]> = {}
     for (const gid of groupIds) {
         const { results } = await c.env.DB.prepare(`
             SELECT gr.id, gr.service_id, s.name AS service_name, gr.contract_id, gr.seat_limit, gr.valid_from, gr.valid_to
             FROM group_service_grants gr LEFT JOIN services s ON gr.service_id = s.id
             WHERE gr.group_id = ? ORDER BY s.name
-        `).bind(gid).all()
+        `).bind(gid).all<{ id: number; service_id: string; service_name: string; contract_id: string; seat_limit: number | null; valid_from: number; valid_to: number }>()
         grantsDetailByGroup[gid] = results || []
     }
     const { results: allContracts } = await c.env.DB.prepare(`
@@ -215,17 +215,16 @@ groupAdminRouter.get('/group-admin', async (c) => {
         FROM service_contracts ct
         LEFT JOIN services s ON ct.service_id = s.id
         LEFT JOIN groups g ON ct.customer_group_id = g.id
-    `).all()
-    const availableContracts = (allContracts as any[]).filter(ct => managedIds.has(ct.customer_group_id))
+    `).all<Pick<ServiceContract, 'id' | 'service_id' | 'customer_group_id' | 'seat_limit'> & { service_name: string; group_name: string | null }>()
+    const availableContracts = allContracts.filter(ct => managedIds.has(ct.customer_group_id))
 
     // セルフサービス用データ:
     //   - servicesByGroup: 各グループが所有するサービス(status + 組み込み済みアプリ一覧)。
     //   - appsByGroup: 各グループが申請/所有するアプリ(status 込み)。
     //   - approvedAppsByGroup: 各グループが所有する「承認済み(active)」アプリ = サービスに組み込める部品。
-    const servicesByGroup: Record<string, any[]> = {}
-    const appsByGroup: Record<string, any[]> = {}
-    
-    const approvedAppsByGroup: Record<string, any[]> = {}
+    const servicesByGroup: Record<string, { id: string; name: string; status: string; reason: string | null; apps: { id: string; name: string }[] }[]> = {}
+    const appsByGroup: Record<string, { id: string; name: string; base_url: string; status: string; reason: string | null; redirect_uris: string | null; description: string | null; has_secret: number }[]> = {}
+    const approvedAppsByGroup: Record<string, { id: string; name: string }[]> = {}
     
     // 開発者ステータスを取得。真実は group_memberships.is_developer(=承認済み)。
     //   未承認のグループでは role_applications(role_type='developer') の最新申請状態を見せる。
@@ -233,34 +232,34 @@ groupAdminRouter.get('/group-admin', async (c) => {
     const { results: devAppRows } = await c.env.DB.prepare(
         `SELECT group_id, status, reason, admin_reason FROM role_applications
          WHERE user_id = ? AND role_type = 'developer' ORDER BY updated_at DESC`
-    ).bind(user.id).all()
-    for (const r of (devAppRows as any[])) {
+    ).bind(user.id).all<Pick<RoleApplication, 'group_id' | 'status' | 'reason' | 'admin_reason'>>()
+    for (const r of devAppRows) {
         // 最新(updated_at DESC)を優先。同一グループの古い申請は上書きしない。
         if (!devStatuses[r.group_id]) devStatuses[r.group_id] = { status: r.status, reason: r.reason, admin_reason: r.admin_reason }
     }
     const { results: devFlagRows } = await c.env.DB.prepare(
         'SELECT group_id FROM group_memberships WHERE user_id = ? AND is_developer = 1'
-    ).bind(user.id).all()
-    for (const r of (devFlagRows as any[])) {
+    ).bind(user.id).all<Pick<GroupMembership, 'group_id'>>()
+    for (const r of devFlagRows) {
         // 承認済み(フラグ=1)は申請状態より優先して 'approved' を表示する。
         devStatuses[r.group_id] = { status: 'approved', reason: devStatuses[r.group_id]?.reason ?? null, admin_reason: null }
     }
 
-    const serviceTagsByGroup: Record<string, any[]> = {}
-    const customTagsByGroup: Record<string, any[]> = {}
-    const { results: tagsResult } = await c.env.DB.prepare("SELECT id, name FROM tags WHERE status = 'active' ORDER BY name").all()
+    const serviceTagsByGroup: Record<string, ServiceTagDetail[]> = {}
+    const customTagsByGroup: Record<string, Pick<Tag, 'id' | 'name' | 'status' | 'created_at'>[]> = {}
+    const { results: tagsResult } = await c.env.DB.prepare("SELECT id, name FROM tags WHERE status = 'active' ORDER BY name").all<Pick<Tag, 'id' | 'name'>>()
     const availableTags = tagsResult || []
 
     for (const gid of groupIds) {
         const { results: svcRows } = await c.env.DB.prepare(
             'SELECT id, name, status, reason FROM services WHERE owner_group_id = ? ORDER BY created_at DESC'
-        ).bind(gid).all()
+        ).bind(gid).all<{ id: string; name: string; status: string; reason: string | null; apps: { id: string; name: string }[] }>()
         // 各サービスに組み込み済みのアプリ(id, name)を付ける。
-        for (const s of (svcRows as any[])) {
+        for (const s of svcRows) {
             const { results: comp } = await c.env.DB.prepare(`
                 SELECT sa.app_id AS id, a.name AS name FROM service_apps sa
                 JOIN apps a ON a.id = sa.app_id WHERE sa.service_id = ? ORDER BY a.name
-            `).bind(s.id).all()
+            `).bind(s.id).all<{ id: string; name: string }>()
             s.apps = comp || []
         }
         servicesByGroup[gid] = svcRows || []
@@ -269,9 +268,9 @@ groupAdminRouter.get('/group-admin', async (c) => {
                    (CASE WHEN client_secret IS NOT NULL THEN 1 ELSE 0 END) AS has_secret
             FROM apps
             WHERE owner_group_id = ? ORDER BY created_at DESC
-        `).bind(gid).all()
+        `).bind(gid).all<{ id: string; name: string; base_url: string; status: string; reason: string | null; redirect_uris: string | null; description: string | null; has_secret: number }>()
         appsByGroup[gid] = appRows || []
-        approvedAppsByGroup[gid] = (appRows as any[]).filter(a => a.status === 'active').map(a => ({ id: a.id, name: a.name }))
+        approvedAppsByGroup[gid] = appRows.filter(a => a.status === 'active').map(a => ({ id: a.id, name: a.name }))
 
         const { results: stRows } = await c.env.DB.prepare(`
             SELECT st.id, st.service_id, s.name as service_name, st.tag_id, t.name as tag_name, st.status, st.created_at
@@ -280,7 +279,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
             JOIN tags t ON st.tag_id = t.id
             WHERE s.owner_group_id = ?
             ORDER BY st.created_at DESC
-        `).bind(gid).all()
+        `).bind(gid).all<ServiceTagDetail>()
         serviceTagsByGroup[gid] = stRows || []
 
         const { results: ctRows } = await c.env.DB.prepare(`
@@ -288,22 +287,22 @@ groupAdminRouter.get('/group-admin', async (c) => {
             FROM tags t
             WHERE t.owner_group_id = ?
             ORDER BY t.created_at DESC
-        `).bind(gid).all()
+        `).bind(gid).all<Pick<Tag, 'id' | 'name' | 'status' | 'created_at'>>()
         customTagsByGroup[gid] = ctRows || []
     }
 
     return c.html(<GroupAdminPage
         t={t} userEmail={user.email} siteName={siteName}
         profileName={user.name} profilePicture={user.picture}
-        managedGroups={managedGroups as any}
-        allUsers={allUsers as any}
+        managedGroups={managedGroups}
+        allUsers={allUsers}
         membersByGroup={membersByGroup}
         assignmentsByGroup={assignmentsByGroup}
         permissionsByGroup={permissionsByGroup}
         grantsByGroup={grantsByGroup}
         grantsDetailByGroup={grantsDetailByGroup}
-        availableContracts={availableContracts as any}
-        facilities={facilities as any}
+        availableContracts={availableContracts}
+        facilities={facilities}
         rolesByService={rolesByService}
         isBillingAdmin={isBillingAdmin}
         childrenByGroup={childrenByGroup}
@@ -315,7 +314,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
         apps={[]}
         serviceTagsByGroup={serviceTagsByGroup}
         customTagsByGroup={customTagsByGroup}
-        availableTags={availableTags as any}
+        availableTags={availableTags}
 
     />)
   } catch (e: any) {

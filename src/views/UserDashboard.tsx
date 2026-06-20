@@ -232,7 +232,7 @@ export const UserDashboard = (props: Props) => {
                       <p style="color: var(--text-sub); font-size: 0.9rem;">このサービスにはアプリが紐づいていません</p>
                     ` : html`
                       <div class="${appGrid}">
-                        ${svc.apps.map((app: any) => html`
+                        ${svc.apps.map((app: App) => html`
                           <a href="${app.initiate_login_uri || app.base_url}" class="${appCardLink}">
                             <div class="${appCard}">
                               <div>

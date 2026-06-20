@@ -224,3 +224,15 @@ export interface SystemConfig {
   appName: LocalizedText
   appSubtitle: LocalizedText
 }
+
+export interface RoleApplication {
+  id: number
+  user_id: string
+  group_id: string
+  role_type: 'group_admin' | 'billing_admin' | 'developer'
+  status: 'pending' | 'approved' | 'rejected'
+  reason: string | null
+  admin_reason: string | null
+  created_at: number
+  updated_at: number
+}

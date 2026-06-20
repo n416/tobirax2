@@ -480,10 +480,20 @@ app.get('/', async (c) => {
         WHERE
           (a.status IS NULL OR a.status = 'active') AND
           ((up.valid_from <= ? AND up.valid_to >= ?) OR (up.id IS NULL AND gp.valid_from <= ? AND gp.valid_to >= ?))
-        `).bind(user.id, user.group_id || null, now, now, now, now).all()
+        `).bind(user.id, user.group_id || null, now, now, now, now).all<App>()
 
         // 2. サービスに割り当てられたアプリ (ドリルダウン用)
         // ユーザーが有効な割当を持つサービスとそのサービス内のアプリを取得
+        type ServiceAppRow = {
+            service_id: string
+            service_name: string
+            app_id: string
+            app_name: string
+            icon_url: string | null
+            description: string | null
+            base_url: string
+            initiate_login_uri: string | null
+        }
         const { results: serviceAppsRows } = await c.env.DB.prepare(`
             SELECT DISTINCT s.id AS service_id, s.name AS service_name, 
                    a.id AS app_id, a.name AS app_name, a.icon_url, a.description, a.base_url, a.initiate_login_uri
@@ -498,40 +508,53 @@ app.get('/', async (c) => {
               AND (gr.id IS NOT NULL OR (s.owner_group_id = sua.group_id AND s.status = 'active'))
               AND (a.status IS NULL OR a.status = 'active')
             ORDER BY s.name, a.name
-        `).bind(now, now, now, now, user.id, now, now).all()
+        `).bind(now, now, now, now, user.id, now, now).all<ServiceAppRow>()
 
-        const servicesMap = new Map<string, any>()
-        for (const row of serviceAppsRows as any[]) {
+        interface EntitledService {
+            id: string
+            name: string
+            apps: App[]
+            tags: { id: string; name: string }[]
+        }
+        const servicesMap = new Map<string, EntitledService>()
+        for (const row of serviceAppsRows) {
             if (!servicesMap.has(row.service_id)) {
                 servicesMap.set(row.service_id, { id: row.service_id, name: row.service_name, apps: [], tags: [] })
             }
-            servicesMap.get(row.service_id).apps.push({
+            servicesMap.get(row.service_id)!.apps.push({
                 id: row.app_id,
                 name: row.app_name,
-                icon_url: row.icon_url,
-                description: row.description,
+                icon_url: row.icon_url || undefined,
+                description: row.description || undefined,
                 base_url: row.base_url,
-                initiate_login_uri: row.initiate_login_uri
+                initiate_login_uri: row.initiate_login_uri || undefined,
+                status: 'active',
+                created_at: 0
             })
         }
         const entitledServices = Array.from(servicesMap.values())
 
         const serviceIds = Array.from(servicesMap.keys())
-        const allTagsMap = new Map<string, {id: string, name: string}>()
+        const allTagsMap = new Map<string, {id: string; name: string}>()
         if (serviceIds.length > 0) {
             const placeholders = serviceIds.map(() => '?').join(',')
+            type TagRow = {
+                service_id: string
+                id: string
+                name: string
+            }
             const { results: tagRows } = await c.env.DB.prepare(`
                 SELECT st.service_id, t.id, t.name
                 FROM service_tags st
                 JOIN tags t ON st.tag_id = t.id
                 WHERE st.service_id IN (${placeholders}) AND t.status = 'active'
-            `).bind(...serviceIds).all()
+            `).bind(...serviceIds).all<TagRow>()
 
-            for (const row of tagRows as any[]) {
+            for (const row of tagRows) {
                 const s = servicesMap.get(row.service_id)
                 if (s) {
                     // Prevent duplicate tags if any
-                    if (!s.tags.find((t: any) => t.id === row.id)) {
+                    if (!s.tags.find(t => t.id === row.id)) {
                         s.tags.push({ id: row.id, name: row.name })
                     }
                 }
@@ -540,7 +563,7 @@ app.get('/', async (c) => {
         }
         const availableServiceTags = Array.from(allTagsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
 
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={standaloneApps as any} services={entitledServices} availableServiceTags={availableServiceTags} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={standaloneApps} services={entitledServices} availableServiceTags={availableServiceTags} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
     } catch (e: any) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
