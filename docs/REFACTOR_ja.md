@@ -152,6 +152,14 @@ OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB
 `tsc` クリーン・ユニット 100＋統合 27 全緑で確認。`createAssignment` の grant 型付けで
 `seat_limit`/`contract_id` の実利用を型が炙り出し、行型を実列に合わせた。
 
-残り（網が薄く要慎重・別スライス）: `index.tsx` のダッシュボード/ポータル JSX 経路（6）、
-`routes/admin.tsx`(49) / `routes/group-admin.tsx`(44) / `views/` / `client/`。`keys.ts` の
+第二弾（2026-06-21）: `routes/admin.tsx` / `routes/group-admin.tsx` の**安全な D1 行型付けのみ**を実施。
+`.all() as any` ＋ `(rows as any[])` を `.all<行型>()` に、`(res as any).meta.changes` を `res.meta.changes`
+に置換（D1 の `.all()`/`.first()`/`.run()` の既定型は `Record<string, unknown>` で `any` ではないと確認）。
+`new Map(...)` のタプル化は明示返り型で対応。`as any` は **88→79**。挙動不変・`tsc` クリーン・
+ユニット 100＋統合 27 全緑。
+
+残り（網が薄く要慎重・別スライス）: **JSX プロップキャスト**（`results as any` 等、ビュー側の prop 型
+整備が必要）、`catch (e: any)`、`group-admin.tsx` のポータル画面用**集約パイプライン**（中間
+アキュムレータが最終的に `as any` の JSX プロップへ流れるため、ビュー型を直すまで内部型付けは
+低価値）、`index.tsx` のダッシュボード/ポータル経路、`views/` / `client/`。`keys.ts` の
 `let v: any`（`JSON.parse` 出力）等、正当な any は残す。

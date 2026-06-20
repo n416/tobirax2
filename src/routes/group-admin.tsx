@@ -799,13 +799,13 @@ groupAdminRouter.get('/group-admin/api/roles/applications', async (c) => {
     // 自分が決裁権者である有効グループ。
     const { results: myBilling } = await c.env.DB.prepare(
         'SELECT group_id FROM group_memberships WHERE user_id = ? AND is_billing_admin = 1 AND valid_from <= ? AND valid_to >= ?'
-    ).bind(user.id, now, now).all()
-    const myBillingGroups = new Set((myBilling as any[]).map(r => r.group_id as string))
+    ).bind(user.id, now, now).all<{ group_id: string }>()
+    const myBillingGroups = new Set(myBilling.map(r => r.group_id))
     // 有効な決裁権者が居るグループの集合(=運営の管轄外)。
     const { results: billed } = await c.env.DB.prepare(
         'SELECT DISTINCT group_id FROM group_memberships WHERE is_billing_admin = 1 AND valid_from <= ? AND valid_to >= ?'
-    ).bind(now, now).all()
-    const groupsWithBilling = new Set((billed as any[]).map(r => r.group_id as string))
+    ).bind(now, now).all<{ group_id: string }>()
+    const groupsWithBilling = new Set(billed.map(r => r.group_id))
     const { results: pendings } = await c.env.DB.prepare(`
         SELECT ra.id, ra.user_id, ra.group_id, ra.role_type, ra.reason, ra.created_at,
                u.email AS user_email, u.name AS user_name, g.name AS group_name
@@ -814,8 +814,8 @@ groupAdminRouter.get('/group-admin/api/roles/applications', async (c) => {
         JOIN groups g ON ra.group_id = g.id
         WHERE ra.status = 'pending'
         ORDER BY ra.created_at DESC
-    `).all()
-    const out = (pendings as any[]).filter(p => {
+    `).all<{ id: number; user_id: string; group_id: string; role_type: string; reason: string | null; created_at: number; user_email: string; user_name: string | null; group_name: string }>()
+    const out = pendings.filter(p => {
         if (p.user_id === user.id) return false                 // 自己承認の防止
         if (myBillingGroups.has(p.group_id)) return true        // 決裁権者として担当
         if (admin && !groupsWithBilling.has(p.group_id)) return true  // 運営として担当(決裁権者不在)
@@ -955,10 +955,10 @@ groupAdminRouter.get('/group-admin/api/facilities/all', async (c) => {
         FROM facilities f 
         LEFT JOIN groups g ON f.managing_group_id = g.id 
         ORDER BY f.structure_no
-    `).all()
-    
+    `).all<{ id: string; structure_no: string | null; building_use: string | null; managing_group_id: string; group_name: string | null }>()
+
     // 管轄サブツリー内の施設のみを返す
-    const filtered = (facilities.results as any[]).filter(f => managed.has(f.managing_group_id))
+    const filtered = facilities.results.filter(f => managed.has(f.managing_group_id))
     return c.json(filtered)
 })
 

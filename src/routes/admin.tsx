@@ -501,15 +501,15 @@ adminRouter.get('/admin/api/user-details/:id', async (c) => {
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first() as User | null
     if (!user) return c.json({ error: 'Not found' }, 404)
     const { results: direct } = await c.env.DB.prepare('SELECT p.*, a.name as app_name FROM permissions p JOIN apps a ON p.app_id = a.id WHERE p.user_id = ?').bind(userId).all()
-    let groupPerms: any[] = []
+    let groupPerms: Record<string, unknown>[] = []
     if (user.group_id) {
         const res = await c.env.DB.prepare('SELECT p.*, a.name as app_name FROM group_permissions p JOIN apps a ON p.app_id = a.id WHERE p.group_id = ?').bind(user.group_id).all()
         groupPerms = res.results
     }
     const allApps = await c.env.DB.prepare('SELECT id, name FROM apps').all<{ id: string, name: string }>()
     const combined = allApps.results.map(app => {
-        const d = direct.find((x: any) => x.app_id === app.id)
-        const g = groupPerms.find((x: any) => x.app_id === app.id)
+        const d = direct.find((x) => x.app_id === app.id)
+        const g = groupPerms.find((x) => x.app_id === app.id)
         if (d) return { ...d, source: 'user', is_override: true }
         if (g) return { ...g, source: 'group', is_override: false }
         return null
@@ -684,8 +684,8 @@ adminRouter.post('/admin/am/groups/parent', async (c) => {
     if (parentId === '') parentId = null
     if (parentId && parentId === id) return c.json({ error: 'self' }, 400)
     // 現在のツリーを一括取得(循環チェック + 移動サブツリーの算出に使う)。
-    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
-    const parentOf = new Map<string, string | null>((allGroups as any[]).map(r => [r.id, r.parent_id]))
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all<{ id: string; parent_id: string | null }>()
+    const parentOf = new Map<string, string | null>(allGroups.map((r): [string, string | null] => [r.id, r.parent_id]))
     if (!parentOf.has(id)) return c.json({ error: 'Not found' }, 404)
     const oldParentId = parentOf.get(id) ?? null
     if (parentId) {
@@ -713,7 +713,7 @@ adminRouter.post('/admin/am/groups/parent', async (c) => {
         // (移動で変わるのは id の親リンクのみ。id 配下の親子関係は不変なので移動前の
         //  スナップショットでサブツリーを正しく算出できる。)
         const childrenMap = new Map<string, string[]>()
-        for (const g of allGroups as any[]) {
+        for (const g of allGroups) {
             if (!g.parent_id) continue
             if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
             childrenMap.get(g.parent_id)!.push(g.id)
@@ -730,7 +730,7 @@ adminRouter.post('/admin/am/groups/parent', async (c) => {
         }
         const placeholders = subtree.map(() => '?').join(',')
         const res = await c.env.DB.prepare(`DELETE FROM group_service_grants WHERE group_id IN (${placeholders})`).bind(...subtree).run()
-        revoked = (res as any)?.meta?.changes ?? 0
+        revoked = res.meta.changes
     }
 
     const details = JSON.stringify({ key: 'log_group_parent_changed', params: { id, parent: parentId || '(root)', revoked, admin: user.email } })
@@ -745,7 +745,7 @@ adminRouter.post('/admin/am/groups/delete', async (c) => {
 
     // 【組織削除時の予算整合】削除対象グループ自身と、親を失ってルートに昇格する(parent_id=NULL)
     //   全ての子孫グループの利用枠(Sub-Grant)を強制的に没収する。
-    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all<{ id: string; parent_id: string | null }>()
     const childrenMap = new Map<string, string[]>()
     for (const g of allGroups as any[]) {
         if (!g.parent_id) continue
@@ -944,8 +944,8 @@ adminRouter.post('/admin/am/providers/delete', async (c) => {
     if (!user) return c.redirect('/login')
     const id = (await c.req.parseBody())['id'] as string
     // 提供企業の配下サービス、さらにその下の契約/利用枠/役割/割当を連鎖削除する。
-    const svc = await c.env.DB.prepare('SELECT id FROM services WHERE provider_id = ?').bind(id).all()
-    for (const s of (svc.results as any[])) await deleteServiceCascade(c, s.id)
+    const svc = await c.env.DB.prepare('SELECT id FROM services WHERE provider_id = ?').bind(id).all<{ id: string }>()
+    for (const s of svc.results) await deleteServiceCascade(c, s.id)
     await c.env.DB.prepare('DELETE FROM service_providers WHERE id = ?').bind(id).run()
     await logAudit(c, 'PROVIDER_DELETE', { key: 'log_provider_delete', params: { id, admin: user.email } })
     return c.redirect('/admin/am/services')
@@ -974,8 +974,8 @@ adminRouter.post('/admin/am/services/approve', async (c) => {
     const expectedAppsRaw = (body['expected_apps'] as string) || ''
     const expectedApps = expectedAppsRaw.split(',').filter(Boolean).sort().join(',')
     
-    const currentAppsRows = await c.env.DB.prepare('SELECT app_id FROM service_apps WHERE service_id = ? ORDER BY app_id').bind(id).all()
-    const currentApps = currentAppsRows.results.map((r: any) => r.app_id).sort().join(',')
+    const currentAppsRows = await c.env.DB.prepare('SELECT app_id FROM service_apps WHERE service_id = ? ORDER BY app_id').bind(id).all<{ app_id: string }>()
+    const currentApps = currentAppsRows.results.map((r) => r.app_id).sort().join(',')
     
     if (expectedApps !== currentApps) {
         return c.text('Error: The service composition has changed since you opened this page. Please return to the previous page, refresh, and review again.', 409)
@@ -988,8 +988,8 @@ adminRouter.post('/admin/am/services/approve', async (c) => {
 
     if (service && service.owner_group_id) {
         // 自社サービスの場合、ルート契約と直系経路上の利用枠を物理作成する
-        const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
-        const parentMap = new Map((allGroups as any[]).map(g => [g.id, g.parent_id]))
+        const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all<{ id: string; parent_id: string | null }>()
+        const parentMap = new Map(allGroups.map((g): [string, string | null] => [g.id, g.parent_id]))
         const path: string[] = []
         let cur: string | null = service.owner_group_id
         let rootId = service.owner_group_id
@@ -1030,8 +1030,8 @@ adminRouter.post('/admin/am/services/reject', async (c) => {
     // 構成変更チェック(TOCTOU対策)
     const expectedAppsRaw = (body['expected_apps'] as string) || ''
     const expectedApps = expectedAppsRaw.split(',').filter(Boolean).sort().join(',')
-    const currentAppsRows = await c.env.DB.prepare('SELECT app_id FROM service_apps WHERE service_id = ? ORDER BY app_id').bind(id).all()
-    const currentApps = currentAppsRows.results.map((r: any) => r.app_id).sort().join(',')
+    const currentAppsRows = await c.env.DB.prepare('SELECT app_id FROM service_apps WHERE service_id = ? ORDER BY app_id').bind(id).all<{ app_id: string }>()
+    const currentApps = currentAppsRows.results.map((r) => r.app_id).sort().join(',')
     
     if (expectedApps !== currentApps) {
         return c.text('Error: The service composition has changed since you opened this page. Please return to the previous page, refresh, and review again.', 409)
