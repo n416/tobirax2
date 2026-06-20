@@ -747,7 +747,7 @@ adminRouter.post('/admin/am/groups/delete', async (c) => {
     //   全ての子孫グループの利用枠(Sub-Grant)を強制的に没収する。
     const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all<{ id: string; parent_id: string | null }>()
     const childrenMap = new Map<string, string[]>()
-    for (const g of allGroups as any[]) {
+    for (const g of allGroups) {
         if (!g.parent_id) continue
         if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
         childrenMap.get(g.parent_id)!.push(g.id)
