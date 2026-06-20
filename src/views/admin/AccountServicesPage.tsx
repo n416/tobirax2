@@ -20,7 +20,7 @@ interface Props {
   providers: ServiceProvider[]
   services: (Service & { provider_name?: string; owner_group_name?: string | null; app_names?: string | null; app_ids?: string | null })[]
   groups: Group[]
-  apps: App[]
+  apps: (App & { group_name?: string | null })[]
 }
 
 // アカウントマネージャ: サービスマスタ(ゲート①)。
@@ -38,7 +38,7 @@ export const AccountServicesPage = (props: Props) => {
     const apps = ids.map((id, i) => ({ id, name: names[i] || id }));
     return { id: s.id, name: s.name, apps };
   });
-  const allAppsData = props.apps.map(a => ({ id: a.id, name: a.name, group_name: (a as any).group_name }));
+  const allAppsData = props.apps.map(a => ({ id: a.id, name: a.name, group_name: a.group_name }));
 
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-services',

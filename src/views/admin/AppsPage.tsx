@@ -4,7 +4,7 @@ import { getAppsClientScript } from '../scripts/generated/apps'
 import { listGrid, listCard, itemTitle, itemSub, actionBtn, deleteBtn } from '../styles/appsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
-import { App, SystemConfig } from '../../types'
+import { App, SystemConfig, Tag } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
 import { RejectReasonModal, RejectReasonModalScript } from '../components/RejectReasonModal'
@@ -18,8 +18,8 @@ interface RegToken {
 interface Props {
   t: typeof dict.en
   userEmail: string
-  apps: (App & { tags?: any[] })[]
-  availableTags?: any[]
+  apps: (App & { owner_group_name: string | null; service_count: number; tags?: any[] })[]
+  availableTags?: Tag[]
   siteName: string
   appConfig: SystemConfig
 }

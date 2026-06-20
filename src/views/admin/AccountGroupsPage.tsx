@@ -4,11 +4,22 @@ import { accountGroupsClientScript } from '../scripts/generated/accountGroups'
 import { blinkActive, tabContainer, tabBtn, listGrid, listCard, itemTitle, itemSub, actionBtn, deleteBtn, addFormCard, formLabel, dateInput, tomSelectWrapper, quickBtnGroup } from '../styles/accountGroupsStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
-import { Group, User, SystemConfig } from '../../types'
+import { Group, User, Facility, SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
 import { MultiSelect } from '../components/MultiSelect'
 import { safeJsonStringify } from '../../utils/json'
+
+export interface AccountGroupContract {
+  id: string
+  service_id: string
+  customer_group_id: string
+  seat_limit: number | null
+  valid_from: number
+  valid_to: number
+  service_name: string | null
+  group_name: string | null
+}
 
 interface Props {
   t: typeof dict.en
@@ -17,8 +28,8 @@ interface Props {
   groups: (Group & { member_count?: number })[]
   // メンバー追加候補のユーザー全件
   users: User[]
-  facilities?: { id: string, structure_no: string, building_use: string, managing_group_id: string }[]
-  contracts?: any[]
+  facilities?: Facility[]
+  contracts?: AccountGroupContract[]
   siteName: string
   appConfig: SystemConfig
 }

@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
-import type { Env, App, Session, User, RecentAuditLog } from '../types';
+import type { Env, App, Session, User, RecentAuditLog, Tag, Service, Group, ServiceRole, Facility, ServiceProvider, ServiceContract } from '../types';
 import { Layout } from '../views/admin/Layout';
 import { AdminHome } from '../views/admin/AdminHome';
 import { AppsPage } from '../views/admin/AppsPage';
 import { GroupsPage } from '../views/admin/GroupsPage';
 import { UsersPage } from '../views/admin/UsersPage';
-import { TagsPage } from '../views/admin/TagsPage';
+import { TagsPage, PendingServiceTag, ServiceTagMap } from '../views/admin/TagsPage';
 import { LogsPage } from '../views/admin/LogsPage';
-import { AccountDevelopersPage } from '../views/admin/AccountDevelopersPage';
-import { AccountGroupsPage } from '../views/admin/AccountGroupsPage';
+import { AccountDevelopersPage, DeveloperApplication } from '../views/admin/AccountDevelopersPage';
+import { AccountGroupsPage, AccountGroupContract } from '../views/admin/AccountGroupsPage';
 import { AccountServicesPage } from '../views/admin/AccountServicesPage';
 import { AccountServiceDetailPage } from '../views/admin/AccountServiceDetailPage';
 import { AccountContractsPage } from '../views/admin/AccountContractsPage';
@@ -64,10 +64,10 @@ adminRouter.get('/admin', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const stats = {
-        apps: await c.env.DB.prepare('SELECT COUNT(*) as c FROM apps').first('c'),
-        users: await c.env.DB.prepare('SELECT COUNT(*) as c FROM users').first('c')
+        apps: Number(await c.env.DB.prepare('SELECT COUNT(*) as c FROM apps').first('c') ?? 0),
+        users: Number(await c.env.DB.prepare('SELECT COUNT(*) as c FROM users').first('c') ?? 0)
     }
-    return c.html(<AdminHome t={t} userEmail={user.email} stats={stats as any} siteName={siteName} appConfig={config} />)
+    return c.html(<AdminHome t={t} userEmail={user.email} stats={stats} siteName={siteName} appConfig={config} />)
 })
 adminRouter.get('/admin/apps', async (c) => {
     const user = await getAdmin(c)
@@ -82,9 +82,9 @@ adminRouter.get('/admin/apps', async (c) => {
         FROM apps a
         LEFT JOIN groups g ON a.owner_group_id = g.id
         ORDER BY (a.status = 'pending') DESC, a.created_at DESC
-    `).all()
-    const tagsResult = await c.env.DB.prepare("SELECT * FROM tags WHERE status = 'active' ORDER BY name").all()
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results as any} availableTags={tagsResult.results as any} siteName={siteName} appConfig={config} />)
+    `).all<App & { owner_group_name: string | null; service_count: number }>()
+    const tagsResult = await c.env.DB.prepare("SELECT * FROM tags WHERE status = 'active' ORDER BY name").all<Tag>()
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results} availableTags={tagsResult.results} siteName={siteName} appConfig={config} />)
 })
 
 adminRouter.get('/admin/tags', async (c) => {
@@ -99,7 +99,7 @@ adminRouter.get('/admin/tags', async (c) => {
         FROM tags t
         LEFT JOIN groups g ON t.owner_group_id = g.id
         ORDER BY (t.status = 'pending') DESC, t.created_at DESC
-    `).all()
+    `).all<Tag & { owner_group_name: string | null; service_count: number }>()
     
     // Also fetch pending service_tag requests
     const pendingServiceTags = await c.env.DB.prepare(`
@@ -110,17 +110,17 @@ adminRouter.get('/admin/tags', async (c) => {
         LEFT JOIN groups g ON st.requesting_group_id = g.id
         WHERE st.status = 'pending'
         ORDER BY st.created_at DESC
-    `).all()
+    `).all<PendingServiceTag>()
 
-    const allServices = await c.env.DB.prepare(`SELECT id, name FROM services WHERE status = 'active' ORDER BY name`).all()
+    const allServices = await c.env.DB.prepare(`SELECT id, name FROM services WHERE status = 'active' ORDER BY name`).all<Pick<Service, 'id' | 'name'>>()
     const serviceTagsMap = await c.env.DB.prepare(`
         SELECT st.id, st.tag_id, st.service_id, s.name as service_name, st.status
         FROM service_tags st
         JOIN services s ON st.service_id = s.id
         ORDER BY s.name
-    `).all()
+    `).all<ServiceTagMap>()
 
-    return c.html(<TagsPage t={getLang(c)} userEmail={user.email} tags={tags.results as any} pendingServiceTags={pendingServiceTags.results as any} allServices={allServices.results as any} serviceTagsMap={serviceTagsMap.results as any} siteName={siteName} appConfig={config} />)
+    return c.html(<TagsPage t={getLang(c)} userEmail={user.email} tags={tags.results} pendingServiceTags={pendingServiceTags.results} allServices={allServices.results} serviceTagsMap={serviceTagsMap.results} siteName={siteName} appConfig={config} />)
 })
 
 adminRouter.post('/admin/tags/create', async (c) => {
@@ -372,11 +372,11 @@ adminRouter.get('/admin/groups', async (c) => {
         if (!user) return c.redirect('/login')
         const config = await getSystemConfig(c.env.DB)
         const siteName = getLocalizedValue(c, config.appName)
-        const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY created_at DESC').all()
-        const apps = await c.env.DB.prepare('SELECT * FROM apps').all()
+        const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY created_at DESC').all<Group>()
+        const apps = await c.env.DB.prepare('SELECT * FROM apps').all<App>()
         if (!groups.success) throw new Error('Groups DB Error: ' + groups.error)
         if (!apps.success) throw new Error('Apps DB Error: ' + apps.error)
-        return c.html(<GroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results as any} apps={apps.results as any} siteName={siteName} appConfig={config} />)
+        return c.html(<GroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} apps={apps.results} siteName={siteName} appConfig={config} />)
     } catch (e: any) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
@@ -411,13 +411,13 @@ adminRouter.get('/admin/users', async (c) => {
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
-    const users = await c.env.DB.prepare('SELECT * FROM users ORDER BY created_at DESC').all()
-    const apps = await c.env.DB.prepare('SELECT * FROM apps').all()
-    const groups = await c.env.DB.prepare('SELECT * FROM groups').all()
-    const services = await c.env.DB.prepare('SELECT * FROM services').all()
-    const roles = await c.env.DB.prepare('SELECT * FROM service_role_master').all()
-    const facilities = await c.env.DB.prepare('SELECT * FROM facilities').all()
-    return c.html(<UsersPage t={getLang(c)} userEmail={user.email} users={users.results as any} apps={apps.results as any} groups={groups.results as any} services={services.results as any} roles={roles.results as any} facilities={facilities.results as any} inviteUrl={c.req.query('invite_url')} error={c.req.query('error')} siteName={siteName} appConfig={config} />)
+    const users = await c.env.DB.prepare('SELECT * FROM users ORDER BY created_at DESC').all<User>()
+    const apps = await c.env.DB.prepare('SELECT * FROM apps').all<App>()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups').all<Group>()
+    const services = await c.env.DB.prepare('SELECT * FROM services').all<Service>()
+    const roles = await c.env.DB.prepare('SELECT * FROM service_role_master').all<ServiceRole>()
+    const facilities = await c.env.DB.prepare('SELECT * FROM facilities').all<Facility>()
+    return c.html(<UsersPage t={getLang(c)} userEmail={user.email} users={users.results} apps={apps.results} groups={groups.results} services={services.results} roles={roles.results} facilities={facilities.results} inviteUrl={c.req.query('invite_url')} error={c.req.query('error')} siteName={siteName} appConfig={config} />)
 })
 adminRouter.post('/admin/invite', async (c) => {
     const user = await getAdmin(c)
@@ -648,13 +648,13 @@ adminRouter.get('/admin/am/groups', async (c) => {
         const groups = await c.env.DB.prepare(`
             SELECT g.*, (SELECT COUNT(*) FROM group_memberships m WHERE m.group_id = g.id) AS member_count
             FROM groups g ORDER BY g.created_at DESC
-        `).all()
-        const users = await c.env.DB.prepare('SELECT * FROM users ORDER BY email').all()
-        const facilities = await c.env.DB.prepare('SELECT id, structure_no, building_use, managing_group_id FROM facilities ORDER BY structure_no').all()
-        const contracts = await c.env.DB.prepare('SELECT ct.*, s.name AS service_name, g.name AS group_name FROM service_contracts ct LEFT JOIN services s ON ct.service_id = s.id LEFT JOIN groups g ON ct.customer_group_id = g.id ORDER BY ct.valid_from DESC').all()
+        `).all<Group & { member_count?: number }>()
+        const users = await c.env.DB.prepare('SELECT * FROM users ORDER BY email').all<User>()
+        const facilities = await c.env.DB.prepare('SELECT id, structure_no, building_use, managing_group_id FROM facilities ORDER BY structure_no').all<Facility>()
+        const contracts = await c.env.DB.prepare('SELECT ct.*, s.name AS service_name, g.name AS group_name FROM service_contracts ct LEFT JOIN services s ON ct.service_id = s.id LEFT JOIN groups g ON ct.customer_group_id = g.id ORDER BY ct.valid_from DESC').all<AccountGroupContract>()
         if (!groups.success) throw new Error('Groups DB Error: ' + groups.error)
         if (!users.success) throw new Error('Users DB Error: ' + users.error)
-        return c.html(<AccountGroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results as any} users={users.results as any} facilities={facilities.results as any} contracts={contracts.results as any} siteName={siteName} appConfig={config} />)
+        return c.html(<AccountGroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} users={users.results} facilities={facilities.results} contracts={contracts.results} siteName={siteName} appConfig={config} />)
     } catch (e: any) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
@@ -837,7 +837,7 @@ adminRouter.get('/admin/am/services', async (c) => {
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
-    const providers = await c.env.DB.prepare('SELECT * FROM service_providers ORDER BY created_at DESC').all()
+    const providers = await c.env.DB.prepare('SELECT * FROM service_providers ORDER BY created_at DESC').all<ServiceProvider>()
     // 承認待ち(pending)を先頭に。所有グループ名と、組み込み済みアプリ名(カンマ連結)も付ける。
     const services = await c.env.DB.prepare(`
         SELECT s.*, p.name AS provider_name, g.name AS owner_group_name,
@@ -846,16 +846,16 @@ adminRouter.get('/admin/am/services', async (c) => {
         FROM services s
         LEFT JOIN service_providers p ON s.provider_id = p.id
         LEFT JOIN groups g ON s.owner_group_id = g.id
-        ORDER BY (s.status = 'pending') DESC, s.created_at DESC`).all()
-    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+        ORDER BY (s.status = 'pending') DESC, s.created_at DESC`).all<Service & { provider_name?: string; owner_group_name?: string | null; app_names?: string | null; app_ids?: string | null }>()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all<Group>()
     const allApps = await c.env.DB.prepare(`
         SELECT a.*, g.name AS group_name 
         FROM apps a 
         LEFT JOIN groups g ON a.owner_group_id = g.id 
         WHERE a.status = 'active' ORDER BY a.name
-    `).all()
+    `).all<App & { group_name?: string | null }>()
     return c.html(<AccountServicesPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        providers={providers.results as any} services={services.results as any} groups={groups.results as any} apps={allApps.results as any} />)
+        providers={providers.results} services={services.results} groups={groups.results} apps={allApps.results} />)
 })
 
 adminRouter.get('/admin/am/contracts', async (c) => {
@@ -864,7 +864,7 @@ adminRouter.get('/admin/am/contracts', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
 
-    const services = await c.env.DB.prepare('SELECT s.*, p.name AS provider_name FROM services s LEFT JOIN service_providers p ON s.provider_id = p.id ORDER BY s.name').all()
+    const services = await c.env.DB.prepare('SELECT s.*, p.name AS provider_name FROM services s LEFT JOIN service_providers p ON s.provider_id = p.id ORDER BY s.name').all<Service & { provider_name?: string }>()
     const contracts = await c.env.DB.prepare(`
         SELECT ct.*, s.name AS service_name, p.name AS provider_name, g.name AS group_name
         FROM service_contracts ct
@@ -872,11 +872,11 @@ adminRouter.get('/admin/am/contracts', async (c) => {
         LEFT JOIN service_providers p ON s.provider_id = p.id
         LEFT JOIN groups g ON ct.customer_group_id = g.id
         ORDER BY ct.valid_from DESC
-    `).all()
-    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all()
+    `).all<ServiceContract & { service_name?: string; provider_name?: string; group_name?: string }>()
+    const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all<Group>()
 
     return c.html(<AccountContractsPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        services={services.results as any} contracts={contracts.results as any} groups={groups.results as any} />)
+        services={services.results} contracts={contracts.results} groups={groups.results} />)
 })
 
 adminRouter.get('/admin/am/services/:id', async (c) => {
@@ -886,15 +886,15 @@ adminRouter.get('/admin/am/services/:id', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
 
-    const service = await c.env.DB.prepare('SELECT s.*, p.name AS provider_name FROM services s LEFT JOIN service_providers p ON s.provider_id = p.id WHERE s.id = ?').bind(serviceId).first()
+    const service = await c.env.DB.prepare('SELECT s.*, p.name AS provider_name FROM services s LEFT JOIN service_providers p ON s.provider_id = p.id WHERE s.id = ?').bind(serviceId).first<Service & { provider_name?: string }>()
     if (!service) return c.redirect('/admin/am/services?error=notfound_' + serviceId)
 
     const roles = await c.env.DB.prepare(`
         SELECT * FROM service_role_master WHERE service_id = ? ORDER BY id DESC
-    `).bind(serviceId).all()
+    `).bind(serviceId).all<ServiceRole>()
 
     return c.html(<AccountServiceDetailPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        service={service as any} roles={roles.results as any} error={c.req.query('error')} />)
+        service={service} roles={roles.results} error={c.req.query('error')} />)
 })
 
 adminRouter.post('/admin/api/service/app/add', async (c) => {
@@ -1428,12 +1428,12 @@ adminRouter.get('/admin/am/developers', async (c) => {
               AND bm.valid_from <= ? AND bm.valid_to >= ?
         )
         ORDER BY (ra.status = 'pending') DESC, ra.created_at DESC
-    `).bind(now, now).all()
+    `).bind(now, now).all<DeveloperApplication>()
 
     return c.html(<AccountDevelopersPage
         t={getLang(c)}
         userEmail={user.email}
-        applications={results as any}
+        applications={results}
         siteName={siteName}
         appConfig={config}
     />)

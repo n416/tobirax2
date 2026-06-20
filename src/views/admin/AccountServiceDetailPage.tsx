@@ -2,7 +2,7 @@ import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
-import { Service, SystemConfig } from '../../types'
+import { Service, ServiceRole, SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
 import {
@@ -16,7 +16,7 @@ interface Props {
   siteName: string
   appConfig: SystemConfig
   service: Service & { provider_name?: string }
-  roles: any[]
+  roles: ServiceRole[]
   error?: string
 }
 
@@ -59,7 +59,7 @@ export const AccountServiceDetailPage = (props: Props) => {
                   <span class="${amBadge}">${r.facility_type ? '施設種別: ' + r.facility_type : '全施設対象'}</span>
                 </div>
               </div>
-              ${r.role_code === 'general' ? '' : amDeleteForm('/admin/am/roles/delete', r.id, t.am_confirm_delete_role, t.delete)}
+              ${r.role_code === 'general' ? '' : amDeleteForm('/admin/am/roles/delete', String(r.id), t.am_confirm_delete_role, t.delete)}
             </div>`)}
         </div>
       </div>

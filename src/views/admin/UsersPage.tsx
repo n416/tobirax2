@@ -4,7 +4,7 @@ import { usersClientScript } from '../scripts/generated/users'
 import { blinkActive, listGrid, listCard, itemTitle, itemSub, grantFormCard, formLabel, dateInput, quickBtnGroup, actionBtn, deleteBtn, checkboxLabel, selectAllLabel, tabContainer, tabBtn, pageWrapper } from '../styles/usersStyles';
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
-import { User, App, Group, SystemConfig } from '../../types'
+import { User, App, Group, Service, ServiceRole, Facility, SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
 import { MultiSelect } from '../components/MultiSelect'
@@ -16,9 +16,9 @@ interface Props {
     users: (User & { group_name?: string })[]
     apps: App[]
     groups: Group[]
-    services: any[]
-    roles: any[]
-    facilities: any[]
+    services: Service[]
+    roles: ServiceRole[]
+    facilities: Facility[]
     inviteUrl?: string
     error?: string
     siteName: string

@@ -2,17 +2,34 @@ import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
-import { SystemConfig } from '../../types'
+import { Tag, Service, SystemConfig } from '../../types'
 import { Modal } from '../components/Modal'
 import { Button } from '../components/Button'
+
+export interface PendingServiceTag {
+  id: number
+  service_id: string
+  service_name: string
+  tag_name: string
+  requesting_group_name: string | null
+  created_at: number
+}
+
+export interface ServiceTagMap {
+  id: number
+  tag_id: string
+  service_id: string
+  service_name: string
+  status: string
+}
 
 interface Props {
   t: typeof dict.en
   userEmail: string
-  tags: any[]
-  pendingServiceTags: any[]
-  allServices: any[]
-  serviceTagsMap: any[]
+  tags: (Tag & { owner_group_name: string | null; service_count: number })[]
+  pendingServiceTags: PendingServiceTag[]
+  allServices: Pick<Service, 'id' | 'name'>[]
+  serviceTagsMap: ServiceTagMap[]
   siteName: string
   appConfig: SystemConfig
 }
@@ -131,7 +148,7 @@ export const TagsPage = (props: Props) => {
                         ${tag.name}
                     </div>
                     ${tag.owner_group_name ? html`<div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">申請元: ${tag.owner_group_name}</div>` : ''}
-                    <div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">紐付け先サービス数: ${tag.app_count}</div>
+                    <div style="font-size:0.8rem; color:#64748b; margin-top:0.25rem;">紐付け先サービス数: ${tag.service_count}</div>
                 </div>
                 <div>
                     ${tag.status === 'pending'

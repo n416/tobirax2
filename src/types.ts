@@ -58,6 +58,15 @@ export interface Session {
   auth_time?: number | null
 }
 
+// tags の行。サービスに付与するタグ(管理者承認制)。
+export interface Tag {
+  id: string
+  name: string
+  status: string
+  owner_group_id?: string | null
+  created_at: number
+}
+
 // recent_audit_logs の行。Monitor 画面用に直近 N 件だけ保持する監査ログ。
 export interface RecentAuditLog {
   id: number

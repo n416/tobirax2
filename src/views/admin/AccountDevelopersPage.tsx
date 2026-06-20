@@ -5,9 +5,10 @@ import { dict } from '../../i18n'
 import { Layout } from './Layout'
 import { Modal } from '../components/Modal'
 import { amListGrid, amListCard, amItemTitle, amItemSub, amEmpty, amApproveBtn, amRejectBtn } from './amShared'
+import { SystemConfig } from '../../types'
 
 
-interface DeveloperApplication {
+export interface DeveloperApplication {
   id: number
   user_id: string
   group_id: string
@@ -27,7 +28,7 @@ interface Props {
   userEmail: string
   applications: DeveloperApplication[]
   siteName: string
-  appConfig: any
+  appConfig: SystemConfig
 }
 
 export const AccountDevelopersPage = (props: Props) => {
