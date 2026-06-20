@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:oidc": "vitest run test/oidc",
-    "test:utils": "vitest run test/utils"
+    "test:utils": "vitest run test/utils",
+    "test:integration": "vitest run --config vitest.integration.config.mts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -22,6 +23,7 @@
     "qrcode": "^1.5.3"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.18",
     "@cloudflare/workers-types": "^4.20240208.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.0.0",

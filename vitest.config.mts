@@ -16,5 +16,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    // 統合テスト(test/integration)は workerd 上で走らせる別 config
+    // (vitest.integration.config.mts / npm run test:integration)に隔離する。
+    // ここ(素の Node)で拾うと cloudflare:test を解決できず壊れるため除外する。
+    exclude: ['test/integration/**', 'node_modules/**'],
   },
 })

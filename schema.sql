@@ -205,7 +205,8 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_permissions_user ON permissions(user_id);
 CREATE INDEX IF NOT EXISTS idx_group_perms_group ON group_permissions(group_id);
-CREATE INDEX IF NOT EXISTS idx_logs_created ON audit_logs(created_at);
+-- 注: audit_logs は migrations/0020 で廃止(現在は recent_audit_logs)。fresh DB への
+-- schema.sql 投入時に「no such table: audit_logs」で落ちる取り残しインデックスだったため削除。
 
 -- ============================================================
 -- アカウントマネージャ（権限/グループ/サービス管理） ※先行実装・現行IdPとは別レイヤ
