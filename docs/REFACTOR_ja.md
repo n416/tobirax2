@@ -15,21 +15,23 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
   ユニット追加（`test/oidc/base64url.test.ts`, `test/oidc/keys.test.ts`）。
 - ✅ **C 完了**（2026-06-20, commit 8a999eb）— RS256 署名/検証を鍵注入可能にし、D1 なしで
   ラウンドトリップを検証（`test/oidc/jwt-roundtrip.test.ts`）。
-- 🟨 **D 着手（第一・二弾完了）**（2026-06-20）— `@cloudflare/vitest-pool-workers` を統合専用に
-  隔離再導入し、実 D1 で `/oauth/token` を検証（統合 7 件）。
+- 🟨 **D 着手（第一〜三弾完了）**（2026-06-20）— `@cloudflare/vitest-pool-workers` を統合専用に
+  隔離再導入し、実 D1 で OIDC エンドポイントを検証（統合 11 件）。
   - authorization_code 交換（`test/integration/auth-code.test.ts`、4 件）: ハッピーパス＋負例3種
     （code 再利用拒否 / redirect_uri 不一致 / PKCE 失敗）。
   - refresh_token 更新（`test/integration/refresh.test.ts`、3 件）: 回転＋offline_access で新 refresh
     返却＋auth_time 維持／古い refresh の再利用拒否／`checkPermission` 拒否時の invalid_grant＋
     セッション破棄。
-  - 残: /userinfo（スコープ別クレーム）/ revoke / introspect / logout。
+  - /userinfo（`test/integration/userinfo.test.ts`、4 件）: authorization_code で得た実 access_token で
+    profile/email クレーム／scope=openid のみは sub 以外を返さない／Bearer 無し・失効トークンは 401。
+  - 残: revoke / introspect / logout。
 - ⬜ **E 未着手** — isolate キャッシュのリセット手段。統合テストでも `keys.ts`/`jwt.ts` の
   per-isolate キャッシュは reset() で消えない（in-process で sign↔verify は整合するので第一弾は
   不問）。エンドポイント間でDB再読込を期待するケースを足す前に着手が必要。
 - ⬜ **F 未着手** — `c: any` の解消（A の分割で一部は移動済みだが型付けは残）。
 
-現在テストはユニット 100 件＋統合 7 件・全緑、`tsc --noEmit` も clean。次は D の続き
-（/userinfo のスコープ別クレーム、続いて revoke / introspect / logout）。
+現在テストはユニット 100 件＋統合 11 件・全緑、`tsc --noEmit` も clean。次は D の続き
+（revoke / introspect、続いて logout）。
 
 ### D 第一弾の構成（再現メモ）
 
