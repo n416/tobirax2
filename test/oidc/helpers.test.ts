@@ -46,6 +46,29 @@ describe('OIDC: isAllowedRedirectUri', () => {
   it('不正な URL は false', () => {
     expect(isAllowedRedirectUri('not a url', { base_url: 'https://app.example.com', redirect_uris: null })).toBe(false)
   })
+
+  it('base_url が origin ルートなら任意のパスを許可', () => {
+    const app = { base_url: 'https://app.example.com', redirect_uris: null }
+    expect(isAllowedRedirectUri('https://app.example.com/any/deep/path', app)).toBe(true)
+  })
+
+  it('base_url 末尾のスラッシュは正規化される', () => {
+    const app = { base_url: 'https://app.example.com/app/', redirect_uris: null }
+    expect(isAllowedRedirectUri('https://app.example.com/app', app)).toBe(true)
+    expect(isAllowedRedirectUri('https://app.example.com/app/cb', app)).toBe(true)
+  })
+
+  it('プレフィックス一致モードでは redirect_uri のクエリ文字列は無視される', () => {
+    // 登録リストが無い場合はパス前方一致で判定し、クエリは比較対象外。
+    const app = { base_url: 'https://app.example.com/app', redirect_uris: null }
+    expect(isAllowedRedirectUri('https://app.example.com/app?foo=1', app)).toBe(true)
+  })
+
+  it('登録リストモードでは完全一致が必要でクエリ違いは拒否(プレフィックスモードとの非対称)', () => {
+    const app = { base_url: 'https://app.example.com', redirect_uris: 'https://app.example.com/cb' }
+    expect(isAllowedRedirectUri('https://app.example.com/cb', app)).toBe(true)
+    expect(isAllowedRedirectUri('https://app.example.com/cb?foo=1', app)).toBe(false)
+  })
 })
 
 describe('OIDC: buildRedirect', () => {
@@ -85,6 +108,11 @@ describe('OIDC: computeAtHash (at_hash)', () => {
   it('SHA-256 の左半分(128ビット=16バイト)なので 22 文字の base64url', async () => {
     expect((await computeAtHash('x')).length).toBe(22)
   })
+
+  it('OIDC Core 仕様の例と一致する(既知ベクタ)', async () => {
+    // OIDC Core 1.0: access_token のこの値に対する at_hash の公式例。
+    expect(await computeAtHash('jHkWEdUXMU1BwAsC4vtUsZwnNvTIxEl0z9K3vx5KF0Y')).toBe('77QmUPtjPfzWtF2AnpK9RQ')
+  })
 })
 
 describe('OIDC: buildOidcClaims (scope→クレーム写像, OIDC Core 5.4)', () => {
@@ -122,6 +150,27 @@ describe('OIDC: buildOidcClaims (scope→クレーム写像, OIDC Core 5.4)', ()
     const claims = buildOidcClaims(u, 'profile')
     expect(claims.name).toBe('alice@example.com')
     expect(claims.preferred_username).toBe('alice@example.com')
+  })
+
+  it('scope が null/空なら何も返さない', () => {
+    expect(buildOidcClaims(user, null)).toEqual({})
+    expect(buildOidcClaims(user, '')).toEqual({})
+  })
+
+  it('offline_access はクレームを生まない(リフレッシュトークン用の scope)', () => {
+    expect(buildOidcClaims(user, 'openid offline_access')).toEqual({})
+  })
+
+  it('profile + email を同時に要求すれば両方返す', () => {
+    const claims = buildOidcClaims(user, 'openid profile email')
+    expect(claims.name).toBe('Alice')
+    expect(claims.email).toBe('alice@example.com')
+    expect(claims.email_verified).toBe(true)
+  })
+
+  it('picture 未設定なら picture クレームは付かない', () => {
+    const u = { ...(user as any), picture: null } as unknown as User
+    expect(buildOidcClaims(u, 'profile')).not.toHaveProperty('picture')
   })
 })
 
