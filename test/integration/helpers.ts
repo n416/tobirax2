@@ -146,6 +146,58 @@ export async function seedAuthCode(db: D1Database, opts: SeedAuthCodeOpts): Prom
     .run()
 }
 
+export interface SeedAppSessionOpts {
+  plainRefreshToken: string
+  plainAccessToken?: string
+  user_id: string
+  app_id: string
+  scope?: string
+  auth_time?: number | null
+  expires_at?: number
+}
+
+/**
+ * app_sessions に 1 行投入。token / refresh_token 列にはハッシュ(hashToken)を保存する＝
+ * 本番と同じ形。plainRefreshToken はトークン更新要求でそのまま送る。
+ */
+export async function seedAppSession(db: D1Database, opts: SeedAppSessionOpts): Promise<void> {
+  const hashedRefresh = await hashToken(opts.plainRefreshToken)
+  const hashedAccess = await hashToken(opts.plainAccessToken ?? `at-${crypto.randomUUID()}`)
+  await db
+    .prepare(
+      `INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at, scope, auth_time)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      hashedAccess,
+      hashedRefresh,
+      opts.user_id,
+      opts.app_id,
+      opts.expires_at ?? nowSec() + 3600,
+      opts.scope ?? 'openid',
+      opts.auth_time ?? null,
+    )
+    .run()
+}
+
+export interface SeedPermissionOpts {
+  user_id: string
+  app_id: string
+  valid_from?: number
+  valid_to?: number
+}
+
+/** permissions に 1 行投入（checkPermission のユーザー直付与を満たす）。既定で現在有効。 */
+export async function seedPermission(db: D1Database, opts: SeedPermissionOpts): Promise<void> {
+  const now = nowSec()
+  await db
+    .prepare(
+      `INSERT INTO permissions (user_id, app_id, valid_from, valid_to, created_at) VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind(opts.user_id, opts.app_id, opts.valid_from ?? now - 60, opts.valid_to ?? now + 3600, now)
+    .run()
+}
+
 /** application/x-www-form-urlencoded のトークン要求を組み立てる。 */
 export function formBody(params: Record<string, string>): RequestInit {
   return {
