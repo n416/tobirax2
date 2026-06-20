@@ -198,6 +198,25 @@ export async function seedPermission(db: D1Database, opts: SeedPermissionOpts): 
     .run()
 }
 
+export interface SeedSessionOpts {
+  plainSessionId: string
+  user_id: string
+  auth_time?: number | null
+  expires_at?: number
+}
+
+/**
+ * sessions(ブラウザ SSO セッション)に 1 行投入。id 列にはハッシュ(hashToken)を保存する＝
+ * 本番と同じ形。plainSessionId は Cookie `__Host-idp_session` にそのまま入れて送る。
+ */
+export async function seedSession(db: D1Database, opts: SeedSessionOpts): Promise<void> {
+  const hashed = await hashToken(opts.plainSessionId)
+  await db
+    .prepare('INSERT INTO sessions (id, user_id, expires_at, auth_time) VALUES (?, ?, ?, ?)')
+    .bind(hashed, opts.user_id, opts.expires_at ?? nowSec() + 3600, opts.auth_time ?? null)
+    .run()
+}
+
 /** application/x-www-form-urlencoded のトークン要求を組み立てる。 */
 export function formBody(params: Record<string, string>): RequestInit {
   return {

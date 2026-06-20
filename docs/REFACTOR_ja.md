@@ -15,8 +15,9 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
   ユニット追加（`test/oidc/base64url.test.ts`, `test/oidc/keys.test.ts`）。
 - ✅ **C 完了**（2026-06-20, commit 8a999eb）— RS256 署名/検証を鍵注入可能にし、D1 なしで
   ラウンドトリップを検証（`test/oidc/jwt-roundtrip.test.ts`）。
-- 🟨 **D 着手（第一〜五弾完了）**（2026-06-20）— `@cloudflare/vitest-pool-workers` を統合専用に
-  隔離再導入し、実 D1 で OIDC エンドポイントを検証（統合 21 件）。
+- ✅ **D 完了**（2026-06-20）— `@cloudflare/vitest-pool-workers` を統合専用に隔離再導入し、
+  DB 密結合の OIDC エンドポイントを実 D1 で検証（統合 25 件）。対象の主要フロー
+  （checkPermission / authenticateClient / issueOidcTokens / getEntitlements 経路を含む）を網羅。
   - authorization_code 交換（`test/integration/auth-code.test.ts`、4 件）: ハッピーパス＋負例3種
     （code 再利用拒否 / redirect_uri 不一致 / PKCE 失敗）。
   - refresh_token 更新（`test/integration/refresh.test.ts`、3 件）: 回転＋offline_access で新 refresh
@@ -29,14 +30,18 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
   - /oauth/introspect（`test/integration/introspect.test.ts`、5 件、RFC 7662）: 自クライアントの active な
     access(Bearer+exp+auth_time)／refresh(token_type ラベル, exp なし)／他クライアントのトークンは
     inactive(§4 プライバシー)／失効 access は inactive／client_id 欠落は 401。
-  - 残: logout（RP-Initiated / Back-Channel）。
+  - /oidc/logout（`test/integration/logout.test.ts`、4 件、RP-Initiated Logout 1.0）: SSO Cookie で
+    app_sessions と sessions を失効／Cookie 無しでも id_token_hint の sub でフォールバック失効／
+    登録済み post_logout_redirect_uri は state エコーでリダイレクト／未登録はオープンリダイレクト
+    防止で /login。Back-Channel の外部送信(sendBackchannelLogouts)は範囲外として切り分け
+    （seed アプリに backchannel_logout_uri を設定せず送信経路に入れない）。
 - ⬜ **E 未着手** — isolate キャッシュのリセット手段。統合テストでも `keys.ts`/`jwt.ts` の
   per-isolate キャッシュは reset() で消えない（in-process で sign↔verify は整合するので第一弾は
   不問）。エンドポイント間でDB再読込を期待するケースを足す前に着手が必要。
 - ⬜ **F 未着手** — `c: any` の解消（A の分割で一部は移動済みだが型付けは残）。
 
-現在テストはユニット 100 件＋統合 21 件・全緑、`tsc --noEmit` も clean。次は D の最後
-（/oidc/logout のセッション失効。Back-Channel 送信の外部 fetch は対象外で切り分け）。
+現在テストはユニット 100 件＋統合 25 件・全緑、`tsc --noEmit` も clean。残るは E
+（isolate キャッシュのリセット手段）と F（`c: any` の解消）。
 
 ### D 第一弾の構成（再現メモ）
 
@@ -107,10 +112,11 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
 - `issueOidcTokens` — `src/index.tsx:1056`
 
 判定ロジックと SQL を分けると、ロジックだけ単体化できる。分けないなら D1 統合テスト行き。
-**第一弾は「分けずに D1 統合テスト」を採用**（`authenticateClient` / `issueOidcTokens` を実 D1 で
-通す）。`@cloudflare/vitest-pool-workers` を統合専用 config に隔離して再導入済み
-（[test/README.md](../test/README.md) と上記「D 第一弾の構成」参照）、ユニットは Node のまま残す。
-`checkPermission` / `getEntitlements` は refresh_token 系フローを足す段で踏む。
+**「分けずに D1 統合テスト」を採用**（`checkPermission` / `authenticateClient` / `issueOidcTokens` /
+`getEntitlements` を実 D1 で通す）。`@cloudflare/vitest-pool-workers` を統合専用 config に隔離して
+再導入済み（[test/README.md](../test/README.md) と上記「D 第一弾の構成」参照）、ユニットは Node の
+まま残す。ロジックと SQL の分離（D の別解）は未実施 — 統合テストで挙動を固定できたので、必要に
+なった時点で安全に行える。
 
 ## E. isolate レベルの可変キャッシュ（テスト分離性）
 
