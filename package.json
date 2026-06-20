@@ -9,7 +9,11 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "setup:secrets": "npx tsx scripts/setup-secrets.ts",
     "demo:setup": "npx tsx scripts/setup-demo.ts",
-    "db:clear": "npx tsx scripts/clear-db.ts"
+    "db:clear": "npx tsx scripts/clear-db.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:oidc": "vitest run test/oidc",
+    "test:utils": "vitest run test/utils"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -25,6 +29,7 @@
     "concurrently": "^10.0.3",
     "esbuild": "^0.28.1",
     "typescript": "^5.0.0",
+    "vitest": "^4.1.9",
     "wrangler": "^4.56.0"
   }
 }
