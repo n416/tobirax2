@@ -7,7 +7,7 @@ import {
   safeEqual,
   parseBasicAuth,
   isSafeReturnTo,
-} from '../../src/index'
+} from '../../src/oidc/helpers'
 import type { User } from '../../src/types'
 
 // OIDC / OAuth2 のエンドポイントが使う純粋ヘルパ群。DB を介さないロジックのみ。

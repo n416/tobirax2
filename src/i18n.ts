@@ -1,3 +1,5 @@
+import type { LocalizedText } from './types'
+
 export type Language = 'en' | 'ja'
 
 export const dict = {
@@ -1093,4 +1095,16 @@ export const dict = {
     label_app_subtitle_ja: '副題 (日本語)',
     label_app_subtitle_en: '副題 (英語)',
   }
+}
+
+// Accept-Language を見て表示言語の辞書を選ぶ。ja を含めば日本語、それ以外は英語(既定)。
+export const getLang = (c: any) => {
+    const accept = c.req.header('Accept-Language') || ''
+    return accept.includes('ja') ? dict.ja : dict.en
+}
+
+// LocalizedText({ ja, en }) から Accept-Language に応じた値を取り出す。
+export function getLocalizedValue(c: any, text: LocalizedText): string {
+    const accept = c.req.header('Accept-Language') || ''
+    return accept.includes('ja') ? text.ja : text.en
 }

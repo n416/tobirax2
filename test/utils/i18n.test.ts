@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dict } from '../../src/i18n'
-import { getLang, getLocalizedValue } from '../../src/index'
+import { dict, getLang, getLocalizedValue } from '../../src/i18n'
 
 // 言語判定(Accept-Language)と辞書のローカライズ。
 describe('utils/i18n: 言語判定とローカライズ', () => {

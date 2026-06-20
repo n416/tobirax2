@@ -2,12 +2,10 @@ import { Hono } from 'hono';
 import type { Env, User, App, Session } from '../types';
 import { Layout } from '../views/admin/Layout';
 import { GroupAdminPage } from '../views/GroupAdminPage';
-import { dict } from '../i18n';
+import { dict, getLang, getLocalizedValue } from '../i18n';
 import { generateToken, hashPassword } from '../utils/auth';
 import {
-  getLang,
   getSystemConfig,
-  getLocalizedValue,
   getUser,
   getAdmin,
   checkPermission,

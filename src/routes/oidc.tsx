@@ -10,21 +10,23 @@ import {
   checkPermission,
   getUser,
   logAudit,
+  authenticateClient,
+  issueOidcTokens,
+  getEntitlements,
+  getSessionRow,
+} from '../index';
+import {
   isSafeReturnTo,
   buildRedirect,
   tokenError,
   bearerUnauthorized,
   safeEqual,
-  authenticateClient,
   parseBasicAuth,
   parseClientBody,
   buildOidcClaims,
   computeAtHash,
-  issueOidcTokens,
-  getEntitlements,
-  getSessionRow,
-  isAllowedRedirectUri
-} from '../index';
+  isAllowedRedirectUri,
+} from '../oidc/helpers';
 
 export const oidcRouter = new Hono<{ Bindings: Env }>();
 

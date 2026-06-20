@@ -16,11 +16,9 @@ import { Invite } from '../views/Invite';
 import { ForgotPassword } from '../views/ForgotPassword';
 import { ResetPassword } from '../views/ResetPassword';
 import { fetchAppIcon } from '../utils/icon';
-import { dict } from '../i18n';
+import { dict, getLang, getLocalizedValue } from '../i18n';
 import {
-  getLang,
   getSystemConfig,
-  getLocalizedValue,
   getAdmin,
   handleIconUpload,
   logAudit,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { tokenError, bearerUnauthorized } from '../../src/index'
+import { tokenError, bearerUnauthorized } from '../../src/oidc/helpers'
 
 // OAuth2/OIDC のエラー応答の組み立て。Hono コンテキストは最小限モックする。
 function mockCtx() {
