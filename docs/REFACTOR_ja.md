@@ -7,6 +7,20 @@
 A だけでも B/C/F が芋づる式に進む。各段階で既存テストは緑のまま維持すること
 （`npm test`）。コメントも UI も日本語で書く方針は踏襲する。
 
+## 進捗
+
+- ✅ **A 完了**（2026-06-20, commit 2c6c123）— 純粋ヘルパを `src/oidc/helpers.ts` へ移動。
+  index.tsx に重複定義なし、参照は付け替え済み。
+- ✅ **B 完了**（2026-06-20, commit 9f78849）— jwt.ts/keys.ts の未 export 純粋関数を露出し
+  ユニット追加（`test/oidc/base64url.test.ts`, `test/oidc/keys.test.ts`）。
+- ✅ **C 完了**（2026-06-20, commit 8a999eb）— RS256 署名/検証を鍵注入可能にし、D1 なしで
+  ラウンドトリップを検証（`test/oidc/jwt-roundtrip.test.ts`）。
+- ⬜ **D 未着手** — DB 密結合の分離 or D1 統合テスト。
+- ⬜ **E 未着手** — isolate キャッシュのリセット手段。
+- ⬜ **F 未着手** — `c: any` の解消（A の分割で一部は移動済みだが型付けは残）。
+
+現在テストは 100 件・全緑、`tsc --noEmit` も clean。次は D が本丸（D1 統合テストの設計）。
+
 ---
 
 ## A. 最優先 — `src/index.tsx`（1177 行）のモノリス分割
