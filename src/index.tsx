@@ -214,14 +214,14 @@ export async function getManagedGroupIds(c: AppContext, userId: string): Promise
     // どちらのロールも自分のグループ + その子孫(サブツリー)を管理対象に持つ。
     const { results: adminRows } = await c.env.DB.prepare(
         `SELECT group_id FROM group_memberships WHERE user_id = ? AND (is_group_admin = 1 OR is_billing_admin = 1) AND valid_from <= ? AND valid_to >= ?`
-    ).bind(userId, now, now).all()
-    const roots = (adminRows as any[]).map(r => r.group_id as string)
+    ).bind(userId, now, now).all<{ group_id: string }>()
+    const roots = adminRows.map(r => r.group_id)
     const managed = new Set<string>()
     if (roots.length === 0) return managed
     // 親→子の隣接リストを作り、各 root から子孫を BFS/DFS で収集する。
-    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all<{ id: string; parent_id: string | null }>()
     const childrenMap = new Map<string, string[]>()
-    for (const g of allGroups as any[]) {
+    for (const g of allGroups) {
         if (!g.parent_id) continue
         if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
         childrenMap.get(g.parent_id)!.push(g.id)
@@ -245,13 +245,13 @@ export async function getBillingGroupIds(c: AppContext, userId: string): Promise
     const now = Math.floor(Date.now() / 1000)
     const { results: adminRows } = await c.env.DB.prepare(
         `SELECT group_id FROM group_memberships WHERE user_id = ? AND is_billing_admin = 1 AND valid_from <= ? AND valid_to >= ?`
-    ).bind(userId, now, now).all()
-    const roots = (adminRows as any[]).map(r => r.group_id as string)
+    ).bind(userId, now, now).all<{ group_id: string }>()
+    const roots = adminRows.map(r => r.group_id)
     const managed = new Set<string>()
     if (roots.length === 0) return managed
-    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all()
+    const { results: allGroups } = await c.env.DB.prepare('SELECT id, parent_id FROM groups').all<{ id: string; parent_id: string | null }>()
     const childrenMap = new Map<string, string[]>()
-    for (const g of allGroups as any[]) {
+    for (const g of allGroups) {
         if (!g.parent_id) continue
         if (!childrenMap.has(g.parent_id)) childrenMap.set(g.parent_id, [])
         childrenMap.get(g.parent_id)!.push(g.id)
@@ -273,7 +273,7 @@ export async function createAssignment(c: AppContext, p: { userId: string; group
     // ゲート②: このグループ×サービスの利用枠が無ければ割当不可。
     // ただし、自グループが所有する「active」なサービスは無条件で利用可能(自作ツールのため)。
     const grant = await c.env.DB.prepare('SELECT * FROM group_service_grants WHERE group_id = ? AND service_id = ?')
-        .bind(p.groupId, p.serviceId).first() as any
+        .bind(p.groupId, p.serviceId).first<{ id: number; contract_id: string; seat_limit: number | null }>()
     let isSelfOwned = false;
     if (!grant) {
         const svc = await c.env.DB.prepare('SELECT owner_group_id, status FROM services WHERE id = ?').bind(p.serviceId).first() as { owner_group_id: string | null, status: string } | null;
@@ -348,7 +348,21 @@ export async function createAssignment(c: AppContext, p: { userId: string; group
 //     ① group_memberships(同 user×group が now 有効) を INNER JOIN、
 //     ② group_service_grants(同 group×service が now 有効) を INNER JOIN、
 //     表示用に groups / facilities / service_role_master を JOIN する。
-export async function getEntitlements(c: AppContext, userId: string, serviceId: string): Promise<any[]> {
+export async function getEntitlements(c: AppContext, userId: string, serviceId: string): Promise<Array<{
+    group: { id: string; name: string; is_group_admin: boolean; is_billing_admin: boolean; is_developer: boolean }
+    facility: { id: string; structure_no: string | null; building_use: string | null }
+    role: string | null
+    valid_from: number
+    valid_to: number
+}>> {
+    // SELECT で取り出す生の行(SQLite では boolean 列は 0/1 の数値で返る)。
+    type EntRow = {
+        group_id: string; group_name: string
+        is_group_admin: number; is_billing_admin: number; is_developer: number
+        facility_id: string; structure_no: string | null; building_use: string | null
+        role_code: string | null; role_name: string | null
+        valid_from: number; valid_to: number
+    }
     const now = Math.floor(Date.now() / 1000)
     const { results } = await c.env.DB.prepare(`
         SELECT
@@ -379,8 +393,8 @@ export async function getEntitlements(c: AppContext, userId: string, serviceId: 
           AND a.valid_from <= ? AND a.valid_to >= ?
           AND (gr.id IS NOT NULL OR (s.owner_group_id = a.group_id AND s.status = 'active'))
         ORDER BY g.name, f.structure_no
-    `).bind(now, now, now, now, userId, serviceId, now, now).all()
-    return (results as any[]).map(r => ({
+    `).bind(now, now, now, now, userId, serviceId, now, now).all<EntRow>()
+    return results.map(r => ({
         group:    { id: r.group_id, name: r.group_name, is_group_admin: !!r.is_group_admin, is_billing_admin: !!r.is_billing_admin, is_developer: !!r.is_developer },
         facility: { id: r.facility_id, structure_no: r.structure_no, building_use: r.building_use },
         role:     r.role_name,

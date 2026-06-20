@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Env, User, App, AuthCode, Session, AppContext } from '../types';
+import type { Env, User, App, AuthCode, Session, AppSession, AppContext } from '../types';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { getJwksKeys } from '../oidc/keys';
 import { requireSecret } from '../utils/env';
@@ -195,7 +195,7 @@ oidcRouter.post('/oauth/token', async (c) => {
         }
         
         const updateRes = await c.env.DB.prepare('UPDATE auth_codes SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at >= ?').bind(nowSec, hashedCode, nowSec).run()
-        if ((updateRes as any)?.meta?.changes === 0) {
+        if (updateRes.meta.changes === 0) {
             await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'code already used or expired' });
             return tokenError(c, 'invalid_grant', 'authorization code is already used or expired')
         }
@@ -220,7 +220,7 @@ oidcRouter.post('/oauth/token', async (c) => {
             }
         }
 
-        const pkceOk = await verifyPkce(body.code_verifier, ac.code_challenge as any, ac.code_challenge_method as any)
+        const pkceOk = await verifyPkce(body.code_verifier, ac.code_challenge, ac.code_challenge_method)
         if (!pkceOk) {
             await writeAuditLog(c, 'OIDC_TOKEN_ERROR', { error: 'invalid_grant', reason: 'PKCE verification failed' }, null, ac.app_id);
             return tokenError(c, 'invalid_grant', 'PKCE verification failed')
@@ -236,14 +236,14 @@ oidcRouter.post('/oauth/token', async (c) => {
         }
 
         await writeAuditLog(c, 'OIDC_TOKEN_GRANTED', { grant_type: 'authorization_code' }, user.id, ac.app_id);
-        return issueOidcTokens(c, user, ac.app_id, (ac.nonce as any) || null, (ac.scope as any) || null, (ac.auth_time as any) ?? null)
+        return issueOidcTokens(c, user, ac.app_id, ac.nonce || null, ac.scope || null, ac.auth_time ?? null)
     }
 
     if (grantType === 'refresh_token') {
         const refreshToken = body.refresh_token
         if (!refreshToken) return tokenError(c, 'invalid_request', 'missing refresh_token')
         const hashedRefreshToken = await hashToken(refreshToken)
-        const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).first() as any
+        const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).first<AppSession>()
         if (!session) return tokenError(c, 'invalid_grant', 'invalid refresh_token')
         // パブリッククライアントはシークレット無しで更新可。機密クライアントは認証必須。
         const auth = await authenticateClient(c, session.app_id, providedSecret, true)
@@ -257,7 +257,7 @@ oidcRouter.post('/oauth/token', async (c) => {
         if (!user) return tokenError(c, 'invalid_grant', 'user not found')
         
         const delRes = await c.env.DB.prepare('DELETE FROM app_sessions WHERE refresh_token = ?').bind(hashedRefreshToken).run()
-        if ((delRes as any)?.meta?.changes === 0) {
+        if (delRes.meta.changes === 0) {
             return tokenError(c, 'invalid_grant', 'refresh token already used')
         }
         
@@ -276,7 +276,7 @@ oidcRouter.on(['GET', 'POST'], '/userinfo', async (c) => {
     const token = auth.slice(7)
     const hashedToken = await hashToken(token)
     const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?')
-        .bind(hashedToken, Math.floor(Date.now() / 1000)).first() as any
+        .bind(hashedToken, Math.floor(Date.now() / 1000)).first<AppSession>()
     if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
     if (!user) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
@@ -303,7 +303,7 @@ oidcRouter.get('/entitlements/me', async (c) => {
     const token = auth.slice(7)
     const hashedToken = await hashToken(token)
     const session = await c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ? AND expires_at > ?')
-        .bind(hashedToken, Math.floor(Date.now() / 1000)).first() as any
+        .bind(hashedToken, Math.floor(Date.now() / 1000)).first<AppSession>()
     if (!session) return bearerUnauthorized(c, 'invalid_token', 'the access token is invalid or expired')
 
     // トークンを発行した OIDC クライアント → 組み込まれているドメインサービスを service_apps から引く。
@@ -321,7 +321,7 @@ oidcRouter.get('/entitlements/me', async (c) => {
     }
 
     // 各サービスについて ①②③ 全通過の割当を列挙する。
-    const services = [] as any[]
+    const services: Array<{ service: { id: string; name: string }; entitlements: any[] }> = []
     for (const s of boundServices) {
         services.push({ service: { id: s.id, name: s.name }, entitlements: await getEntitlements(c, session.user_id, s.id) })
     }
@@ -358,13 +358,15 @@ async function sendBackchannelLogouts(c: AppContext, issuer: string, userId: str
         `SELECT DISTINCT a.id AS app_id, a.backchannel_logout_uri AS uri
            FROM app_sessions s JOIN apps a ON a.id = s.app_id
           WHERE s.user_id = ? AND a.backchannel_logout_uri IS NOT NULL AND a.backchannel_logout_uri != ''`
-    ).bind(userId).all() as any
-    const targets = (results as any[]) || []
+    ).bind(userId).all<{ app_id: string; uri: string }>()
+    const targets = results || []
     if (targets.length === 0) return
-    await Promise.allSettled(targets.map(async (t: any) => {
+    await Promise.allSettled(targets.map(async (t) => {
         const logoutToken = await backchannelLogoutToken(c, issuer, t.app_id, userId)
         const bindingName = 'RP_' + String(t.app_id).toUpperCase().replace(/[^A-Z0-9]/g, '_')
-        const fetcher = (c.env as any)[bindingName]?.fetch ? (c.env as any)[bindingName] : { fetch }
+        // RP_<APP_ID> という名前の動的サービスバインディングを引く(Env 型に静的には無い)。
+        const bindings = c.env as unknown as Record<string, Fetcher | undefined>
+        const fetcher = bindings[bindingName]?.fetch ? bindings[bindingName]! : { fetch }
         const ctrl = new AbortController()
         const timer = setTimeout(() => ctrl.abort(), 4000)
         try {
@@ -448,10 +450,10 @@ oidcRouter.on(['GET', 'POST'], '/oidc/logout', async (c) => {
     // id_token_hint がある場合は、遷移先がそのトークンのクライアント(aud)に属することも
     // 要求する。#11: state はそのままエコーする。
     if (dest) {
-        const { results } = await c.env.DB.prepare('SELECT id, base_url, redirect_uris FROM apps WHERE status = ?').bind('active').all() as any
-        const matching = (results as any[]).filter((a: any) => isAllowedRedirectUri(dest, a))
+        const { results } = await c.env.DB.prepare('SELECT id, base_url, redirect_uris FROM apps WHERE status = ?').bind('active').all<{ id: string; base_url: string; redirect_uris: string | null }>()
+        const matching = results.filter((a) => isAllowedRedirectUri(dest, a))
         const allowed = hintAud
-            ? matching.some((a: any) => a.id === hintAud)
+            ? matching.some((a) => a.id === hintAud)
             : matching.length > 0
         if (allowed) {
             const target = state ? dest + (dest.includes('?') ? '&' : '?') + 'state=' + encodeURIComponent(state) : dest
@@ -483,8 +485,8 @@ oidcRouter.post('/oauth/revoke', async (c) => {
     const hashedToken = await hashToken(token)
     const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(hashedToken)
     const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(hashedToken)
-    let session = await (hint === 'access_token' ? byAccess : byRefresh).first() as any
-    if (!session) session = await (hint === 'access_token' ? byRefresh : byAccess).first() as any
+    let session = await (hint === 'access_token' ? byAccess : byRefresh).first<AppSession>()
+    if (!session) session = await (hint === 'access_token' ? byRefresh : byAccess).first<AppSession>()
 
     if (session) {
         // トークンが発行されたクライアントだけがそれを失効できる。
@@ -528,10 +530,10 @@ oidcRouter.post('/oauth/introspect', async (c) => {
     const byRefresh = c.env.DB.prepare('SELECT * FROM app_sessions WHERE refresh_token = ?').bind(hashedToken)
     const byAccess = c.env.DB.prepare('SELECT * FROM app_sessions WHERE token = ?').bind(hashedToken)
     // どちらの形式で一致したかを記録し、token_type のラベル付けと access token の失効判定に使う。
-    let session = await (hint === 'refresh_token' ? byRefresh : byAccess).first() as any
+    let session = await (hint === 'refresh_token' ? byRefresh : byAccess).first<AppSession>()
     let matchedAccess = !!session && session.token === hashedToken
     if (!session) {
-        session = await (hint === 'refresh_token' ? byAccess : byRefresh).first() as any
+        session = await (hint === 'refresh_token' ? byAccess : byRefresh).first<AppSession>()
         matchedAccess = !!session && session.token === hashedToken
     }
     // 未知のトークン、または別クライアントに属するトークン → inactive(§4 プライバシー)。

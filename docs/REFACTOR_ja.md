@@ -141,3 +141,17 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
 `src/index.tsx` の export 群が軒並み `c: any` だった。共有型 `AppContext`
 （`Context<{ Bindings: Env }>`、`src/types.ts`）へ全置換し型安全を回復（サーバ側 29 箇所、波及ゼロ・
 挙動不変）。client/ のフロント `c` と `as any`/その他 `: any` の広い型負債は範囲外（別タスク）。
+
+## G. 追加 — 型負債（`as any` / `: any`）の段階的解消（🟨 着手）
+
+F に続き、広い型負債を**テスト網が守る範囲から**段階的に解消する。第一弾（2026-06-20）:
+OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB 関数
+`checkPermission`/`getManagedGroupIds`/`getBillingGroupIds`/`createAssignment`/`getEntitlements`、
+`oidc/helpers.ts`、`utils/logger.ts`）の `as any` を、D1 の `.first<T>()`/`.all<T>()` と行型
+（`AppSession` を `types.ts` に追加）で正攻法に解消。`as any` は **116→88**（−28）。挙動不変・
+`tsc` クリーン・ユニット 100＋統合 27 全緑で確認。`createAssignment` の grant 型付けで
+`seat_limit`/`contract_id` の実利用を型が炙り出し、行型を実列に合わせた。
+
+残り（網が薄く要慎重・別スライス）: `index.tsx` のダッシュボード/ポータル JSX 経路（6）、
+`routes/admin.tsx`(49) / `routes/group-admin.tsx`(44) / `views/` / `client/`。`keys.ts` の
+`let v: any`（`JSON.parse` 出力）等、正当な any は残す。

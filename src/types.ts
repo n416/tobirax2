@@ -58,6 +58,18 @@ export interface Session {
   auth_time?: number | null
 }
 
+// app_sessions の行。発行済み OIDC トークン(access/refresh)の不透明トークン引き当て元。
+export interface AppSession {
+  id: number
+  token: string
+  refresh_token: string
+  user_id: string
+  app_id: string
+  expires_at: number
+  scope?: string | null
+  auth_time?: number | null
+}
+
 export interface Permission {
   id: number
   user_id?: string

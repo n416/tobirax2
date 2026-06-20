@@ -91,7 +91,7 @@ export function parseBasicAuth(c: AppContext): { clientId?: string; secret?: str
 
 export async function parseClientBody(c: AppContext): Promise<Record<string, string>> {
     const ct = c.req.header('Content-Type') || ''
-    if (ct.includes('application/json')) return (await c.req.json().catch(() => ({}))) as any
+    if (ct.includes('application/json')) return (await c.req.json().catch(() => ({}))) as Record<string, string>
     const body = await c.req.parseBody()
     const out: Record<string, string> = {}
     for (const [k, v] of Object.entries(body)) if (typeof v === 'string') out[k] = v

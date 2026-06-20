@@ -37,12 +37,12 @@ export async function writeAuditLog(
                 'DELETE FROM recent_audit_logs WHERE id NOT IN (SELECT id FROM recent_audit_logs ORDER BY id DESC LIMIT 500)'
             ).run();
             if (c.executionCtx && typeof c.executionCtx.waitUntil === 'function') {
-                c.executionCtx.waitUntil(cleanupPromise.catch((e: any) => console.error('Cleanup error:', e)));
+                c.executionCtx.waitUntil(cleanupPromise.catch((e: unknown) => console.error('Cleanup error:', e)));
             }
         }
 
         if (c.executionCtx && typeof c.executionCtx.waitUntil === 'function') {
-            c.executionCtx.waitUntil(promise.catch((e: any) => console.error('Audit log write error:', e)));
+            c.executionCtx.waitUntil(promise.catch((e: unknown) => console.error('Audit log write error:', e)));
         } else {
             await promise;
         }
