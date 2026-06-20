@@ -44,12 +44,19 @@ async function getSigningKey(db: D1Database, kek?: string): Promise<{ kid: strin
   return signingKeyCache
 }
 
+// 検証で受け取る公開 JWK の最小形。JWKS エンドポイント(getJwksKeys)が返す形と揃える。
+type PublicJwk = { kty: string; n: string; e: string; kid: string }
+
 /**
- * DBに保持したモック鍵で JWT を RS256 署名する。`typ` は既定で `JWT`。
- * OIDC Back-Channel Logout のトークンには `logout+jwt` を渡す(仕様 §2.4)。
+ * 注入された署名鍵で JWT を RS256 署名する内部コア。DB に触れないため、テストで任意の
+ * CryptoKey を渡して署名→検証のラウンドトリップを純粋に検証できる(公開 API は signRS256)。
  */
-export async function signRS256(payload: Record<string, unknown>, db: D1Database, kek?: string, typ = 'JWT'): Promise<string> {
-  const { kid, key } = await getSigningKey(db, kek)
+export async function signJwtRS256(
+  payload: Record<string, unknown>,
+  signingKey: { kid: string; key: CryptoKey },
+  typ = 'JWT'
+): Promise<string> {
+  const { kid, key } = signingKey
   const header = { alg: 'RS256', typ, kid }
   const signingInput = `${strToBase64Url(JSON.stringify(header))}.${strToBase64Url(JSON.stringify(payload))}`
   const sig = await crypto.subtle.sign(
@@ -60,19 +67,26 @@ export async function signRS256(payload: Record<string, unknown>, db: D1Database
   return `${signingInput}.${bytesToBase64Url(new Uint8Array(sig))}`
 }
 
+/**
+ * DBに保持したモック鍵で JWT を RS256 署名する。`typ` は既定で `JWT`。
+ * OIDC Back-Channel Logout のトークンには `logout+jwt` を渡す(仕様 §2.4)。
+ * 署名鍵を DB から解決し、コア(signJwtRS256)に注入する薄いラッパ。
+ */
+export async function signRS256(payload: Record<string, unknown>, db: D1Database, kek?: string, typ = 'JWT'): Promise<string> {
+  return signJwtRS256(payload, await getSigningKey(db, kek), typ)
+}
+
 // インポート済みの検証用鍵を kid をキーに isolate ごとにキャッシュする。
 const verifyKeyCache = new Map<string, CryptoKey>()
 
 /**
- * 自身が発行した RS256 JWT を検証してペイロードを返す。現行 JWKS のどの鍵とも
- * 署名が一致しなければ null。署名のみ検証で有効期限(exp)は確認しない。主な呼び出し元が
- * RP起点ログアウト(OIDC `id_token_hint`)であり、その id_token は通常すでに失効している
- * ためである。
+ * 注入された JWKS(公開鍵集合)で RS256 JWT を検証する内部コア。DB に触れないため、テストで
+ * 任意の公開鍵を渡せる。署名のみ検証で有効期限(exp)は確認しない(理由は verifyRS256 参照)。
+ * 現行 JWKS のどの鍵とも署名が一致しなければ null。
  */
-export async function verifyRS256(
+export async function verifyJwtRS256(
   token: string,
-  db: D1Database,
-  kek?: string
+  jwks: PublicJwk[]
 ): Promise<Record<string, unknown> | null> {
   const parts = token.split('.')
   if (parts.length !== 3) return null
@@ -86,7 +100,6 @@ export async function verifyRS256(
   }
   if (header.alg !== 'RS256') return null
 
-  const jwks = await getJwksKeys(db, kek)
   // kid があればそれで照合し、無ければ保持中の全鍵を順に試す。
   const candidates = header.kid ? jwks.filter(k => k.kid === header.kid) : jwks
   const sig = base64UrlToBytes(parts[2])
@@ -112,6 +125,20 @@ export async function verifyRS256(
     if (ok) return payload
   }
   return null
+}
+
+/**
+ * 自身が発行した RS256 JWT を検証してペイロードを返す。現行 JWKS のどの鍵とも
+ * 署名が一致しなければ null。署名のみ検証で有効期限(exp)は確認しない。主な呼び出し元が
+ * RP起点ログアウト(OIDC `id_token_hint`)であり、その id_token は通常すでに失効している
+ * ためである。JWKS を DB から解決し、コア(verifyJwtRS256)に注入する薄いラッパ。
+ */
+export async function verifyRS256(
+  token: string,
+  db: D1Database,
+  kek?: string
+): Promise<Record<string, unknown> | null> {
+  return verifyJwtRS256(token, await getJwksKeys(db, kek))
 }
 
 /** 保存済みの code_challenge に対して PKCE の code_verifier を検証する。 */
