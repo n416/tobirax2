@@ -17,6 +17,9 @@
 // Changing OIDC_KEK forces regeneration (old envelopes can't be decrypted).
 // ------------------------------------------------------------------
 
+// base64url コーデックは utils/secretbox に集約済み(同一実装の重複を排除)。
+import { b64u, fromB64u } from '../utils/secretbox'
+
 const KEYS_ROW = 'oidc_keys'
 const te = new TextEncoder()
 const td = new TextDecoder()
@@ -53,21 +56,6 @@ export interface Keyset {
 let cache: { keyset: Keyset; expires: number } | null = null
 const CACHE_TTL_S = 300
 
-const b64u = (b: ArrayBuffer | Uint8Array): string => {
-  const bytes = b instanceof Uint8Array ? b : new Uint8Array(b)
-  let bin = ''
-  for (const x of bytes) bin += String.fromCharCode(x)
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-const fromB64u = (s: string): Uint8Array => {
-  s = s.replace(/-/g, '+').replace(/_/g, '/')
-  while (s.length % 4) s += '='
-  const bin = atob(s)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
-
 // Derive a 32-byte AES-GCM key from the (any-length) KEK secret material.
 // Local dev falls back to a fixed value, mirroring how JWT_SECRET is handled.
 async function deriveKek(kek: string | undefined): Promise<CryptoKey> {
@@ -97,13 +85,14 @@ async function buildEnvelope(kekKey: CryptoKey, now: number): Promise<KeyEnvelop
   const publicJwk = { kty: pub.kty!, n: pub.n!, e: pub.e! }
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, kekKey, te.encode(JSON.stringify(privateJwk)))
-  return { kid: crypto.randomUUID(), publicJwk, iv: b64u(iv), ct: b64u(ct), createdAt: now }
+  // ct は ArrayBuffer のため、Uint8Array 専用の b64u に渡す前に変換する。
+  return { kid: crypto.randomUUID(), publicJwk, iv: b64u(iv), ct: b64u(new Uint8Array(ct)), createdAt: now }
 }
 
 // Parse the stored row into a list of envelopes. Returns wasV3=false for an
 // absent row, a legacy v2 single-envelope (migrated in place), or anything
 // unrecognised (legacy plaintext) — so the caller persists the v3 format.
-function parseStored(value: string | undefined, now: number): { envs: KeyEnvelope[]; wasV3: boolean } {
+export function parseStored(value: string | undefined, now: number): { envs: KeyEnvelope[]; wasV3: boolean } {
   if (!value) return { envs: [], wasV3: false }
   let v: any
   try { v = JSON.parse(value) } catch { return { envs: [], wasV3: false } }

@@ -6,17 +6,19 @@ import { getOidcKeys, getJwksKeys } from './keys'
 // 秘密鍵の実体はソース上に存在しない。
 // ------------------------------------------------------------------
 
-function bytesToBase64Url(bytes: Uint8Array): string {
+// base64url コーデック群。署名/検証の土台であり JWT の各セグメントを符号化する。
+// 純粋関数なのでパディング/バイナリのエッジを直接ユニットテストできるよう export する。
+export function bytesToBase64Url(bytes: Uint8Array): string {
   let bin = ''
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function strToBase64Url(str: string): string {
+export function strToBase64Url(str: string): string {
   return bytesToBase64Url(new TextEncoder().encode(str))
 }
 
-function base64UrlToBytes(s: string): Uint8Array {
+export function base64UrlToBytes(s: string): Uint8Array {
   s = s.replace(/-/g, '+').replace(/_/g, '/')
   while (s.length % 4) s += '='
   const bin = atob(s)
