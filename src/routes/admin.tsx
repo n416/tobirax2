@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Env, App, Session, User } from '../types';
+import type { Env, App, Session, User, RecentAuditLog } from '../types';
 import { Layout } from '../views/admin/Layout';
 import { AdminHome } from '../views/admin/AdminHome';
 import { AppsPage } from '../views/admin/AppsPage';
@@ -1265,11 +1265,11 @@ adminRouter.get('/admin/logs', async (c) => {
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
-    const { results } = await c.env.DB.prepare('SELECT * FROM recent_audit_logs ORDER BY id DESC LIMIT 500').all()
+    const { results } = await c.env.DB.prepare('SELECT * FROM recent_audit_logs ORDER BY id DESC LIMIT 500').all<RecentAuditLog>()
     return c.html(<LogsPage
         t={getLang(c)}
         userEmail={user.email}
-        logs={results as any}
+        logs={results}
         siteName={siteName}
         appConfig={config}
     />)

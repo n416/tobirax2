@@ -58,6 +58,19 @@ export interface Session {
   auth_time?: number | null
 }
 
+// recent_audit_logs の行。Monitor 画面用に直近 N 件だけ保持する監査ログ。
+export interface RecentAuditLog {
+  id: number
+  event_type: string
+  details: string | null
+  user_id: string | null
+  app_id: string | null
+  ip_address: string | null
+  user_agent: string | null
+  // DEFAULT (strftime) で常に値が入る。
+  created_at: number
+}
+
 // app_sessions の行。発行済み OIDC トークン(access/refresh)の不透明トークン引き当て元。
 export interface AppSession {
   id: number

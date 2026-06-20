@@ -1,12 +1,12 @@
 import { html } from 'hono/html'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
-import { SystemConfig } from '../../types'
+import { SystemConfig, RecentAuditLog } from '../../types'
 
 interface LogsPageProps {
   t: typeof dict.en
   userEmail: string
-  logs: any[]
+  logs: RecentAuditLog[]
   siteName: string
   appConfig: SystemConfig
 }
