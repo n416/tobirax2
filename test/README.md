@@ -54,6 +54,7 @@ D1 に当てて検証する。ユニット（素の Node, 高速・環境非依�
 
 - `npm install` 時に `workerd` / `wrangler dev` が動いていると `node_modules/miniflare` が EBUSY で
   ロックする。先に dev サーバを止める。
-- `keys.ts` / `jwt.ts` の per-isolate キャッシュ（リファクタ項目 E）は `reset()` では消えない。
-  sign↔verify は同一 isolate のキャッシュで整合するので第一弾は問題にならないが、エンドポイント
-  間で DB 再読込を期待するテストを足す前に E（リセットフック）の着手が要る。
+- `keys.ts` / `jwt.ts` の per-isolate キャッシュは `reset()`（D1 消去）では消えない。鍵の隔離・
+  rotation を検証するテストでは、`applySchema` の後に `resetKeyCaches()`（`helpers.ts`）を呼んで
+  cold-start させる（リファクタ項目 E で追加。実証は `test/integration/key-cache-isolation.test.ts`）。
+  通常のフロー検証では sign↔verify が同一 isolate のキャッシュで整合するので呼ぶ必要はない。

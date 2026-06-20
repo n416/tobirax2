@@ -79,6 +79,14 @@ export async function signRS256(payload: Record<string, unknown>, db: D1Database
 // インポート済みの検証用鍵を kid をキーに isolate ごとにキャッシュする。
 const verifyKeyCache = new Map<string, CryptoKey>()
 
+// テスト用フック: 署名/検証鍵のインポート済みキャッシュを破棄する。これらは kid をキーに
+// しているため(kid が変われば再 import / Map は kid 別)異なる鍵を取り違えはしないが、
+// テストでキャッシュを完全に cold-start させたいときのために用意する。本番経路では使わない。
+export function resetSigningKeyCachesForTests(): void {
+  signingKeyCache = null
+  verifyKeyCache.clear()
+}
+
 /**
  * 注入された JWKS(公開鍵集合)で RS256 JWT を検証する内部コア。DB に触れないため、テストで
  * 任意の公開鍵を渡せる。署名のみ検証で有効期限(exp)は確認しない(理由は verifyRS256 参照)。

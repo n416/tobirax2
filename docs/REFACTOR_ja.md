@@ -35,13 +35,16 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
     登録済み post_logout_redirect_uri は state エコーでリダイレクト／未登録はオープンリダイレクト
     防止で /login。Back-Channel の外部送信(sendBackchannelLogouts)は範囲外として切り分け
     （seed アプリに backchannel_logout_uri を設定せず送信経路に入れない）。
-- ⬜ **E 未着手** — isolate キャッシュのリセット手段。統合テストでも `keys.ts`/`jwt.ts` の
-  per-isolate キャッシュは reset() で消えない（in-process で sign↔verify は整合するので第一弾は
-  不問）。エンドポイント間でDB再読込を期待するケースを足す前に着手が必要。
+- ✅ **E 完了**（2026-06-20）— isolate レベルの鍵キャッシュにテスト用クリアフックを追加。
+  `keys.ts` の `resetKeysetCacheForTests()` と `jwt.ts` の `resetSigningKeyCachesForTests()`、
+  統合側に集約 `resetKeyCaches()`（`test/integration/helpers.ts`）。`keys.ts` の keyset キャッシュは
+  時間 TTL のみで DB 非依存のため `reset()`（D1 消去）では消えず状態が漏れる — これを実証＋隔離する
+  テストを追加（`test/integration/key-cache-isolation.test.ts`、2 件）。なお `jwt.ts` の署名/検証
+  キャッシュは kid キーで自己無効化されるため漏れ自体は起きないが、cold-start 用にフックは揃えた。
+  本番経路は不変（フックは test 専用）。
 - ⬜ **F 未着手** — `c: any` の解消（A の分割で一部は移動済みだが型付けは残）。
 
-現在テストはユニット 100 件＋統合 25 件・全緑、`tsc --noEmit` も clean。残るは E
-（isolate キャッシュのリセット手段）と F（`c: any` の解消）。
+現在テストはユニット 100 件＋統合 27 件・全緑、`tsc --noEmit` も clean。残るは F（`c: any` の解消）。
 
 ### D 第一弾の構成（再現メモ）
 

@@ -15,7 +15,17 @@ import type { D1Database } from '@cloudflare/workers-types'
 import schemaSqlRaw from '../../schema.sql?raw'
 const schemaSql: string = schemaSqlRaw
 import { hashToken } from '../../src/utils/auth'
-import { bytesToBase64Url } from '../../src/oidc/jwt'
+import { bytesToBase64Url, resetSigningKeyCachesForTests } from '../../src/oidc/jwt'
+import { resetKeysetCacheForTests } from '../../src/oidc/keys'
+
+/**
+ * プロセス内(isolate)の鍵キャッシュを全て破棄する。`reset()`(D1 消去)では消えないため、
+ * 鍵の隔離・rotation を検証するテストでは applySchema の後にこれを呼んで cold-start させる。
+ */
+export function resetKeyCaches(): void {
+  resetKeysetCacheForTests()
+  resetSigningKeyCachesForTests()
+}
 
 const te = new TextEncoder()
 

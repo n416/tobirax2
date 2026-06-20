@@ -56,6 +56,13 @@ export interface Keyset {
 let cache: { keyset: Keyset; expires: number } | null = null
 const CACHE_TTL_S = 300
 
+// テスト用フック: keyset キャッシュを破棄する。このキャッシュは時間 TTL のみで DB に
+// 依存しないため、テスト間で D1 を作り直しても(reset())古い鍵集合を返してしまう(状態漏れ)。
+// テストで鍵の隔離・rotation・KEK 変更による再生成を検証する前にこれを呼ぶ。本番経路では使わない。
+export function resetKeysetCacheForTests(): void {
+  cache = null
+}
+
 // Derive a 32-byte AES-GCM key from the (any-length) KEK secret material.
 // Local dev falls back to a fixed value, mirroring how JWT_SECRET is handled.
 async function deriveKek(kek: string | undefined): Promise<CryptoKey> {
