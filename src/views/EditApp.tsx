@@ -1,6 +1,13 @@
 import { Layout } from './Layout'
+import { App } from '../types'
+import { dict } from '../i18n'
 
-export const EditApp = (props: { t: any, app: any }) => {
+interface Props {
+  t: typeof dict.en
+  app: App
+}
+
+export const EditApp = (props: Props) => {
   return (
     <Layout title={props.t.edit} lang={props.t.lang || 'ja'}>
       <nav><ul><li><a href="/admin">{props.t.cancel}</a></li></ul></nav>

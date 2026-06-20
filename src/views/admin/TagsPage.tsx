@@ -69,19 +69,19 @@ export const TagsPage = (props: Props) => {
         ${Button({
             onclick: "document.getElementById('new-tag-modal').showModal()",
             style: "width: auto; margin-bottom: 0;",
-            children: html`<span class="material-symbols-outlined" style="font-size: 18px;">add</span> ${(t as any).btn_add_tag || 'タグ追加'}`
+            children: html`<span class="material-symbols-outlined" style="font-size: 18px;">add</span> ${t.btn_add_tag || 'タグ追加'}`
         })}
       </div>
 
       ${Modal({
         id: "new-tag-modal",
-        title: (t as any).btn_add_tag || 'タグ追加',
+        title: t.btn_add_tag || 'タグ追加',
         closeAction: "this.closest('.custom-modal').close()",
         children: html`
               <form method="POST" action="/admin/tags/create">
                 <div class="grid-vertical" style="display:flex; flex-direction:column; gap:1.5rem;">
                     <label style="width:100%;">
-                      <span class="form-label">${(t as any).label_tag_name || 'タグ名'}</span>
+                      <span class="form-label">${t.label_tag_name || 'タグ名'}</span>
                       <input type="text" name="name" required />
                     </label>
                     <div style="margin-top:1rem;">
@@ -119,7 +119,7 @@ export const TagsPage = (props: Props) => {
       ${props.pendingServiceTags.length > 0 ? html`
           <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.25rem;">サービスへのタグ付け申請 (承認待ち)</h3>
           <div class="${listGrid}" style="margin-bottom: 2rem;">
-            ${props.pendingServiceTags.map((at: any) => html`
+            ${props.pendingServiceTags.map(at => html`
               <div class="${listCard}">
                 <div style="font-weight: 600; color: #1e293b;">タグ: ${at.tag_name}</div>
                 <div style="font-size: 0.85rem; color: #475569;">サービス: ${at.service_name}</div>
@@ -181,8 +181,8 @@ export const TagsPage = (props: Props) => {
                 <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
                     <!-- 適用済みのサービス一覧 -->
                     <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
-                    ${props.serviceTagsMap.filter((at:any) => at.tag_id === tag.id).length === 0 ? html`<span style="font-size:0.75rem; color:#94a3b8;">紐付けされているサービスはありません</span>` : ''}
-                    ${props.serviceTagsMap.filter((at:any) => at.tag_id === tag.id).map((at:any) => html`
+                    ${props.serviceTagsMap.filter(at => at.tag_id === tag.id).length === 0 ? html`<span style="font-size:0.75rem; color:#94a3b8;">紐付けされているサービスはありません</span>` : ''}
+                    ${props.serviceTagsMap.filter(at => at.tag_id === tag.id).map(at => html`
                         <span style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.75rem; padding:2px 6px; border-radius:999px; background:${at.status === 'active' ? '#f1f5f9' : '#fff7ed'}; color:#334155; border:1px solid #cbd5e1;">
                             ${at.service_name} ${at.status === 'pending' ? '(申請中)' : ''}
                             <button type="button" onclick="window.showConfirm('このサービスからタグを外しますか？', () => { document.getElementById('remove-service-tag-form').querySelector('input[name=service_id]').value='${at.service_id}'; document.getElementById('remove-service-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-service-tag-form').submit(); })" style="background:none; border:none; color:#94a3b8; cursor:pointer; padding:0; font-size:1rem; line-height:1;">×</button>
@@ -194,8 +194,8 @@ export const TagsPage = (props: Props) => {
                     <div style="display:flex; gap:0.25rem; margin-top: 0.25rem;">
                         <select id="sel-service-${tag.id}" style="flex:1; padding:0.25rem; font-size:0.8rem; border-radius:4px; border:1px solid #cbd5e1;">
                             <option value="">サービスを選択して追加...</option>
-                            ${props.allServices.map((a:any) => {
-                                const isLinked = props.serviceTagsMap.some((at:any) => at.tag_id === tag.id && at.service_id === a.id);
+                            ${props.allServices.map(a => {
+                                const isLinked = props.serviceTagsMap.some(at => at.tag_id === tag.id && at.service_id === a.id);
                                 if (isLinked) return '';
                                 return html`<option value="${a.id}">${a.name}</option>`
                             })}

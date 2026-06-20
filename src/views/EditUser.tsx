@@ -1,6 +1,13 @@
 import { Layout } from './Layout'
+import { User } from '../types'
+import { dict } from '../i18n'
 
-export const EditUser = (props: { t: any, user: any }) => {
+interface Props {
+  t: typeof dict.en
+  user: User
+}
+
+export const EditUser = (props: Props) => {
   return (
     <Layout title={props.t.edit} lang={props.t.lang || 'ja'}>
       <nav><ul><li><a href="/admin">{props.t.cancel}</a></li></ul></nav>

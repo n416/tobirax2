@@ -587,21 +587,34 @@ app.get('/account', async (c) => {
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
     const msgKey = c.req.query('msg')
-    const message = msgKey && (t as any)[msgKey] ? (t as any)[msgKey] : undefined
+    const message = msgKey && msgKey in t ? (t as Record<string, string>)[msgKey] : undefined
 
     const now = Math.floor(Date.now() / 1000)
+    type AccountMembershipRow = {
+        group_id: string
+        group_name: string
+        is_group_admin: number
+        is_billing_admin: number
+        is_developer: number
+    }
     const { results: memberships } = await c.env.DB.prepare(`
         SELECT m.group_id, g.name AS group_name, m.is_group_admin, m.is_billing_admin, m.is_developer
         FROM group_memberships m JOIN groups g ON g.id = m.group_id
         WHERE m.user_id = ? AND m.valid_from <= ? AND m.valid_to >= ?
         ORDER BY g.name
-    `).bind(user.id, now, now).all()
+    `).bind(user.id, now, now).all<AccountMembershipRow>()
+    type AccountRoleAppRow = {
+        group_id: string
+        role_type: 'group_admin' | 'billing_admin' | 'developer'
+        status: string
+        admin_reason: string | null
+    }
     const { results: myApps } = await c.env.DB.prepare(
         "SELECT group_id, role_type, status, admin_reason FROM role_applications WHERE user_id = ? AND status IN ('pending','rejected')"
-    ).bind(user.id).all()
+    ).bind(user.id).all<AccountRoleAppRow>()
     const appMap: Record<string, { status: string; admin_reason: string | null }> = {}
-    for (const a of (myApps as any[])) appMap[a.group_id + '|' + a.role_type] = { status: a.status, admin_reason: a.admin_reason }
-    const myMemberships = (memberships as any[]).map(m => ({
+    for (const a of myApps) appMap[a.group_id + '|' + a.role_type] = { status: a.status, admin_reason: a.admin_reason }
+    const myMemberships = memberships.map(m => ({
         group_id: m.group_id,
         group_name: m.group_name,
         is_group_admin: !!m.is_group_admin,
