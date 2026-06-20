@@ -1,3 +1,5 @@
+import type { Context } from 'hono'
+
 export interface Env {
   DB: D1Database
   ENVIRONMENT?: string
@@ -7,6 +9,11 @@ export interface Env {
   // 本番では Worker のシークレットとして設定し、ローカルでは開発用の値にフォールバックする。
   OIDC_KEK?: string
 }
+
+// アプリ共通の Hono コンテキスト型。DB ハンドラ群が受け取る c の型(従来は c: any)。
+// 各ルーターは new Hono<{ Bindings: Env }>() で生成しているのでこれに揃える。
+export type AppContext = Context<{ Bindings: Env }>
+
 
 export interface User {
   id: string

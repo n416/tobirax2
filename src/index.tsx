@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { csrf } from 'hono/csrf'
 import { html } from 'hono/html'
-import { Env, User, App, Session, Permission, Group, AuthCode, SystemConfig } from './types'
+import { Env, User, App, Session, Permission, Group, AuthCode, SystemConfig, AppContext } from './types'
 import { verifyPassword, hashPassword, generateToken, getCookieOptions, validatePassword, BCRYPT_COST, getBcryptCost, hashToken } from './utils/auth'
 import { generateSecret, generateQRCode, verifyToken } from './utils/totp'
 import { encryptSecret, decryptSecret } from './utils/secretbox'
@@ -103,7 +103,7 @@ export async function handleIconUpload(body: any): Promise<string | null> {
 // ------------------------------------------------------------------
 // 権限ロジック
 // ------------------------------------------------------------------
-export async function checkPermission(c: any, userId: string, appId: string): Promise<{ allowed: boolean, reason?: string }> {
+export async function checkPermission(c: AppContext, userId: string, appId: string): Promise<{ allowed: boolean, reason?: string }> {
     const now = Math.floor(Date.now() / 1000)
 
     const app = await c.env.DB.prepare('SELECT status FROM apps WHERE id = ?').bind(appId).first() as App | null
@@ -167,7 +167,7 @@ export async function rateLimit(db: D1Database, key: string, limit: number, wind
     return true
 }
 
-export async function getAdmin(c: any) {
+export async function getAdmin(c: AppContext) {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
     const hashedSessionId = await hashToken(sessionId)
@@ -181,7 +181,7 @@ export async function getAdmin(c: any) {
     return null
 }
 
-export async function getUser(c: any) {
+export async function getUser(c: AppContext) {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
     const hashedSessionId = await hashToken(sessionId)
@@ -193,7 +193,7 @@ export async function getUser(c: any) {
 // ユーザー取得 + 委任管理ポータルへの導線判定をまとめて返す。ユーザー向け画面で共通利用。
 //   group_admin(運用担当)だけでなく billing_admin(決済権者)もポータルを使うため、
 //   どちらかのロールを持てばナビにポータルリンクを出す。
-async function getUserCtx(c: any): Promise<{ user: User; isGroupAdmin: boolean } | null> {
+async function getUserCtx(c: AppContext): Promise<{ user: User; isGroupAdmin: boolean } | null> {
     const user = await getUser(c)
     if (!user) return null
     const now = Math.floor(Date.now() / 1000)
@@ -208,7 +208,7 @@ async function getUserCtx(c: any): Promise<{ user: User; isGroupAdmin: boolean }
 //   「グループのツリーは管理の委任構造」という思想に従い、親グループの管理者は配下支店も管理できる。
 //   (サービス利用権の自動継承なし=ゲート②③とは別レイヤ。これは"管理権限"の話で、委任構造はツリーで降りる。)
 //   委任系の全エンドポイントはこの集合で「操作対象グループが配下か」を必ず検証する。
-export async function getManagedGroupIds(c: any, userId: string): Promise<Set<string>> {
+export async function getManagedGroupIds(c: AppContext, userId: string): Promise<Set<string>> {
     const now = Math.floor(Date.now() / 1000)
     // 運用担当(group_admin)に加え、決済権者(billing_admin)も割当画面を操作できる。
     // どちらのロールも自分のグループ + その子孫(サブツリー)を管理対象に持つ。
@@ -241,7 +241,7 @@ export async function getManagedGroupIds(c: any, userId: string): Promise<Set<st
 //   + その子孫(サブツリー)すべて。利用枠(Grant)の分配・移動は予算と直結するため、
 //   運用担当(group_admin)とは別ロールで守る。getManagedGroupIds と同じツリー走査だが
 //   ロール条件のみ 'billing_admin' に絞る。
-export async function getBillingGroupIds(c: any, userId: string): Promise<Set<string>> {
+export async function getBillingGroupIds(c: AppContext, userId: string): Promise<Set<string>> {
     const now = Math.floor(Date.now() / 1000)
     const { results: adminRows } = await c.env.DB.prepare(
         `SELECT group_id FROM group_memberships WHERE user_id = ? AND is_billing_admin = 1 AND valid_from <= ? AND valid_to >= ?`
@@ -269,7 +269,7 @@ export async function getBillingGroupIds(c: any, userId: string): Promise<Set<st
 // 利用者割当(ゲート③)の中核ロジック: ゲート②(利用枠)確認 + 席数上限チェック + upsert。
 //   戻り値 'no_grant'(利用枠なし) / 'seat'(席数超過) / 'ok'。呼び出し側(運営者/委任)で
 //   結果を表示に変換する。運営者ルートと委任ルートで共通利用し、判定の二重管理を防ぐ。
-export async function createAssignment(c: any, p: { userId: string; groupId: string; serviceId: string; facilityId: string | null; roleId: number | null; validFrom: number; validTo: number }): Promise<'no_grant' | 'seat' | 'ok'> {
+export async function createAssignment(c: AppContext, p: { userId: string; groupId: string; serviceId: string; facilityId: string | null; roleId: number | null; validFrom: number; validTo: number }): Promise<'no_grant' | 'seat' | 'ok'> {
     // ゲート②: このグループ×サービスの利用枠が無ければ割当不可。
     // ただし、自グループが所有する「active」なサービスは無条件で利用可能(自作ツールのため)。
     const grant = await c.env.DB.prepare('SELECT * FROM group_service_grants WHERE group_id = ? AND service_id = ?')
@@ -348,7 +348,7 @@ export async function createAssignment(c: any, p: { userId: string; groupId: str
 //     ① group_memberships(同 user×group が now 有効) を INNER JOIN、
 //     ② group_service_grants(同 group×service が now 有効) を INNER JOIN、
 //     表示用に groups / facilities / service_role_master を JOIN する。
-export async function getEntitlements(c: any, userId: string, serviceId: string): Promise<any[]> {
+export async function getEntitlements(c: AppContext, userId: string, serviceId: string): Promise<any[]> {
     const now = Math.floor(Date.now() / 1000)
     const { results } = await c.env.DB.prepare(`
         SELECT
@@ -390,13 +390,13 @@ export async function getEntitlements(c: any, userId: string, serviceId: string)
 }
 
 // 監査ログを1行記録する。details は i18n キー方式({ key, params }) で保存する。
-export async function logAudit(c: any, eventType: string, details: object, userId?: string | null, appId?: string | null) {
+export async function logAudit(c: AppContext, eventType: string, details: object, userId?: string | null, appId?: string | null) {
     await writeAuditLog(c, eventType, details, userId, appId)
 }
 
 // サービス削除の連鎖。サービスに紐づく契約・利用枠・役割マスタ・割当をまとめて掃除する。
 // (提供企業削除→各サービス削除でも使う)
-export async function deleteServiceCascade(c: any, serviceId: string) {
+export async function deleteServiceCascade(c: AppContext, serviceId: string) {
     await c.env.DB.batch([
         c.env.DB.prepare('DELETE FROM service_user_assignments WHERE service_id = ?').bind(serviceId),
         c.env.DB.prepare('DELETE FROM service_role_master WHERE service_id = ?').bind(serviceId),
@@ -410,7 +410,7 @@ export async function deleteServiceCascade(c: any, serviceId: string) {
 // グループ管理者が自グループのサービスを作るとき、services.provider_id(NOT NULL)を満たす
 // ための「提供企業」をグループごとに用意する。提供企業=そのグループ自身という意味づけで、
 // id は決め打ち(grp-prov:<group_id>)・名称はグループ名にする。既にあれば再利用する。
-export async function ensureGroupProvider(c: any, groupId: string): Promise<string> {
+export async function ensureGroupProvider(c: AppContext, groupId: string): Promise<string> {
     const providerId = `grp-prov:${groupId}`
     const existing = await c.env.DB.prepare('SELECT id FROM service_providers WHERE id = ?').bind(providerId).first()
     if (!existing) {
@@ -423,7 +423,7 @@ export async function ensureGroupProvider(c: any, groupId: string): Promise<stri
 
 // 現在の(未失効の)セッション行を auth_time 込みで取得する。ユーザーだけでなく
 // 認証時刻が必要な箇所(OIDC /authorize)で使う。
-export async function getSessionRow(c: any): Promise<Session | null> {
+export async function getSessionRow(c: AppContext): Promise<Session | null> {
     const sessionId = getCookie(c, '__Host-idp_session')
     if (!sessionId) return null
     const hashedSessionId = await hashToken(sessionId)
@@ -433,7 +433,7 @@ export async function getSessionRow(c: any): Promise<Session | null> {
 
 // 新しいログインセッションを作成し Cookie を設定する。auth_time(実際の認証時刻)を
 // 記録するので OIDC の auth_time / max_age / prompt=login が機能する。
-async function createSession(c: any, userId: string): Promise<void> {
+async function createSession(c: AppContext, userId: string): Promise<void> {
     const sessionId = generateToken()
     const now = Math.floor(Date.now() / 1000)
     const expires = now + 86400
@@ -901,7 +901,7 @@ app.post('/user/profile', async (c) => {
 // 機密クライアント(シークレット登録済み) -> シークレット必須かつ一致が必要。
 // パブリッククライアント(シークレット未登録) -> PKCE が使われていなければならない。
 export async function authenticateClient(
-    c: any, appId: string, providedSecret: string | undefined, usedPkce: boolean
+    c: AppContext, appId: string, providedSecret: string | undefined, usedPkce: boolean
 ): Promise<{ ok: true } | { ok: false; res: Response }> {
     const app = await c.env.DB.prepare('SELECT client_secret FROM apps WHERE id = ?').bind(appId).first() as { client_secret?: string | null } | null
     const registered = app?.client_secret
@@ -921,7 +921,7 @@ export async function authenticateClient(
     return { ok: true }
 }
 
-export async function issueOidcTokens(c: any, user: User, clientId: string, nonce: string | null, scope: string | null, authTime: number | null) {
+export async function issueOidcTokens(c: AppContext, user: User, clientId: string, nonce: string | null, scope: string | null, authTime: number | null) {
     const now = Math.floor(Date.now() / 1000)
     const expiresIn = 3600
     const grantedScope = scope || 'openid'

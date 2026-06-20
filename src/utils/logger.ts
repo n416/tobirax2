@@ -1,5 +1,7 @@
+import type { AppContext } from '../types'
+
 export async function writeAuditLog(
-    c: any,
+    c: AppContext,
     eventType: string,
     details: object | string,
     userId?: string | null,

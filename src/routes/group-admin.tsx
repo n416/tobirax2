@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Env, User, App, Session } from '../types';
+import type { Env, User, App, Session, AppContext } from '../types';
 import { Layout } from '../views/admin/Layout';
 import { GroupAdminPage } from '../views/GroupAdminPage';
 import { dict, getLang, getLocalizedValue } from '../i18n';
@@ -681,7 +681,7 @@ groupAdminRouter.post('/group-admin/api/service/app/remove', async (c) => {
 // ============================================================
 
 // 申請者が「指定グループの有効なメンバー」か。申請はメンバーのみ可。
-async function isActiveMember(c: any, userId: string, groupId: string): Promise<boolean> {
+async function isActiveMember(c: AppContext, userId: string, groupId: string): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000)
     const row = await c.env.DB.prepare(
         'SELECT 1 FROM group_memberships WHERE user_id = ? AND group_id = ? AND valid_from <= ? AND valid_to >= ? LIMIT 1'
@@ -690,7 +690,7 @@ async function isActiveMember(c: any, userId: string, groupId: string): Promise<
 }
 
 // 指定グループに「有効な決裁権者」が一人でも居るか。
-async function groupHasBillingAdmin(c: any, groupId: string): Promise<boolean> {
+async function groupHasBillingAdmin(c: AppContext, groupId: string): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000)
     const row = await c.env.DB.prepare(
         'SELECT 1 FROM group_memberships WHERE group_id = ? AND is_billing_admin = 1 AND valid_from <= ? AND valid_to >= ? LIMIT 1'
@@ -701,7 +701,7 @@ async function groupHasBillingAdmin(c: any, groupId: string): Promise<boolean> {
 // caller がこのグループの申請を承認/却下できるか(ルーティング判定)。
 //   決裁権者: そのグループの有効な is_billing_admin であれば可。
 //   システム管理者: そのグループに決裁権者が一人も居ない場合のみ可。
-async function canApproveFor(c: any, callerId: string, groupId: string): Promise<boolean> {
+async function canApproveFor(c: AppContext, callerId: string, groupId: string): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000)
     const billing = await c.env.DB.prepare(
         'SELECT 1 FROM group_memberships WHERE user_id = ? AND group_id = ? AND is_billing_admin = 1 AND valid_from <= ? AND valid_to >= ? LIMIT 1'

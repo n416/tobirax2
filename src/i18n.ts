@@ -1,4 +1,4 @@
-import type { LocalizedText } from './types'
+import type { LocalizedText, AppContext } from './types'
 
 export type Language = 'en' | 'ja'
 
@@ -1098,13 +1098,13 @@ export const dict = {
 }
 
 // Accept-Language を見て表示言語の辞書を選ぶ。ja を含めば日本語、それ以外は英語(既定)。
-export const getLang = (c: any) => {
+export const getLang = (c: AppContext) => {
     const accept = c.req.header('Accept-Language') || ''
     return accept.includes('ja') ? dict.ja : dict.en
 }
 
 // LocalizedText({ ja, en }) から Accept-Language に応じた値を取り出す。
-export function getLocalizedValue(c: any, text: LocalizedText): string {
+export function getLocalizedValue(c: AppContext, text: LocalizedText): string {
     const accept = c.req.header('Accept-Language') || ''
     return accept.includes('ja') ? text.ja : text.en
 }

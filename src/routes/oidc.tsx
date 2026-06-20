@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Env, User, App, AuthCode, Session } from '../types';
+import type { Env, User, App, AuthCode, Session, AppContext } from '../types';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { getJwksKeys } from '../oidc/keys';
 import { requireSecret } from '../utils/env';
@@ -337,7 +337,7 @@ oidcRouter.get('/entitlements/me', async (c) => {
 // 特定する署名付き JWT。ここでは subject 単位でログアウトする(そのユーザーの app_sessions
 // を全て失効)ので `sid` は省略し、backchannel_logout_session_supported:false を広告する
 // — RP はこの sub の自分の全セッションをログアウトする。
-async function backchannelLogoutToken(c: any, issuer: string, clientId: string, userId: string): Promise<string> {
+async function backchannelLogoutToken(c: AppContext, issuer: string, clientId: string, userId: string): Promise<string> {
     return signRS256({
         iss: issuer,
         aud: clientId,
@@ -353,7 +353,7 @@ async function backchannelLogoutToken(c: any, issuer: string, clientId: string, 
 // (Cloudflare エラー 1042)ため、RP_<APP_ID> という名前のサービスバインディングがあれば
 // それ経由で送り、外部 RP は通常の fetch を使う。短いタイムアウトでベストエフォート —
 // 到達不能な RP でログアウトが固まってはならない。
-async function sendBackchannelLogouts(c: any, issuer: string, userId: string): Promise<void> {
+async function sendBackchannelLogouts(c: AppContext, issuer: string, userId: string): Promise<void> {
     const { results } = await c.env.DB.prepare(
         `SELECT DISTINCT a.id AS app_id, a.backchannel_logout_uri AS uri
            FROM app_sessions s JOIN apps a ON a.id = s.app_id

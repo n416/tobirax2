@@ -1,7 +1,7 @@
 // OIDC / OAuth2 の純粋ヘルパ群。DB アクセス・ルートハンドラ・JSX ビューに依存しない、
 // 仕様準拠の判定・整形ロジックだけをここに集める。元は src/index.tsx に同居していたが、
 // ユニットテスト時にアプリ全体を import せずに済むよう切り出した(振る舞いは不変)。
-import { User } from '../types'
+import { User, type AppContext } from '../types'
 
 // クライアントに登録された redirect_uris(改行区切り)を配列にパースする。
 function parseRedirectUris(raw: string | null | undefined): string[] {
@@ -51,14 +51,14 @@ export function buildRedirect(redirectUri: string, mode: string | undefined, par
     return redirectUri + sep + usp.toString()
 }
 
-export function tokenError(c: any, error: string, description: string, status: 400 | 401 = 400) {
+export function tokenError(c: AppContext, error: string, description: string, status: 400 | 401 = 400) {
     return c.json({ error, error_description: description }, status)
 }
 
 // RFC 6750 §3: Bearer で保護されたリソースは、失敗したリクエストに WWW-Authenticate
 // チャレンジを返さなければならない。認証情報が一切無い場合はチャレンジから error コードを
 // 省略し、無効/失効トークンには error="invalid_token" を付ける。
-export function bearerUnauthorized(c: any, error?: string, description?: string) {
+export function bearerUnauthorized(c: AppContext, error?: string, description?: string) {
     let challenge = 'Bearer realm="tobira"'
     if (error) {
         challenge += `, error="${error}"`
@@ -77,7 +77,7 @@ export function safeEqual(a: string, b: string): boolean {
 }
 
 // Authorization ヘッダから client_secret_basic の資格情報を(あれば)取り出す。
-export function parseBasicAuth(c: any): { clientId?: string; secret?: string } {
+export function parseBasicAuth(c: AppContext): { clientId?: string; secret?: string } {
     const authz = c.req.header('Authorization')
     if (!authz || !authz.startsWith('Basic ')) return {}
     try {
@@ -89,7 +89,7 @@ export function parseBasicAuth(c: any): { clientId?: string; secret?: string } {
     }
 }
 
-export async function parseClientBody(c: any): Promise<Record<string, string>> {
+export async function parseClientBody(c: AppContext): Promise<Record<string, string>> {
     const ct = c.req.header('Content-Type') || ''
     if (ct.includes('application/json')) return (await c.req.json().catch(() => ({}))) as any
     const body = await c.req.parseBody()
