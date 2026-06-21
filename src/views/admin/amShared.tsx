@@ -1,4 +1,4 @@
-import { html } from 'hono/html'
+import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 
 // アカウントマネージャ各画面で共通利用する見た目部品。
@@ -54,7 +54,7 @@ export const amSectionHead = (title: string, subtitle: string, action?: any) => 
 export const amDeleteForm = (action: string, id: string, confirmMsg: string, deleteTitle: string) => html`
   <form method="POST" action="${action}" style="margin:0;">
     <input type="hidden" name="id" value="${id}" />
-    <button type="button" class="${amDeleteBtn}" title="${deleteTitle}" onclick="window.showConfirm(${JSON.stringify(confirmMsg)}, () => this.closest('form').submit())">
+    <button type="button" class="${amDeleteBtn}" title="${deleteTitle}" data-action="delete-confirm" data-confirm-msg="${confirmMsg}">
       <span class="material-symbols-outlined">delete</span>
     </button>
   </form>
@@ -67,20 +67,36 @@ export const plusYearStr = (n: number) => {
   return d.toISOString().split('T')[0]
 }
 
-export const amApproveBtn = (title: string, onclick?: string) => html`
-  <button ${onclick ? html`type="button" onclick="${onclick}"` : html`type="submit"`} 
-    style="display:inline-flex; align-items:center; justify-content:center; gap:0.4rem; background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:background 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.05); white-space:nowrap;"
-    onmouseover="this.style.background='#15803d';" onmouseout="this.style.background='#16a34a';" title="${title}">
-    <span class="material-symbols-outlined" style="font-size:18px;">check_circle</span>
-    ${title}
-  </button>
-`
+export const amApproveBtn = (title: string, attr?: Record<string, string>) => {
+  const approveBtnStyle = css`
+    display:inline-flex; align-items:center; justify-content:center; gap:0.4rem; background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:background 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.05); white-space:nowrap;
+    &:hover { background:#15803d; }
+  `
+  const attrs = attr 
+    ? html`${raw(Object.entries(attr).map(([k, v]) => `${k}="${v}"`).join(' '))}`
+    : ''
 
-export const amRejectBtn = (title: string, onclick?: string) => html`
-  <button ${onclick ? html`type="button" onclick="${onclick}"` : html`type="submit"`} 
-    style="display:inline-flex; align-items:center; justify-content:center; gap:0.4rem; background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.02); white-space:nowrap;"
-    onmouseover="this.style.background='#fef2f2'; this.style.borderColor='#f87171';" onmouseout="this.style.background='#fff'; this.style.borderColor='#fecaca';" title="${title}">
-    <span class="material-symbols-outlined" style="font-size:18px;">cancel</span>
-    ${title}
-  </button>
-`
+  return html`
+    <button type="button" class="${approveBtnStyle}" ${attrs} title="${title}">
+      <span class="material-symbols-outlined" style="font-size:18px;">check_circle</span>
+      ${title}
+    </button>
+  `
+}
+
+export const amRejectBtn = (title: string, attr?: Record<string, string>) => {
+  const rejectBtnStyle = css`
+    display:inline-flex; align-items:center; justify-content:center; gap:0.4rem; background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; box-shadow:0 1px 2px rgba(0,0,0,0.02); white-space:nowrap;
+    &:hover { background:#fef2f2; border-color:#f87171; }
+  `
+  const attrs = attr 
+    ? html`${raw(Object.entries(attr).map(([k, v]) => `${k}="${v}"`).join(' '))}`
+    : ''
+
+  return html`
+    <button type="button" class="${rejectBtnStyle}" ${attrs} title="${title}">
+      <span class="material-symbols-outlined" style="font-size:18px;">cancel</span>
+      ${title}
+    </button>
+  `
+}

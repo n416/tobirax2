@@ -42,23 +42,67 @@ admin 変更系ルートの網羅監査程度（下記スコープ留保）。
   SQL は全て prepared statement（バインド）
 - **CSRF**: HTML フォーム系を `hono/csrf` で保護（OIDC マシン向けエンドポイントは設計どおり除外）
 - **セキュリティヘッダ**: `secureHeaders()` で X-Frame-Options / nosniff / HSTS / Referrer-Policy 等を付与
-  （commit b27fc67）
+  （commit b27fc67）。**CSP も付与済み**（下記「対応済み」参照）
+
+## 対応済み（本監査の優先課題2件）
+
+### A. CSP 整備（commit 予定）
+
+`src/index.tsx` の `secureHeaders()` に Content-Security-Policy を追加した。本アプリは全画面で
+インライン `<script>` と `onclick` 等のインラインイベントハンドラ（計160超）に依存しており、
+CSP3 で script-src に nonce/hash を入れると `'unsafe-inline'` が無効化され、これら onclick が
+一斉に壊れる。全ハンドラの `addEventListener` 化は未テスト UI への大規模改修となるため別タスクとし、
+**script-src は当面 `'unsafe-inline'` を残しつつ、それ以外の高効果・非破壊なディレクティブを締める**
+実利優先の方針を採った（XSS の一次防御は `hono/html` の自動エスケープで既に成立）。
+
+付与したポリシー:
+```
+default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self';
+form-action 'self'; connect-src 'self';
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
+font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:
+```
+- `object-src 'none'`（プラグイン全面禁止）/ `base-uri 'self'`（`<base>` 乗っ取り遮断）/
+  `frame-ancestors 'self'`（クリックジャッキング遮断・既存 X-Frame-Options:SAMEORIGIN と整合）/
+  `form-action 'self'`（フォーム送信先を自オリジンに限定）を新たに enforce。
+- 外部依存は Google Fonts と tom-select(jsdelivr) のみで全て allowlist 済み。検証で
+  全外部参照を grep し、未許可オリジンが無いことを確認。
+- `form-action 'self'` の安全性: OIDC 応答は `buildRedirect` による 302 redirect のみで
+  form_post 自動 POST は未実装のため、RP への正常リダイレクトを阻害しない。
+- 検証: `tsc --noEmit` 通過。`wrangler dev` で `/login`（HTML）に CSP ヘッダが乗ること、
+  `/.well-known/jwks.json`（マシン向け）が 200 を維持することを確認。
+- **残課題（既知）**: 理想は nonce/hash 化による `'unsafe-inline'` 撤廃。インラインハンドラの
+  `addEventListener` 移植を伴うため、回帰網の整備とセットで別タスク。
+
+### B. admin 変更系ルートの認可・網羅監査（完了・指摘なし）
+
+`routes/admin.tsx` の全 73 ルートを1本ずつ確認した。`getAdmin(c)` は**システム管理者の単一
+グローバルロール**（`admins` テーブルにメールが在るか）であり、管理者間の権限細分は無い。よって
+本ファイルの IDOR 観点は「全変更系が副作用の**前**にガードして離脱しているか」に帰着する。
+
+- 保護対象 67 ルートはすべて先頭で `const user = await getAdmin(c); if (!user) return …`
+  （または `if (!await getAdmin(c)) return c.json(...,401)`）を実行し、**副作用の前に離脱**する。
+  全 `getAdmin` 代入の直後行が必ず `if (!user)` であることを機械的に走査し、抜けが無いことを確認。
+- ガード無しの 6 ルートは `/invite`・`/forgot-password`・`/reset-password`（各 GET+POST）で、
+  いずれもトークンベースの**正当な公開フロー**。`hono/csrf` で保護される。
+- `:id` を取る JSON 取得系（user/group/facility 詳細）も `getAdmin` ガード下にあり、グローバル
+  管理者前提のため情報漏えい経路は無い。SQL は全てバインド済み。
+- **結論: 認可の穴は検出されず。** スコープ留保だった本項目はクローズ。
 
 ## 軽微な指摘（いずれも非 HIGH・即時対応不要）
 
 1. **`pre_2fa_token` の `role` 未検証** — `/login/2fa` は JWT を `verify` するが `role === 'pre_2fa'` を
    確認していない。ただし JWT_SECRET で署名されるトークンはこの pre_2fa_token が**唯一**であり、
    かつ 2FA 突破には TOTP コードが依然必須なため**悪用不可**（防御の厚みとして role 検証を足すと尚良）。
-2. **CSP 未設定** — 生成クライアント JS を HTML にインライン埋め込みする構成のため、nonce/hash 整備を
-   伴う別タスク（既知・保留）。
+2. ~~**CSP 未設定**~~ → **対応済み**（上記 A）。`'unsafe-inline'` 撤廃は引き続き残課題。
 3. **CORP / COOP 無効** — クロスオリジンで叩かれる OIDC メタデータ/RP フローの阻害回避のため意図的。
    将来、エンドポイント別に厳格化する余地あり。
 4. **HSTS max-age が約180日** — 1 年＋preload も検討余地（微）。
 
 ## スコープ留保（未カバー / 次の監査候補）
 
-- `routes/admin.tsx` の**変更系73ルートの認可ロジックを1本ずつ**は追い切れていない（`getAdmin` ガードの
-  存在は確認済みだが、各ハンドラ内の対象スコープ検証までは個別未確認）。
+- ~~`routes/admin.tsx` の変更系73ルートの認可ロジックを1本ずつ~~ → **完了**（上記 B）。
 - `src/client/**`（ブラウザ glue）と DaaS エンタイトルメント判定の細部。
 - 第三者 pentest は未実施。
 
@@ -66,4 +110,5 @@ admin 変更系ルートの網羅監査程度（下記スコープ留保）。
 
 コア（認証・セッション・トークン・2FA・パスワード・委任 IDOR）に穴は見つからず、設計・実装とも
 一貫して堅牢。「製品レベルか」への回答として、**セキュリティ面では Yes（製品級）**。
-優先度の高い残課題は CSP 整備と admin 変更系の網羅監査。
+優先度の高かった残課題（CSP 整備・admin 変更系の網羅監査）は本監査で**いずれも対応済み**。
+残るは `'unsafe-inline'` 撤廃（nonce/hash 化）と第三者 pentest 程度。

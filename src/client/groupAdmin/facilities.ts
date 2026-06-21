@@ -60,7 +60,7 @@ window.renderFacilities = function() {
             + '<td>' + fNo + '</td>'
             + '<td>' + fUse + '</td>'
             + '<td style="text-align:right;">'
-            + '<button type="button" onclick="removeFacility(\'' + f.id + '\')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>'
+            + '<button type="button" data-action="remove-facility" data-id="' + f.id + '" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>'
             + '</td>'
             + '</tr>';
     }).join('');

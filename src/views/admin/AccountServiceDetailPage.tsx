@@ -18,6 +18,7 @@ interface Props {
   service: Service & { provider_name?: string }
   roles: ServiceRole[]
   error?: string
+  nonce?: string
 }
 
 export const AccountServiceDetailPage = (props: Props) => {
@@ -27,6 +28,7 @@ export const AccountServiceDetailPage = (props: Props) => {
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-services',
     siteName: props.siteName, appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       ${props.error ? html`<div style="padding:1rem; margin-bottom:1rem; background:#fee2e2; color:#b91c1c; border-radius:4px;">${props.error}</div>` : ''}
 
@@ -46,7 +48,7 @@ export const AccountServiceDetailPage = (props: Props) => {
       <div>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
           <h3 class="${amSectionHead}" style="margin:0;">${t.am_label_role}</h3>
-          ${Button({ onclick: "document.getElementById('new-role-modal').showModal()", style: "width:auto; margin:0;",
+          ${Button({ attr: { 'data-action': 'open-new-role-modal' }, style: "width:auto; margin:0;",
             children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> 役割を追加` })}
         </div>
         <div class="${amListGrid}">
@@ -67,6 +69,7 @@ export const AccountServiceDetailPage = (props: Props) => {
       <!-- Modals -->
       ${Modal({
         id: 'new-role-modal', title: '役割を追加', closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
           <form method="POST" action="/admin/am/roles">
             <input type="hidden" name="service_id" value="${s.id}" />
@@ -79,6 +82,38 @@ export const AccountServiceDetailPage = (props: Props) => {
             <div style="margin-top:1rem;">${Button({ type: 'submit', children: t.save })}</div>
           </form>`,
       })}
+
+      <script nonce="${props.nonce}">
+        document.addEventListener('DOMContentLoaded', function() {
+          document.addEventListener('click', function(e) {
+            var target = e.target;
+            if (!target) return;
+
+            var actionBtn = target.closest('[data-action]');
+            if (actionBtn) {
+              var action = actionBtn.getAttribute('data-action');
+              var id = actionBtn.getAttribute('data-id');
+
+              if (action === 'open-new-role-modal') {
+                var m = document.getElementById('new-role-modal');
+                if (m) m.showModal();
+                return;
+              }
+              if (action === 'delete-confirm') {
+                e.preventDefault();
+                var msg = actionBtn.getAttribute('data-confirm-msg') || '本当に削除しますか？';
+                var form = actionBtn.closest('form');
+                if (form && window.showConfirm) {
+                  window.showConfirm(msg, function() {
+                    form.submit();
+                  });
+                }
+                return;
+              }
+            }
+          });
+        });
+      </script>
     `
   })
 }

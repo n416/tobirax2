@@ -32,6 +32,7 @@ interface Props {
   serviceTagsMap: ServiceTagMap[]
   siteName: string
   appConfig: SystemConfig
+  nonce?: string
 }
 
 export const TagsPage = (props: Props) => {
@@ -63,11 +64,12 @@ export const TagsPage = (props: Props) => {
     activeTab: 'tags',
     siteName: props.siteName,
     appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
         <h2 style="margin-bottom: 0;">${t.nav_tags || 'タグ管理'}</h2>
         ${Button({
-            onclick: "document.getElementById('new-tag-modal').showModal()",
+            attr: { 'data-action': 'open-new-tag-modal' },
             style: "width: auto; margin-bottom: 0;",
             children: html`<span class="material-symbols-outlined" style="font-size: 18px;">add</span> ${t.btn_add_tag || 'タグ追加'}`
         })}
@@ -77,6 +79,7 @@ export const TagsPage = (props: Props) => {
         id: "new-tag-modal",
         title: t.btn_add_tag || 'タグ追加',
         closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
               <form method="POST" action="/admin/tags/create">
                 <div class="grid-vertical" style="display:flex; flex-direction:column; gap:1.5rem;">
@@ -113,10 +116,7 @@ export const TagsPage = (props: Props) => {
       </form>
       <form id="remove-service-tag-form" method="POST" action="/admin/tags/service/remove">
         <input type="hidden" name="service_id" value="" />
-        <input type="hidden" name="tag_id" value="" />
-      </form>
-
-      ${props.pendingServiceTags.length > 0 ? html`
+        <input type="hidden" name="tag_id"       ${props.pendingServiceTags.length > 0 ? html`
           <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.25rem;">サービスへのタグ付け申請 (承認待ち)</h3>
           <div class="${listGrid}" style="margin-bottom: 2rem;">
             ${props.pendingServiceTags.map(at => html`
@@ -125,10 +125,10 @@ export const TagsPage = (props: Props) => {
                 <div style="font-size: 0.85rem; color: #475569;">サービス: ${at.service_name}</div>
                 <div style="font-size: 0.85rem; color: #475569;">申請元グループ: ${at.requesting_group_name || '-'}</div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
-                    <button type="button" onclick="document.getElementById('approve-service-tag-form').querySelector('input[name=id]').value='${at.id}'; document.getElementById('approve-service-tag-form').submit();" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                    <button type="button" data-action="approve-service-tag" data-id="${at.id}" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                         ${t.btn_approve || 'Approve'}
                     </button>
-                    <button type="button" onclick="document.getElementById('reject-service-tag-form').querySelector('input[name=id]').value='${at.id}'; document.getElementById('reject-service-tag-form').submit();" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                    <button type="button" data-action="reject-service-tag" data-id="${at.id}" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                         ${t.btn_reject || 'Reject'}
                     </button>
                 </div>
@@ -162,15 +162,15 @@ export const TagsPage = (props: Props) => {
             <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; border-top: 1px solid #e2e8f0; padding-top: 0.5rem;">
                 ${tag.status === 'pending'
                     ? html`
-                        <button type="button" onclick="document.getElementById('approve-tag-form').querySelector('input[name=id]').value='${tag.id}'; document.getElementById('approve-tag-form').submit();" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                        <button type="button" data-action="approve-tag" data-id="${tag.id}" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                             ${t.btn_approve || 'Approve'}
                         </button>
-                        <button type="button" onclick="document.getElementById('reject-tag-form').querySelector('input[name=id]').value='${tag.id}'; document.getElementById('reject-tag-form').submit();" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                        <button type="button" data-action="reject-tag" data-id="${tag.id}" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                             ${t.btn_reject || 'Reject'}
                         </button>`
                     : ''}
 
-                <button type="button" onclick="window.showConfirm('削除しますか？紐付けも解除されます。', () => { document.getElementById('delete-tag-form').querySelector('input[name=id]').value='${tag.id}'; document.getElementById('delete-tag-form').submit(); })" style="background:transparent; color:#ef4444; border:none; border-radius:8px; padding:0.4rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center;" title="${t.delete || 'Delete'}">
+                <button type="button" data-action="delete-tag" data-id="${tag.id}" style="background:transparent; color:#ef4444; border:none; border-radius:8px; padding:0.4rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center;" title="${t.delete || 'Delete'}">
                     <span class="material-symbols-outlined">delete</span>
                 </button>
             </div>
@@ -185,7 +185,7 @@ export const TagsPage = (props: Props) => {
                     ${props.serviceTagsMap.filter(at => at.tag_id === tag.id).map(at => html`
                         <span style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.75rem; padding:2px 6px; border-radius:999px; background:${at.status === 'active' ? '#f1f5f9' : '#fff7ed'}; color:#334155; border:1px solid #cbd5e1;">
                             ${at.service_name} ${at.status === 'pending' ? '(申請中)' : ''}
-                            <button type="button" onclick="window.showConfirm('このサービスからタグを外しますか？', () => { document.getElementById('remove-service-tag-form').querySelector('input[name=service_id]').value='${at.service_id}'; document.getElementById('remove-service-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-service-tag-form').submit(); })" style="background:none; border:none; color:#94a3b8; cursor:pointer; padding:0; font-size:1rem; line-height:1;">×</button>
+                            <button type="button" data-action="remove-service-tag" data-service-id="${at.service_id}" data-tag-id="${at.tag_id}" style="background:none; border:none; color:#94a3b8; cursor:pointer; padding:0; font-size:1rem; line-height:1;">×</button>
                         </span>
                     `)}
                     </div>
@@ -200,7 +200,7 @@ export const TagsPage = (props: Props) => {
                                 return html`<option value="${a.id}">${a.name}</option>`
                             })}
                         </select>
-                        <button type="button" onclick="const srvVal = document.getElementById('sel-service-${tag.id}').value; if(srvVal){ document.getElementById('add-service-tag-form').querySelector('input[name=tag_id]').value='${tag.id}'; document.getElementById('add-service-tag-form').querySelector('input[name=service_id]').value=srvVal; document.getElementById('add-service-tag-form').submit(); }" style="background:#4f46e5; color:white; border:none; border-radius:4px; padding:0 0.5rem; font-size:0.8rem; cursor:pointer;">追加</button>
+                        <button type="button" data-action="add-service-tag" data-tag-id="${tag.id}" style="background:#4f46e5; color:white; border:none; border-radius:4px; padding:0 0.5rem; font-size:0.85rem; cursor:pointer;">追加</button>
                     </div>
                 </div>
             </details>
@@ -209,6 +209,92 @@ export const TagsPage = (props: Props) => {
         `)}
       </div>
 
+      <script nonce="${props.nonce}">
+      document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('click', function(e) {
+          var target = e.target;
+          if (!target) return;
+          var btn = target.closest('[data-action]');
+          if (!btn) return;
+          var action = btn.getAttribute('data-action');
+          var id = btn.getAttribute('data-id');
+          
+          if (action === 'open-new-tag-modal') {
+            var modal = document.getElementById('new-tag-modal');
+            if (modal) modal.showModal();
+            return;
+          }
+          if (action === 'approve-service-tag') {
+            var form = document.getElementById('approve-service-tag-form');
+            if (form) {
+              form.querySelector('input[name=id]').value = id;
+              form.submit();
+            }
+            return;
+          }
+          if (action === 'reject-service-tag') {
+            var form = document.getElementById('reject-service-tag-form');
+            if (form) {
+              form.querySelector('input[name=id]').value = id;
+              form.submit();
+            }
+            return;
+          }
+          if (action === 'approve-tag') {
+            var form = document.getElementById('approve-tag-form');
+            if (form) {
+              form.querySelector('input[name=id]').value = id;
+              form.submit();
+            }
+            return;
+          }
+          if (action === 'reject-tag') {
+            var form = document.getElementById('reject-tag-form');
+            if (form) {
+              form.querySelector('input[name=id]').value = id;
+              form.submit();
+            }
+            return;
+          }
+          if (action === 'delete-tag') {
+            window.showConfirm('削除しますか？紐付けも解除されます。', function() {
+              var form = document.getElementById('delete-tag-form');
+              if (form) {
+                form.querySelector('input[name=id]').value = id;
+                form.submit();
+              }
+            });
+            return;
+          }
+          if (action === 'remove-service-tag') {
+            var serviceId = btn.getAttribute('data-service-id');
+            var tagId = btn.getAttribute('data-tag-id');
+            window.showConfirm('このサービスからタグを外しますか？', function() {
+              var form = document.getElementById('remove-service-tag-form');
+              if (form) {
+                form.querySelector('input[name=service_id]').value = serviceId;
+                form.querySelector('input[name=tag_id]').value = tagId;
+                form.submit();
+              }
+            });
+            return;
+          }
+          if (action === 'add-service-tag') {
+            var tagId = btn.getAttribute('data-tag-id');
+            var srvSelect = document.getElementById('sel-service-' + tagId);
+            if (srvSelect && srvSelect.value) {
+              var form = document.getElementById('add-service-tag-form');
+              if (form) {
+                form.querySelector('input[name=tag_id]').value = tagId;
+                form.querySelector('input[name=service_id]').value = srvSelect.value;
+                form.submit();
+              }
+            }
+            return;
+          }
+        });
+      });
+      </script>
     `
   })
 }

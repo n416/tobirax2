@@ -11,6 +11,7 @@ interface LayoutProps {
   // 'center'(既定・ログインカード向け) / 'top'(ダッシュボード等のページ向け)
   align?: 'center' | 'top'
   children: any
+  nonce?: string
 }
 
 export const Layout = (props: LayoutProps) => {
@@ -160,16 +161,16 @@ export const Layout = (props: LayoutProps) => {
       ${globalStyles}
       ${utils}
       ${filterSelectGlobalStyles}
-      ${FilterSelectScript}
+      ${FilterSelectScript(props.nonce)}
       ${confirmDialogStyles}
-      ${ConfirmDialogScript}
+      ${ConfirmDialogScript(props.nonce)}
       ${Style()} 
     </head>
     <body>
        <div class="${containerClass}">
          ${props.children}
        </div>
-       <script>
+       <script nonce="${props.nonce}">
          document.addEventListener('DOMContentLoaded', function() {
              document.querySelectorAll('.local-time').forEach(function(el) {
                  var ts = parseInt(el.getAttribute('data-timestamp'));

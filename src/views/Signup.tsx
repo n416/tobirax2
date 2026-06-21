@@ -8,6 +8,7 @@ interface Props {
   error?: string
   siteName: string
   siteSubtitle: string
+  nonce?: string
 }
 
 export const Signup = (props: Props) => {

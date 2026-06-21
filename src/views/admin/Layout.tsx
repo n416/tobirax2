@@ -14,6 +14,7 @@ interface LayoutProps {
     children: any
     siteName: string
     appConfig: SystemConfig
+    nonce?: string
 }
 
 export const Layout = (props: LayoutProps) => {
@@ -219,7 +220,7 @@ export const Layout = (props: LayoutProps) => {
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-      <script>
+      <script nonce="${props.nonce}">
           // Suppress Chrome DevTools bug spam
           window.__chromium_devtools_metrics_reporter = window.__chromium_devtools_metrics_reporter || function() {};
       </script>
@@ -227,14 +228,14 @@ export const Layout = (props: LayoutProps) => {
       <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
       ${globalOverrides}
       ${filterSelectGlobalStyles}
-      ${FilterSelectScript}
+      ${FilterSelectScript(props.nonce)}
       ${confirmDialogStyles}
-      ${ConfirmDialogScript}
+      ${ConfirmDialogScript(props.nonce)}
       ${Style()}
     </head>
     <body>
-      <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
-      <button class="${mobileToggleClass}" onclick="toggleSidebar()" aria-label="Menu">
+      <div class="sidebar-overlay" data-action="toggle-sidebar"></div>
+      <button class="${mobileToggleClass}" data-action="toggle-sidebar" aria-label="Menu">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="3" y1="12" x2="21" y2="12"></line>
             <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -245,7 +246,7 @@ export const Layout = (props: LayoutProps) => {
         <aside class="sidebar ${sidebarClass}">
             <h1>${props.siteName}</h1>
             <div class="config-link">
-                <a href="#" onclick="document.getElementById('config-modal').showModal()">${t.config_change_name || 'Change Name'}</a>
+                <a href="#" data-action="show-config-modal">${t.config_change_name || 'Change Name'}</a>
             </div>
             <nav>
                 ${navSections.map(section => html`
@@ -277,7 +278,8 @@ export const Layout = (props: LayoutProps) => {
       ${Modal({
         id: "config-modal",
         title: t.config_change_name,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeConfigModal",
+        nonce: props.nonce,
         children: html`
             <form method="POST" action="/admin/config">
                 <div class="grid-vertical" style="display:flex; flex-direction:column; gap:1.5rem;">
@@ -306,7 +308,7 @@ export const Layout = (props: LayoutProps) => {
         `
       })}
 
-      <script>
+      <script nonce="${props.nonce}">
         function toggleSidebar() {
             var sidebar = document.querySelector('.sidebar');
             if(sidebar) sidebar.classList.toggle('open');
@@ -319,6 +321,22 @@ export const Layout = (props: LayoutProps) => {
                 if (!isNaN(ts)) {
                     el.textContent = new Date(ts).toLocaleString();
                 }
+            });
+
+            // Bind events for sidebar and config modal
+            document.querySelectorAll('[data-action="toggle-sidebar"]').forEach(function(el) {
+                el.addEventListener('click', function(e) {
+                    toggleSidebar();
+                });
+            });
+            document.querySelectorAll('[data-action="show-config-modal"]').forEach(function(el) {
+                el.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var modal = document.getElementById('config-modal');
+                    if (modal && typeof modal.showModal === 'function') {
+                        modal.showModal();
+                    }
+                });
             });
         });
       </script>

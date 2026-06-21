@@ -17,14 +17,14 @@ const infoBox = css`
   display: flex; align-items: flex-start; gap: 0.75rem;
 `
 
-export const ServiceAppsModal = (t: any, apiPrefix: string) => {
+export const ServiceAppsModal = (t: any, apiPrefix: string, nonce?: string) => {
   return html`
 
     <!-- サービスへのアプリ組み込みモーダル -->
     ${Modal({
     id: 'service-apps-modal',
-    title: t.ga_svc_manage_apps || 'アプリを管理',
-    closeAction: "this.closest('.custom-modal').close()",
+    title: t.ga_svc_manage_apps || 'アプリの管理',
+    nonce: nonce,
     children: html`
         <div style="display:flex; flex-direction:column; gap:1.25rem;">
           <input type="hidden" id="sa-service-id" />
@@ -45,13 +45,13 @@ export const ServiceAppsModal = (t: any, apiPrefix: string) => {
             </div>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
               <select id="sa-app" class="${selectInput}"></select>
-              ${Button({ onclick: "addServiceApp()", children: html`<span class="material-symbols-outlined">add_link</span> 組み込む` })}
+              ${Button({ attr: { "data-action": "add-service-app" }, children: html`<span class="material-symbols-outlined">add_link</span> 組み込む` })}
             </div>
           </div>
         </div>
       `
   })}
-    <script>
+    <script nonce="${nonce}">
       ${raw(serviceAppsModalClientScript)}
     </script>
   `

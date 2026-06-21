@@ -71,7 +71,78 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+
+    const actionBtn = target.closest('[data-action]') as HTMLElement | null;
+    if (actionBtn) {
+      const action = actionBtn.getAttribute('data-action');
+      if (action === 'open-new-group-modal') {
+        const m = document.getElementById('new-group-modal') as CustomModalElement | null;
+        if (m) m.showModal();
+        return;
+      }
+      if (action === 'delete-group') {
+        e.stopPropagation();
+        const gid = actionBtn.getAttribute('data-group-id');
+        if (gid && window.deleteGroup) {
+          window.deleteGroup(gid);
+        }
+        return;
+      }
+      if (action === 'calc-date') {
+        const targetId = actionBtn.getAttribute('data-target') || '';
+        const amount = Number(actionBtn.getAttribute('data-amount') || '0');
+        const unit = actionBtn.getAttribute('data-unit') || '';
+        if (window.calcGroupDate) {
+          window.calcGroupDate(targetId, amount, unit);
+        }
+        return;
+      }
+      if (action === 'grant-permission') {
+        if (window.grantGroupPermission) window.grantGroupPermission();
+        return;
+      }
+      if (action === 'close-revoke-modal') {
+        if (window.closeRevokeModal) window.closeRevokeModal();
+        return;
+      }
+      if (action === 'execute-revoke') {
+        if (window.executeRevoke) window.executeRevoke();
+        return;
+      }
+      if (action === 'close-delete-modal') {
+        if (window.closeDeleteModal) window.closeDeleteModal();
+        return;
+      }
+      if (action === 'execute-delete') {
+        if (window.executeDelete) window.executeDelete();
+        return;
+      }
+      if (action === 'close-overwrite-modal') {
+        const om = document.getElementById('overwrite-confirm-modal') as CustomModalElement | null;
+        if (om) om.close();
+        return;
+      }
+      if (action === 'execute-overwrite') {
+        if (window._executeOverwrite) window._executeOverwrite();
+        return;
+      }
+    }
+
+    const card = target.closest('.list-card-clickable') as HTMLElement | null;
+    if (card && !target.closest('button')) {
+      const id = card.getAttribute('data-id') || '';
+      const name = card.getAttribute('data-name') || '';
+      if (window.openGroupModal) {
+        window.openGroupModal(id, name);
+      }
+    }
+  });
 });
+
 
 const gModal = document.getElementById('group-modal') as CustomModalElement | null;
 

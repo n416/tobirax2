@@ -34,6 +34,7 @@ interface Props {
   message?: string
   isGroupAdmin?: boolean
   myMemberships?: MyMembership[]
+  nonce?: string
 }
 
 // プロフィール編集 + セキュリティ(2段階認証 / パスワード変更)の専用画面。
@@ -133,7 +134,7 @@ export const AccountPage = (props: Props) => {
       const rejected = !!(app && app.status === 'rejected')
       right = html`
         ${rejected ? html`<span title="${app!.admin_reason || ''}" style="font-size:0.75rem; color:#b91c1c; margin-right:0.5rem; cursor:help;">${t.ud_role_rejected}</span>` : ''}
-        <button type="button" onclick="openApplyModal('${groupId}','${roleType}','${label}')" style="font-size:0.82rem; font-weight:700; color:var(--primary); background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; padding:0.35rem 0.85rem; cursor:pointer;">${rejected ? t.ud_role_reapply : t.ud_role_apply}</button>
+        <button type="button" data-action="open-apply-modal" data-group-id="${groupId}" data-role-type="${roleType}" data-role-label="${label}" style="font-size:0.82rem; font-weight:700; color:var(--primary); background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; padding:0.35rem 0.85rem; cursor:pointer;">${rejected ? t.ud_role_reapply : t.ud_role_apply}</button>
       `
     }
     return html`<div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.35rem 0;">
@@ -150,6 +151,7 @@ export const AccountPage = (props: Props) => {
     lang: t.lang,
     width: 1000,
     align: 'top',
+    nonce: props.nonce,
     children: html`
         ${UserTopbar({
           t, siteName: props.siteName, userEmail: props.userEmail, active: 'account',
@@ -219,7 +221,7 @@ export const AccountPage = (props: Props) => {
             </div>
             <div>
               ${props.has2FA
-                ? Button({ type: "button", variant: "danger", onclick: "document.getElementById('disable-2fa-modal').showModal()", children: html`<span class="material-symbols-outlined">lock_open</span>${t.btn_disable_2fa}`, style: "width: auto; padding: 0.5rem 1rem;" })
+                ? Button({ type: "button", variant: "danger", attr: { "data-action": "show-disable-2fa-modal" }, children: html`<span class="material-symbols-outlined">lock_open</span>${t.btn_disable_2fa}`, style: "width: auto; padding: 0.5rem 1rem;" })
                 : Button({ href: "/user/2fa/setup", children: html`<span class="material-symbols-outlined">add_moderator</span>${t.btn_setup_2fa}`, style: "width: auto; padding: 0.5rem 1rem;" })}
             </div>
           </div>
@@ -237,7 +239,7 @@ export const AccountPage = (props: Props) => {
         ${Modal({
           id: "disable-2fa-modal",
           title: html`<span style="color:#d97706; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.btn_disable_2fa}</span>`,
-          closeAction: "this.closest('.custom-modal').close()",
+          nonce: props.nonce,
           children: html`
             <form id="disable-2fa-form" method="POST" action="/user/2fa/disable" style="margin:0;">
               <div style="margin-bottom: 1.5rem;">
@@ -248,7 +250,7 @@ export const AccountPage = (props: Props) => {
                 <input type="password" name="current_password" required placeholder="••••••••" style="width:100%; padding:0.7rem 0.9rem; border:1px solid #cbd5e1; border-radius:10px; font-size:0.95rem; box-sizing:border-box;" />
               </label>
               <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                <button type="button" onclick="this.closest('.custom-modal').close()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
+                <button type="button" data-modal-close style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
                 <button type="submit" style="background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                   <span class="material-symbols-outlined" style="font-size:18px;">check</span> ${t.btn_disable_2fa}
                 </button>
@@ -287,18 +289,19 @@ export const AccountPage = (props: Props) => {
         ${Modal({
           id: 'apply-modal',
           title: html`${t.ud_apply_title} <span id="apply-role-label" style="color:var(--primary);"></span>`,
-          closeAction: 'closeApplyModal()',
+          closeCallback: 'closeApplyModal',
+          nonce: props.nonce,
           children: html`
             <p style="font-size:0.88rem; color:var(--text-sub); line-height:1.5; margin-bottom:1rem;">${t.ud_apply_desc}</p>
             <textarea id="apply-reason" style="width:100%; min-height:100px; padding:0.75rem; border:1px solid #cbd5e1; border-radius:8px; font-size:0.95rem; color:#334155; box-sizing:border-box;" placeholder="${t.ud_apply_reason_ph}"></textarea>
             <div id="apply-error" style="color:#ef4444; font-size:0.85rem; margin-top:0.5rem; display:none;">${t.ud_apply_required}</div>
             <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.25rem;">
-              <button type="button" onclick="closeApplyModal()" style="background:transparent; color:#64748b; border:1px solid #cbd5e1; border-radius:8px; padding:0.5rem 1rem; font-weight:600; cursor:pointer;">${t.cancel}</button>
-              <button type="button" onclick="submitApply()" style="background:var(--primary); color:white; border:none; border-radius:8px; padding:0.5rem 1.25rem; font-weight:700; cursor:pointer;">${t.ud_apply_submit}</button>
+              <button type="button" data-modal-close style="background:transparent; color:#64748b; border:1px solid #cbd5e1; border-radius:8px; padding:0.5rem 1rem; font-weight:600; cursor:pointer;">${t.cancel}</button>
+              <button type="button" data-action="submit-apply" style="background:var(--primary); color:white; border:none; border-radius:8px; padding:0.5rem 1.25rem; font-weight:700; cursor:pointer;">${t.ud_apply_submit}</button>
             </div>
           `
         })}
-        <script>
+        <script nonce="${props.nonce}">
           window.__name = function(f) { return f; };
           ${raw(accountClientScript)}
         </script>

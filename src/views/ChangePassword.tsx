@@ -12,6 +12,7 @@ interface Props {
   profilePicture?: string | null
   error?: string
   message?: string
+  nonce?: string
 }
 
 // パスワード変更の専用画面。アカウント設定と同じトップバー/カードトーンで視覚統一する。
@@ -101,6 +102,7 @@ export const ChangePassword = (props: Props) => {
     lang: t.lang,
     width: 760,
     align: 'top',
+    nonce: props.nonce,
     children: html`
         ${UserTopbar({
           t, siteName: props.siteName, userEmail: props.userEmail, active: 'account',

@@ -17,6 +17,7 @@ interface Props {
   services: (Service & { provider_name?: string })[]
   contracts: (ServiceContract & { service_name?: string; provider_name?: string; group_name?: string })[]
   groups: Group[]
+  nonce?: string
 }
 
 // アカウントマネージャ: 契約マスタ(ゲート②の前提)。
@@ -30,13 +31,14 @@ export const AccountContractsPage = (props: Props) => {
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-contracts',
     siteName: props.siteName, appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       ${amSectionHead(t.am_contracts_header, '')}
 
       <article style="padding:1.5rem; margin-bottom:1.5rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
           <h4 style="margin:0; font-size:1.1rem; color:#334155;">${t.am_contracts_header}</h4>
-          ${Button({ onclick: "document.getElementById('new-contract-modal').showModal()", style: "width:auto; margin:0;",
+          ${Button({ attr: { 'data-action': 'open-new-contract-modal' }, style: "width:auto; margin:0;",
             children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_contract}` })}
         </div>
         <div class="${amListGrid}">
@@ -58,6 +60,7 @@ export const AccountContractsPage = (props: Props) => {
 
       ${Modal({
         id: 'new-contract-modal', title: t.am_btn_add_contract, closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
           <form method="POST" action="/admin/am/contracts">
             <label class="${amFormLabel}">${t.am_label_contract_service}</label>
@@ -79,6 +82,38 @@ export const AccountContractsPage = (props: Props) => {
             <div style="margin-top:1rem;">${Button({ type: 'submit', children: t.save })}</div>
           </form>`,
       })}
-    `,
+
+      <script nonce="${props.nonce}">
+        document.addEventListener('DOMContentLoaded', function() {
+          document.addEventListener('click', function(e) {
+            var target = e.target;
+            if (!target) return;
+
+            var actionBtn = target.closest('[data-action]');
+            if (actionBtn) {
+              var action = actionBtn.getAttribute('data-action');
+              var id = actionBtn.getAttribute('data-id');
+
+              if (action === 'open-new-contract-modal') {
+                var m = document.getElementById('new-contract-modal');
+                if (m) m.showModal();
+                return;
+              }
+              if (action === 'delete-confirm') {
+                e.preventDefault();
+                var msg = actionBtn.getAttribute('data-confirm-msg') || '本当に削除しますか？';
+                var form = actionBtn.closest('form');
+                if (form && window.showConfirm) {
+                  window.showConfirm(msg, function() {
+                    form.submit();
+                  });
+                }
+                return;
+              }
+            }
+          });
+        });
+      </script>
+    `
   })
 }

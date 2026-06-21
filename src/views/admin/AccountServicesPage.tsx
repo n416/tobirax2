@@ -21,6 +21,7 @@ interface Props {
   services: (Service & { provider_name?: string; owner_group_name?: string | null; app_names?: string | null; app_ids?: string | null })[]
   groups: Group[]
   apps: (App & { group_name?: string | null })[]
+  nonce?: string
 }
 
 // アカウントマネージャ: サービスマスタ(ゲート①)。
@@ -43,6 +44,7 @@ export const AccountServicesPage = (props: Props) => {
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-services',
     siteName: props.siteName, appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       ${amSectionHead(t.am_section_services, t.am_services_subtitle)}
 
@@ -50,7 +52,7 @@ export const AccountServicesPage = (props: Props) => {
       <article style="padding:1.5rem; margin-bottom:1.5rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
           <h4 style="margin:0; font-size:1.1rem; color:#334155;">${t.am_providers_header}</h4>
-          ${Button({ onclick: "document.getElementById('new-provider-modal').showModal()", style: "width:auto; margin:0;",
+          ${Button({ attr: { 'data-action': 'open-new-provider-modal' }, style: "width:auto; margin:0;",
             children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_provider}` })}
         </div>
         <div class="${amListGrid}">
@@ -71,7 +73,7 @@ export const AccountServicesPage = (props: Props) => {
       <article style="padding:1.5rem; margin-bottom:1.5rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
           <h4 style="margin:0; font-size:1.1rem; color:#334155;">${t.am_services_header}</h4>
-          ${Button({ onclick: "document.getElementById('new-service-modal').showModal()", style: "width:auto; margin:0;",
+          ${Button({ attr: { 'data-action': 'open-new-service-modal' }, style: "width:auto; margin:0;",
             children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_service}` })}
         </div>
         <div class="${amListGrid}">
@@ -98,15 +100,15 @@ export const AccountServicesPage = (props: Props) => {
                   <form method="POST" action="/admin/am/services/approve" style="margin:0;">
                     <input type="hidden" name="id" value="${s.id}" />
                     <input type="hidden" name="expected_apps" value="${s.app_ids || ''}" />
-                    <button type="button" onclick="window.showConfirm('${t.confirm_approve_service}', () => this.closest('form').submit())" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_approve}</button>
+                    <button type="button" data-action="approve-service" data-confirm-msg="${t.confirm_approve_service}" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_approve}</button>
                   </form>
-                  <button type="button" onclick="openRejectModal('/admin/am/services/reject', '${s.id}', '${s.app_ids || ''}')" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_reject}</button>
+                  <button type="button" data-action="open-reject-modal" data-id="${s.id}" data-expected-apps="${s.app_ids || ''}" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">${t.btn_reject}</button>
                 ` : ''}
                 ${(!s.status || s.status === 'active') ? Button({
                   type: 'button',
                   variant: 'outline',
                   style: 'padding:0.4rem 0.8rem; font-size:0.85rem; height:auto; border-radius:8px; margin:0;',
-                  onclick: `manageServiceApps('${s.id}')`,
+                  attr: { 'data-action': 'manage-service-apps', 'data-id': s.id },
                   children: html`<span class="material-symbols-outlined" style="font-size:16px;">apps</span> アプリ管理`
                 }) : ''}
                 ${amDeleteForm('/admin/am/services/delete', s.id, t.am_confirm_delete_service, t.delete)}
@@ -118,6 +120,7 @@ export const AccountServicesPage = (props: Props) => {
 
       ${Modal({
         id: 'new-provider-modal', title: t.am_btn_add_provider, closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
           <form method="POST" action="/admin/am/providers">
             <label class="${amFormLabel}">${t.am_label_provider_name}</label>
@@ -128,6 +131,7 @@ export const AccountServicesPage = (props: Props) => {
 
       ${Modal({
         id: 'new-service-modal', title: t.am_btn_add_service, closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
           <form method="POST" action="/admin/am/services">
             <label class="${amFormLabel}">${t.am_label_provider}</label>
@@ -141,12 +145,12 @@ export const AccountServicesPage = (props: Props) => {
       })}
 
 
-      ${ServiceAppsModal(t, '/admin/api')}
-      ${RejectReasonModal()}
+      ${ServiceAppsModal(t, '/admin/api', props.nonce)}
+      ${RejectReasonModal({ nonce: props.nonce })}
 
       <script type="application/json" id="am-services-data">${raw(safeJsonStringify(servicesData))}</script>
       <script type="application/json" id="am-all-apps-data">${raw(safeJsonStringify(allAppsData))}</script>
-      <script>
+      <script nonce="${props.nonce}">
         ${raw(RejectReasonModalScript)}
         
         function manageServiceApps(serviceId) {
@@ -158,7 +162,61 @@ export const AccountServicesPage = (props: Props) => {
             window.openServiceAppsModal(encodeURIComponent(JSON.stringify(s)), allApps);
           }
         }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          document.addEventListener('click', function(e) {
+            var target = e.target;
+            if (!target) return;
+
+            var actionBtn = target.closest('[data-action]');
+            if (actionBtn) {
+              var action = actionBtn.getAttribute('data-action');
+              var id = actionBtn.getAttribute('data-id');
+
+              if (action === 'open-new-provider-modal') {
+                var m = document.getElementById('new-provider-modal');
+                if (m) m.showModal();
+                return;
+              }
+              if (action === 'open-new-service-modal') {
+                var m = document.getElementById('new-service-modal');
+                if (m) m.showModal();
+                return;
+              }
+              if (action === 'approve-service') {
+                e.preventDefault();
+                var msg = actionBtn.getAttribute('data-confirm-msg') || '承認しますか？';
+                window.showConfirm(msg, function() {
+                  actionBtn.closest('form').submit();
+                });
+                return;
+              }
+              if (action === 'open-reject-modal') {
+                var expected = actionBtn.getAttribute('data-expected-apps') || '';
+                if (window.openRejectModal) {
+                  window.openRejectModal('/admin/am/services/reject', id, expected);
+                }
+                return;
+              }
+              if (action === 'manage-service-apps') {
+                manageServiceApps(id);
+                return;
+              }
+              if (action === 'delete-confirm') {
+                e.preventDefault();
+                var msg = actionBtn.getAttribute('data-confirm-msg') || '本当に削除しますか？';
+                var form = actionBtn.closest('form');
+                if (form && window.showConfirm) {
+                  window.showConfirm(msg, function() {
+                    form.submit();
+                  });
+                }
+                return;
+              }
+            }
+          });
+        });
       </script>
-    `,
+    `
   })
 }

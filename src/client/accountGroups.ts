@@ -130,6 +130,90 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   }
+
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+    const actionEl = target.closest('[data-action]') as HTMLElement | null;
+    if (!actionEl) return;
+    const action = actionEl.getAttribute('data-action');
+    if (!action) return;
+
+    if (action === 'open-new-group-modal') {
+      const modal = document.getElementById('new-group-modal') as CustomModalElement | null;
+      if (modal) modal.showModal();
+      return;
+    }
+    if (action === 'open-group-modal') {
+      const id = actionEl.getAttribute('data-id') || '';
+      const name = actionEl.getAttribute('data-name') || '';
+      const parentId = actionEl.getAttribute('data-parent-id') || '';
+      window.openGroupModal(id, name, parentId);
+      return;
+    }
+    if (action === 'delete-group') {
+      e.stopPropagation();
+      const id = actionEl.getAttribute('data-id') || '';
+      window.deleteGroup(id);
+      return;
+    }
+    if (action === 'save-parent') {
+      window.saveParent();
+      return;
+    }
+    if (action === 'switch-tab') {
+      const tab = actionEl.getAttribute('data-tab') || '';
+      window.switchTab(tab);
+      return;
+    }
+    if (action === 'calc-date') {
+      const targetId = actionEl.getAttribute('data-target') || '';
+      const offset = parseInt(actionEl.getAttribute('data-offset') || '0', 10);
+      const unit = actionEl.getAttribute('data-unit') || '';
+      window.calcDate(targetId, offset, unit);
+      return;
+    }
+    if (action === 'add-members') {
+      window.addMembers();
+      return;
+    }
+    if (action === 'add-facility') {
+      window.addFacility();
+      return;
+    }
+    if (action === 'move-facility') {
+      window.moveFacility();
+      return;
+    }
+    if (action === 'add-grant') {
+      window.addGrant();
+      return;
+    }
+    if (action === 'close-remove-modal') {
+      window.closeRemoveModal();
+      return;
+    }
+    if (action === 'execute-remove') {
+      window.executeRemove();
+      return;
+    }
+    if (action === 'close-remove-fac-modal') {
+      window.closeRemoveFacModal();
+      return;
+    }
+    if (action === 'execute-remove-fac') {
+      window.executeRemoveFac();
+      return;
+    }
+    if (action === 'close-delete-modal') {
+      window.closeDeleteModal();
+      return;
+    }
+    if (action === 'execute-delete') {
+      window.executeDelete();
+      return;
+    }
+  });
 });
 
 const gModal = document.getElementById('group-modal') as CustomModalElement | null;
@@ -184,8 +268,15 @@ window.saveParent = () => {
       .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((e: any) => { throw new Error(e.error || 'err'); }); } return r.json(); })
       .then(() => { window.location.reload(); })
       .catch((e) => {
-        if (e.message === 'cycle' || e.message === 'self') { console.error(i18n.alertCycle || 'Cannot set this parent.'); }
-        else { console.error('Error: ' + e.message); }
+        if (e.message === 'cycle' || e.message === 'self') {
+          const msg = i18n.alertCycle || 'Cannot set this parent.';
+          console.error(msg);
+          if (window.showAlert) window.showAlert(msg);
+        } else {
+          const msg = 'Error: ' + e.message;
+          console.error(msg);
+          if (window.showAlert) window.showAlert(msg);
+        }
       });
   });
 };
@@ -452,7 +543,7 @@ window.addFacility = () => {
       window.loadFacilities(currentGroupId);
       if (window.loadAllFacilitiesForMove) window.loadAllFacilitiesForMove();
     })
-    .catch((e) => { console.error(e); });
+    .catch((e) => { console.error(e); if (window.showAlert) window.showAlert(e.message || 'Error'); });
 };
 
 window.moveFacility = () => {
@@ -472,7 +563,7 @@ window.moveFacility = () => {
       window.loadFacilities(currentGroupId);
       if (window.loadAllFacilitiesForMove) window.loadAllFacilitiesForMove();
     })
-    .catch((e) => { console.error(e); });
+    .catch((e) => { console.error(e); if (window.showAlert) window.showAlert(e.message || 'Error'); });
 };
 
 let removeFacTargetId: string | null = null;
@@ -491,7 +582,7 @@ window.executeRemoveFac = () => {
   fetch('/admin/api/am/facility/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: removeFacTargetId }) })
     .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((e: any) => { throw new Error(e.error || 'Server error'); }); } return r.json(); })
     .then(() => { window.closeRemoveFacModal(); window.loadFacilities(currentGroupId); })
-    .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+    .catch((e) => { console.error(e); console.error('Error: ' + e.message); if (window.showAlert) window.showAlert(e.message || 'Error'); });
 };
 
 window.removeGrant = (gid: string) => {
@@ -499,7 +590,7 @@ window.removeGrant = (gid: string) => {
     fetch('/admin/api/am/grant/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: gid }) })
       .then((r) => { if (!r.ok) throw new Error('err'); return r.json(); })
       .then(() => { window.loadGrants(currentGroupId); })
-      .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+      .catch((e) => { console.error(e); console.error('Error: ' + e.message); if (window.showAlert) window.showAlert(e.message || 'Error'); });
   });
 };
 
@@ -515,7 +606,7 @@ window.addGrant = () => {
   })
     .then((r) => { if (!r.ok) throw new Error('err'); return r.json(); })
     .then(() => { window.loadGrants(currentGroupId); })
-    .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+    .catch((e) => { console.error(e); console.error('Error: ' + e.message); if (window.showAlert) window.showAlert(e.message || 'Error'); });
 };
 
 window.loadGrants = (id: string) => {
@@ -582,7 +673,7 @@ window.addMembers = () => {
   })
     .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((e: any) => { throw new Error(e.error || 'Server error ' + r.status); }); } return r.json(); })
     .then(() => { window.resetAddButton(); window.loadMembers(currentGroupId); })
-    .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+    .catch((e) => { console.error(e); console.error('Error: ' + e.message); if (window.showAlert) window.showAlert(e.message || 'Error'); });
 };
 
 let removeTargetId: string | null = null;
@@ -601,7 +692,7 @@ window.executeRemove = () => {
   fetch('/admin/api/am/membership/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: removeTargetId }) })
     .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((e: any) => { throw new Error(e.error || 'Server error ' + r.status); }); } return r.json(); })
     .then(() => { window.closeRemoveModal(); window.loadMembers(currentGroupId); })
-    .catch((e) => { console.error(e); console.error('Error: ' + e.message); });
+    .catch((e) => { console.error(e); console.error('Error: ' + e.message); if (window.showAlert) window.showAlert(e.message || 'Error'); });
 };
 
 let deleteTargetId: string | null = null;

@@ -18,6 +18,7 @@ interface Props {
   groups: Group[]
   // 開放元の契約(選ぶと service_id が決まる)。表示は「サービス（提供企業）/ 契約組織」。
   contracts: (ServiceContract & { service_name?: string; provider_name?: string; group_name?: string })[]
+  nonce?: string
 }
 
 // アカウントマネージャ: 利用枠(ゲート②)。契約を各グループノードへ明示開放する(親→子の自動継承なし)。
@@ -30,10 +31,11 @@ export const AccountGrantsPage = (props: Props) => {
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-grants',
     siteName: props.siteName, appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       ${amSectionHead(t.am_section_grants, t.am_grants_subtitle,
         props.contracts.length > 0
-          ? Button({ onclick: "document.getElementById('new-grant-modal').showModal()", style: "width:auto; margin:0;",
+          ? Button({ attr: { 'data-action': 'open-new-grant-modal' }, style: "width:auto; margin:0;",
               children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_grant}` })
           : '')}
 
@@ -59,6 +61,7 @@ export const AccountGrantsPage = (props: Props) => {
 
       ${Modal({
         id: 'new-grant-modal', title: t.am_btn_add_grant, closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
           <form method="POST" action="/admin/am/grants">
             <label class="${amFormLabel}">${t.am_label_grant_group}</label>

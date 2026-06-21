@@ -85,7 +85,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
             grantsByGroup={{}} grantsDetailByGroup={{}} availableContracts={[]} facilities={[]} rolesByService={{}}
             isBillingAdmin={isBillingAdmin} childrenByGroup={{}}
             servicesByGroup={{}} appsByGroup={{}} approvedAppsByGroup={{}} devStatuses={{}} apps={[]}
-            serviceTagsByGroup={{}} customTagsByGroup={{}} availableTags={[]} />)
+            serviceTagsByGroup={{}} customTagsByGroup={{}} availableTags={[]} nonce={c.get('secureHeadersNonce')} />)
 
     }
 
@@ -315,7 +315,7 @@ groupAdminRouter.get('/group-admin', async (c) => {
         serviceTagsByGroup={serviceTagsByGroup}
         customTagsByGroup={customTagsByGroup}
         availableTags={availableTags}
-
+        nonce={c.get('secureHeadersNonce')}
     />)
   } catch (e: any) {
     console.error(e)

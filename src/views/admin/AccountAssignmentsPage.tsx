@@ -26,6 +26,7 @@ interface Props {
   groups: Group[]
   users: User[]
   error?: string   // 'no_grant' | 'seat' など
+  nonce?: string
 }
 
 // アカウントマネージャ: 役割マスタ + 利用者割当(ゲート③)。
@@ -50,6 +51,7 @@ export const AccountAssignmentsPage = (props: Props) => {
   return Layout({
     t, userEmail: props.userEmail, activeTab: 'am-assignments',
     siteName: props.siteName, appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       ${amSectionHead(t.am_section_assignments, t.am_assignments_subtitle)}
 
@@ -60,7 +62,7 @@ export const AccountAssignmentsPage = (props: Props) => {
       <article style="padding:1.5rem; margin-bottom:1.5rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
           <h4 style="margin:0; font-size:1.1rem; color:#334155;">${t.am_roles_header}</h4>
-          ${props.services.length > 0 ? Button({ onclick: "document.getElementById('new-role-modal').showModal()", style: "width:auto; margin:0;",
+          ${props.services.length > 0 ? Button({ attr: { 'data-action': 'open-new-role-modal' }, style: "width:auto; margin:0;",
             children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_role}` }) : ''}
         </div>
         <div class="${amListGrid}">
@@ -88,7 +90,7 @@ export const AccountAssignmentsPage = (props: Props) => {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
           <h4 style="margin:0; font-size:1.1rem; color:#334155;">${t.am_assignments_header}</h4>
           ${(props.services.length > 0 && props.facilities.length > 0 && props.roles.length > 0 && props.users.length > 0)
-            ? Button({ onclick: "document.getElementById('new-assignment-modal').showModal(); window.amRefreshRoles && window.amRefreshRoles();", style: "width:auto; margin:0;",
+            ? Button({ attr: { 'data-action': 'open-new-assignment-modal' }, style: "width:auto; margin:0;",
                 children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_assignment}` })
             : ''}
         </div>
@@ -112,6 +114,7 @@ export const AccountAssignmentsPage = (props: Props) => {
 
       ${Modal({
         id: 'new-role-modal', title: t.am_btn_add_role, closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
           <form method="POST" action="/admin/am/roles">
             <label class="${amFormLabel}">${t.am_label_role_service}</label>
@@ -136,6 +139,7 @@ export const AccountAssignmentsPage = (props: Props) => {
 
       ${Modal({
         id: 'new-assignment-modal', title: t.am_btn_add_assignment, closeAction: "this.closest('.custom-modal').close()",
+        nonce: props.nonce,
         children: html`
           <form method="POST" action="/admin/am/assignments">
             <label class="${amFormLabel}">${t.am_label_assign_user}</label>
@@ -171,7 +175,7 @@ export const AccountAssignmentsPage = (props: Props) => {
       <script type="application/json" id="roles-json">${raw(rolesJson)}</script>
       <script type="application/json" id="facuse-json">${raw(facUseJson)}</script>
       <script type="application/json" id="i18n-no-role">${raw(safeJsonStringify(t.am_alert_no_role))}</script>
-      <script>
+      <script nonce="${props.nonce}">
           window.__name = function(f) { return f; };
           ${raw(accountAssignmentsClientScript)}
       </script>

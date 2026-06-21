@@ -4,12 +4,14 @@ import { css, keyframes } from 'hono/css'
 interface ModalProps {
     id: string
     title: any
-    closeAction: string
+    closeAction?: string
+    closeCallback?: string
     closeBtnId?: string
     children: any
+    nonce?: string
 }
 
-export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalProps) => {
+export const Modal = ({ id, title, closeAction, closeCallback, closeBtnId, children, nonce }: ModalProps) => {
     
     const modalIn = keyframes`
         from { opacity: 0; transform: translateY(-10px) scale(0.98); }
@@ -109,10 +111,11 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
         }
     `
 
+    // closeAction または closeCallback を集約して指定
+    const actualCallback = closeCallback || (closeAction && !closeAction.includes('closest') ? closeAction.replace(/\(\)/, '').trim() : '');
+
     return html`
-    <div id="${id}" class="${dialogClass} custom-modal" 
-        onmousedown="this.dataset.md=(event.target===this)" 
-        onclick="if(event.target===this && this.dataset.md==='true') { ${closeAction} }">
+    <div id="${id}" class="${dialogClass} custom-modal" data-close-callback="${actualCallback}">
         <article>
             <header class="${headerClass}">
                 <div class="${titleClass}">${title}</div>
@@ -120,7 +123,7 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
                    ${closeBtnId ? html`id="${closeBtnId}"` : ''} 
                    aria-label="Close" 
                    class="${closeBtnClass}" 
-                   onclick="${closeAction}">
+                   data-modal-close>
                     <span class="material-symbols-outlined" style="font-size:20px;">close</span>
                 </a>
             </header>
@@ -129,7 +132,7 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
             </div>
         </article>
     </div>
-    <script>
+    <script nonce="${nonce}">
       (function(){
         var el = document.getElementById('${id}');
         if (el) {
@@ -141,6 +144,32 @@ export const Modal = ({ id, title, closeAction, closeBtnId, children }: ModalPro
             el.showModal = function() { this.classList.add('open'); };
             el.close = function() { this.classList.remove('open'); };
             Object.defineProperty(el, 'open', { get: function() { return this.classList.contains('open'); }, configurable: true });
+          }
+
+          var executeCloseAction = function() {
+            var cb = el.getAttribute('data-close-callback') || '';
+            el.close();
+            if (cb && typeof window[cb] === 'function') {
+              window[cb]();
+            }
+          };
+
+          el.addEventListener('mousedown', function(event) {
+            el.dataset.md = (event.target === el).toString();
+          });
+
+          el.addEventListener('click', function(event) {
+            if (event.target === el && el.dataset.md === 'true') {
+              executeCloseAction();
+            }
+          });
+
+          var closeBtn = el.querySelector('[data-modal-close]');
+          if (closeBtn) {
+            closeBtn.addEventListener('click', function(event) {
+              event.preventDefault();
+              executeCloseAction();
+            });
           }
         }
       })();

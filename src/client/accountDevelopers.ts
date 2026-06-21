@@ -52,4 +52,45 @@ window.openRejectModal = openRejectModal;
 window.closeRejectModal = closeRejectModal;
 window.executeReject = executeReject;
 
+document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+
+    const actionBtn = target.closest('[data-action]') as HTMLElement | null;
+    if (actionBtn) {
+      const action = actionBtn.getAttribute('data-action');
+      const id = actionBtn.getAttribute('data-id');
+
+      if (action === 'approve-request' && id) {
+        approveRequest(id);
+        return;
+      }
+      if (action === 'reject-request' && id) {
+        openRejectModal(id);
+        return;
+      }
+      if (action === 'close-reject-modal') {
+        closeRejectModal();
+        return;
+      }
+      if (action === 'execute-reject') {
+        executeReject();
+        return;
+      }
+      if (action === 'delete-confirm') {
+        e.preventDefault();
+        const msg = actionBtn.getAttribute('data-confirm-msg') || '本当に削除しますか？';
+        const form = actionBtn.closest('form');
+        if (form && window.showConfirm) {
+          window.showConfirm(msg, () => {
+            form.submit();
+          });
+        }
+        return;
+      }
+    }
+  });
+});
+
 export {}

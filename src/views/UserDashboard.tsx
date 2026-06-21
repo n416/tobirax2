@@ -17,6 +17,7 @@ interface Props {
   profileName?: string | null
   profilePicture?: string | null
   isGroupAdmin?: boolean
+  nonce?: string
 }
 
 export const UserDashboard = (props: Props) => {
@@ -164,6 +165,7 @@ export const UserDashboard = (props: Props) => {
     lang: t.lang,
     width: 1000,
     align: 'top',
+    nonce: props.nonce,
     children: html`
         ${UserTopbar({
           t, siteName: props.siteName, userEmail: props.userEmail, active: 'dashboard',
@@ -297,7 +299,7 @@ export const UserDashboard = (props: Props) => {
         </section>
 
         ${props.availableServiceTags && props.availableServiceTags.length > 0 ? html`
-          <script>
+          <script nonce="${props.nonce}">
             (function() {
               const filterBtns = document.querySelectorAll('.tag-filter-btn');
               const serviceCards = document.querySelectorAll('.service-card-item');

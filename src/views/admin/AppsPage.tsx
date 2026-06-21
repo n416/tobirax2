@@ -22,6 +22,7 @@ interface Props {
   availableTags?: Tag[]
   siteName: string
   appConfig: SystemConfig
+  nonce?: string
 }
 
 export const AppsPage = (props: Props) => {
@@ -33,22 +34,22 @@ export const AppsPage = (props: Props) => {
     activeTab: 'apps',
     siteName: props.siteName,
     appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
         <h2 style="margin-bottom: 0;">${t.section_apps}</h2>
         ${Button({
-            onclick: "document.getElementById('new-app-modal').showModal()",
+            attr: { "data-action": "open-new-app-modal" },
             style: "width: auto; margin-bottom: 0;",
             children: html`<span class="material-symbols-outlined" style="font-size: 18px;">add</span> ${t.btn_add_app}`
         })}
       </div>
 
-
-
       ${Modal({
         id: "new-app-modal",
         title: t.header_new_app,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeNewAppModal",
+        nonce: props.nonce,
         children: html`
               <form method="POST" action="/admin/apps" enctype="multipart/form-data">
                 <div class="grid-vertical" style="display:flex; flex-direction:column; gap:1.5rem;">
@@ -86,7 +87,7 @@ export const AppsPage = (props: Props) => {
                     <label style="width:100%;">
                         <span class="form-label">${t.label_app_icon}</span>
                         <div style="display:flex; gap:0.5rem; align-items:center;">
-                            <input type="file" name="icon_file" accept="image/*" style="font-size:0.9rem; padding: 0.4rem; height: auto;" onchange="handleIconPreview(this, 'new-icon-preview')" />
+                            <input type="file" name="icon_file" accept="image/*" style="font-size:0.9rem; padding: 0.4rem; height: auto;" data-change="handle-new-icon-preview" />
                             <input type="hidden" name="icon_url" />
                         </div>
                         <div id="new-icon-preview" style="margin-top:0.75rem; display:none;">
@@ -133,7 +134,7 @@ export const AppsPage = (props: Props) => {
 
       <div class="${listGrid}">
         ${props.apps.map(app => html`
-          <div class="${listCard}" 
+          <div class="${listCard} list-card-clickable" 
                data-id="${app.id}" 
                data-name="${app.name}" 
                data-url="${app.base_url}" 
@@ -142,8 +143,7 @@ export const AppsPage = (props: Props) => {
                data-has-secret="${app.client_secret ? 'true' : 'false'}"
                data-redirect-uris="${app.redirect_uris || ''}"
                data-backchannel-logout-uri="${app.backchannel_logout_uri || ''}"
-               data-initiate-login-uri="${app.initiate_login_uri || ''}"
-               onclick="openEditAppModal(this)">
+               data-initiate-login-uri="${app.initiate_login_uri || ''}">
             
             <div style="flex-grow:1;">
                 <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.25rem;">
@@ -166,7 +166,7 @@ export const AppsPage = (props: Props) => {
                 ${app.description ? html`<div style="font-size:0.85rem; color:#64748b; margin-bottom:0.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:400px;">${app.description}</div>` : ''}
                 <div class="${itemSub}">
                     <span style="font-family:monospace; background:#f1f5f9; padding:2px 4px; border-radius:4px; margin-right:0.5rem;">${app.id}</span>
-                    <a href="${app.base_url}" target="_blank" style="text-decoration:none; color:inherit; display:inline-flex; align-items:center; gap:0.2rem;" onclick="event.stopPropagation()">
+                    <a href="${app.base_url}" target="_blank" style="text-decoration:none; color:inherit; display:inline-flex; align-items:center; gap:0.2rem;">
                         ${app.base_url} <span class="material-symbols-outlined" style="font-size: 14px;">open_in_new</span>
                     </a>
                 </div>
@@ -177,12 +177,12 @@ export const AppsPage = (props: Props) => {
                             <span class="material-symbols-outlined" style="font-size:12px;">label</span>
                             ${at.tag_name}
                             ${at.app_tag_status === 'pending' ? html`<span style="color:#c2410c; margin-left:4px;">(申請中)</span>` : ''}
-                            <button type="button" onclick="event.stopPropagation(); window.showConfirm('タグを外しますか？', () => { document.getElementById('remove-app-tag-form').querySelector('input[name=app_id]').value='${app.id}'; document.getElementById('remove-app-tag-form').querySelector('input[name=tag_id]').value='${at.tag_id}'; document.getElementById('remove-app-tag-form').submit(); })" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; display:flex; align-items:center; padding:0; margin-left:4px;" title="タグを外す"><span class="material-symbols-outlined" style="font-size:14px;">close</span></button>
+                            <button type="button" data-action="remove-app-tag" data-app-id="${app.id}" data-tag-id="${at.tag_id}" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; display:flex; align-items:center; padding:0; margin-left:4px;" title="タグを外す"><span class="material-symbols-outlined" style="font-size:14px;">close</span></button>
                         </span>
                     `)}
                     ${(props.availableTags && props.availableTags.length > 0) ? html`
                         <div style="display:inline-flex; align-items:center; gap:0.2rem;">
-                            <select onchange="if(this.value) { event.stopPropagation(); document.getElementById('add-app-tag-form').querySelector('input[name=app_id]').value='${app.id}'; document.getElementById('add-app-tag-form').querySelector('input[name=tag_id]').value=this.value; document.getElementById('add-app-tag-form').submit(); }" onclick="event.stopPropagation()" style="font-size:0.75rem; padding:2px 4px; border:1px dashed #cbd5e1; border-radius:12px; background:transparent; color:#64748b; outline:none; cursor:pointer;">
+                            <select data-change="add-app-tag" data-app-id="${app.id}" style="font-size:0.75rem; padding:2px 4px; border:1px dashed #cbd5e1; border-radius:12px; background:transparent; color:#64748b; outline:none; cursor:pointer;">
                                 <option value="">+ タグ追加</option>
                                 ${(props.availableTags || []).filter(t => !(app.tags||[]).find((at:any) => at.tag_id === t.id)).map(t => html`
                                     <option value="${t.id}">${t.name}</option>
@@ -196,18 +196,18 @@ export const AppsPage = (props: Props) => {
             <div style="display: flex; gap: 0.5rem; align-items: center;">
                 ${app.status === 'pending'
                     ? html`
-                        <button type="button" title="${t.btn_approve}" onclick="event.stopPropagation(); approveApp('${app.id}')" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;">
+                        <button type="button" title="${t.btn_approve}" data-action="approve-app" data-app-id="${app.id}" style="background:#16a34a; color:#fff; border:none; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;">
                             <span class="material-symbols-outlined" style="font-size:18px;">check</span> ${t.btn_approve}
                         </button>
-                        <button type="button" title="${t.btn_reject}" onclick="event.stopPropagation(); openRejectModal('/admin/apps/reject', '${app.id}')" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+                        <button type="button" title="${t.btn_reject}" data-action="open-reject-app-modal" data-app-id="${app.id}" style="background:#fff; color:#dc2626; border:1px solid #fecaca; border-radius:8px; padding:0.4rem 0.8rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
                             ${t.btn_reject}
                         </button>`
                     : html`
-                        <button type="button" class="${actionBtn}" title="${app.status === 'inactive' ? t.btn_resume : t.btn_pause}" onclick="event.stopPropagation(); toggleAppStatus('${app.id}', '${app.status === 'inactive' ? 'active' : 'inactive'}', '${app.name}')">
+                        <button type="button" class="${actionBtn}" title="${app.status === 'inactive' ? t.btn_resume : t.btn_pause}" data-action="toggle-app-status" data-app-id="${app.id}" data-status="${app.status === 'inactive' ? 'active' : 'inactive'}" data-name="${app.name}">
                             <span class="material-symbols-outlined">${app.status === 'inactive' ? 'play_arrow' : 'pause'}</span>
                         </button>`}
 
-                <button type="button" class="${deleteBtn}" title="${t.delete}" onclick="event.stopPropagation(); deleteApp('${app.id}')">
+                <button type="button" class="${deleteBtn}" title="${t.delete}" data-action="delete-app" data-app-id="${app.id}">
                     <span class="material-symbols-outlined">delete</span>
                 </button>
             </div>
@@ -218,8 +218,9 @@ export const AppsPage = (props: Props) => {
       ${Modal({
         id: "edit-app-modal",
         title: t.header_edit_app,
-        closeAction: "closeEditAppModal()",
+        closeCallback: "closeEditAppModal",
         closeBtnId: "edit-close-btn",
+        nonce: props.nonce,
         children: html`
               <form method="POST" action="/admin/apps/update" enctype="multipart/form-data">
                 <div class="grid-vertical" style="display:flex; flex-direction:column; gap:1.5rem;">
@@ -259,8 +260,8 @@ export const AppsPage = (props: Props) => {
                             The secret is hashed and cannot be viewed. You can generate a new one if lost.
                         </small>
                         <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
-                            <button type="button" onclick="appSecretAction('regenerate')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 ${t.btn_regenerate_secret}</button>
-                            <button type="button" onclick="appSecretAction('clear')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">${t.btn_make_public}</button>
+                            <button type="button" data-action="app-secret-action" data-action-type="regenerate" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 ${t.btn_regenerate_secret}</button>
+                            <button type="button" data-action="app-secret-action" data-action-type="clear" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">${t.btn_make_public}</button>
                         </div>
                         <div id="new-secret-banner-admin" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:1rem; border-radius:8px; margin-top:1rem;">
                             <div style="font-weight:bold; margin-bottom:0.5rem;">New Secret Generated. Please copy it now! It will NOT be shown again.</div>
@@ -271,7 +272,7 @@ export const AppsPage = (props: Props) => {
                     <label style="width:100%;">
                         <span class="form-label">${t.label_app_icon}</span>
                         <div style="display:flex; gap:0.5rem; align-items:center;">
-                            <input type="file" name="icon_file" accept="image/*" style="font-size:0.9rem; padding: 0.4rem; height: auto;" onchange="handleIconPreview(this, 'edit-icon-preview')" />
+                            <input type="file" name="icon_file" accept="image/*" style="font-size:0.9rem; padding: 0.4rem; height: auto;" data-change="handle-edit-icon-preview" />
                             <input type="hidden" name="icon_url" />
                         </div>
                         <div id="edit-icon-preview" style="margin-top:0.75rem; display:none;">
@@ -296,14 +297,15 @@ export const AppsPage = (props: Props) => {
       ${Modal({
         id: "toggle-confirm-modal",
         title: html`<span style="color:#d97706; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">info</span> ${t.btn_change || 'Change Status'}</span>`,
-        closeAction: "closeToggleModal()",
+        closeCallback: "closeToggleModal",
+        nonce: props.nonce,
         children: html`
               <div style="margin-bottom: 2rem;">
                 <p id="toggle-msg-text" style="color:#475569; font-size:1rem; line-height:1.5; white-space:pre-wrap;"></p>
               </div>
               <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                  <button type="button" onclick="closeToggleModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
-                  <button type="button" onclick="executeToggle()" style="background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                  <button type="button" data-action="close-toggle-modal" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
+                  <button type="button" data-action="execute-toggle" style="background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                      <span class="material-symbols-outlined" style="font-size:18px;">check</span> Execute
                   </button>
               </div>
@@ -313,21 +315,22 @@ export const AppsPage = (props: Props) => {
       ${Modal({
         id: "delete-confirm-modal",
         title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.delete || 'Delete'}</span>`,
-        closeAction: "closeDeleteModal()",
+        closeCallback: "closeDeleteModal",
+        nonce: props.nonce,
         children: html`
               <div style="margin-bottom: 2rem;">
                 <p style="color:#475569; font-size:1rem; line-height:1.5; white-space:pre-wrap;">${t.confirm_delete_app || 'Are you sure you want to delete this app?'}</p>
               </div>
               <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                  <button type="button" onclick="closeDeleteModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
-                  <button type="button" onclick="executeDelete()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                  <button type="button" data-action="close-delete-modal" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Cancel</button>
+                  <button type="button" data-action="execute-delete" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                      <span class="material-symbols-outlined" style="font-size:18px;">delete</span> Delete
                   </button>
               </div>
         `
       })}
 
-      ${RejectReasonModal()}
+      ${RejectReasonModal({ nonce: props.nonce })}
 
       <div id="i18n-data" style="display:none;"
         data-confirm-change-status="${t.confirm_change_status || 'Change status?'}"
@@ -335,7 +338,7 @@ export const AppsPage = (props: Props) => {
         data-confirm-reject="${t.confirm_reject_app}"
       ></div>
 
-      <script>
+      <script nonce="${props.nonce}">
       window.__name = function(f) { return f; };
           ${raw(getAppsClientScript)}
       ${raw(RejectReasonModalScript)}

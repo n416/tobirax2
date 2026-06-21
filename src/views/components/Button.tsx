@@ -1,4 +1,4 @@
-import { html } from 'hono/html'
+import { html, raw } from 'hono/html'
 import { css } from 'hono/css'
 
 interface ButtonProps {
@@ -10,6 +10,7 @@ interface ButtonProps {
   style?: string
   href?: string
   variant?: "primary" | "outline" | "danger" | "ghost"
+  attr?: Record<string, string>
 }
 
 export const Button = (props: ButtonProps) => {
@@ -90,14 +91,19 @@ export const Button = (props: ButtonProps) => {
                        variant === 'danger' ? danger :
                        variant === 'ghost' ? ghost : primary
 
+  const attrs = props.attr 
+    ? html`${raw(Object.entries(props.attr).map(([k, v]) => `${k}="${v}"`).join(' '))}`
+    : ''
+
   if (props.href) {
     return html`
       <a 
           href="${props.href}"
           class="${baseBtn} ${variantClass} ${props.className || ''}"
           id="${props.id || ''}"
-          onclick="${props.onclick || ''}"
+          ${props.onclick ? html`onclick="${props.onclick}"` : ''}
           style="${props.style || ''}"
+          ${attrs}
       >
           ${props.children}
       </a>
@@ -109,8 +115,9 @@ export const Button = (props: ButtonProps) => {
         type="${props.type || 'button'}" 
         class="${baseBtn} ${variantClass} ${props.className || ''}" 
         id="${props.id || ''}"
-        onclick="${props.onclick || ''}"
+        ${props.onclick ? html`onclick="${props.onclick}"` : ''}
         style="${props.style || ''}"
+        ${attrs}
     >
         ${props.children}
     </button>

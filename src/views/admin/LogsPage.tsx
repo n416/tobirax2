@@ -1,4 +1,5 @@
 import { html } from 'hono/html'
+import { css } from 'hono/css'
 import { Layout } from './Layout'
 import { dict } from '../../i18n'
 import { SystemConfig, RecentAuditLog } from '../../types'
@@ -9,10 +10,19 @@ interface LogsPageProps {
   logs: RecentAuditLog[]
   siteName: string
   appConfig: SystemConfig
+  nonce?: string
 }
 
 export const LogsPage = (props: LogsPageProps) => {
   const t = props.t
+
+  const logRow = css`
+    border-bottom: 1px solid #f1f5f9;
+    transition: background-color 0.2s;
+    &:hover {
+      background-color: #f8fafc;
+    }
+  `
 
   return Layout({
     t: t,
@@ -20,6 +30,7 @@ export const LogsPage = (props: LogsPageProps) => {
     activeTab: 'logs',
     siteName: props.siteName,
     appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       <div style="margin-bottom: 2rem;">
         <h2 style="font-size: 1.5rem; font-weight: 700; color: #1e293b; margin: 0 0 0.5rem 0;">Live Monitor</h2>
@@ -40,7 +51,7 @@ export const LogsPage = (props: LogsPageProps) => {
           <tbody>
             ${props.logs.length === 0 ? html`<tr><td colspan="5" style="padding: 2rem; text-align: center; color: #64748b;">No recent events found.</td></tr>` : ''}
             ${props.logs.map((log) => html`
-              <tr style="border-bottom: 1px solid #f1f5f9; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='transparent'">
+              <tr class="${logRow}">
                 <td style="padding: 1rem; font-size: 0.85rem; color: #64748b; white-space: nowrap;">
                   ${new Date(log.created_at * 1000).toLocaleString()}
                 </td>

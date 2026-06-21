@@ -23,6 +23,7 @@ interface Props {
     error?: string
     siteName: string
     appConfig: SystemConfig
+    nonce?: string
 }
 
 export const UsersPage = (props: Props) => {
@@ -60,6 +61,7 @@ export const UsersPage = (props: Props) => {
         activeTab: 'users',
         siteName: props.siteName,
         appConfig: props.appConfig,
+        nonce: props.nonce,
         children: html`
       <div class="${pageWrapper}">
           <div class="grid">
@@ -75,7 +77,7 @@ export const UsersPage = (props: Props) => {
                    children: html`<span class="material-symbols-outlined">bolt</span> ${t.btn_bulk_mode}`
                })}
                ${Button({
-                   onclick: "document.getElementById('invite-modal').showModal()",
+                   attr: { 'data-action': 'open-invite-modal' },
                    style: "width: auto; margin-bottom: 0; margin-left: 1rem;",
                    children: html`<span class="material-symbols-outlined">add</span> ${t.header_invite}`
                })}
@@ -84,10 +86,12 @@ export const UsersPage = (props: Props) => {
           
           ${props.error ? html`<article style="background:#ffebee; color:#c62828; border-left:4px solid #c62828; margin-bottom:1rem;">${props.error}</article>` : ''}
 
+          <div id="invite-auto-open" data-open="${props.inviteUrl ? 'true' : 'false'}" style="display:none;"></div>
           ${Modal({
             id: "invite-modal",
             title: t.header_invite,
             closeAction: "this.closest('.custom-modal').close()",
+            nonce: props.nonce,
             children: html`
                   <form method="POST" action="/admin/invite">
                     <div class="grid-vertical">
@@ -104,7 +108,7 @@ export const UsersPage = (props: Props) => {
                     <div style="background:#e8f5e9; padding:1rem; border-radius:8px; margin-top:1.5rem; border:1px solid #bbf7d0;">
                         <strong style="color:#15803d;">${t.invite_created}</strong><br>
                         <small style="color:#166534;">${t.invite_copy_hint}</small><br>
-                        <input type="text" value="${props.inviteUrl}" readonly onclick="this.select()" style="margin-top:0.5rem; background:white;" />
+                        <input type="text" value="${props.inviteUrl}" readonly data-action="select-text" style="margin-top:0.5rem; background:white;" />
                     </div>
                   `: ''}
             `
@@ -144,7 +148,7 @@ export const UsersPage = (props: Props) => {
                 
                 <div id="selectAllContainer" style="display:none; margin-top: 0.5rem; margin-left: 0.7rem;">
                     <label class="${selectAllLabel}">
-                        <input type="checkbox" onclick="toggleAllCheckboxes(this)">
+                        <input type="checkbox" data-action="toggle-all-checkboxes">
                         <span class="icon-box">
                             <span class="material-symbols-outlined" style="font-size: 16px;">check</span>
                         </span>
@@ -158,9 +162,9 @@ export const UsersPage = (props: Props) => {
                 const g = props.groups.find(x => x.id === u.group_id)
                 const gName = g ? g.name : t.no_affiliation
                 return html`
-                <div class="${listCard}" onclick="handleUserCardClick(event, '${u.id}')">
+                <div class="${listCard} list-card-clickable" data-user-id="${u.id}">
                     <div style="display:flex; align-items:center; gap:1rem; flex-grow:1;">
-                        <div class="col-select" style="display:none;" onclick="event.stopPropagation()">
+                        <div class="col-select" style="display:none;">
                             <input type="checkbox" name="ids" value="${u.id}" class="user-check" style="margin:0; width:1.2em; height:1.2em;" />
                         </div>
                         <div>
@@ -172,7 +176,7 @@ export const UsersPage = (props: Props) => {
                         </div>
                     </div>
                     <div>
-                         <button type="button" class="${deleteBtn}" onclick="event.stopPropagation(); deleteUser('${u.id}')" title="${t.delete}">
+                         <button type="button" class="${deleteBtn}" data-action="delete-user" data-user-id="${u.id}" title="${t.delete}">
                             <span class="material-symbols-outlined">delete</span>
                          </button>
                     </div>
@@ -190,6 +194,7 @@ export const UsersPage = (props: Props) => {
             title: html`${t.header_user_details} <span id="modal-user-email" style="font-weight:400; font-size:1rem; color:#64748b; margin-left:0.5rem;"></span>`,
             closeAction: "closeUserModal()",
             closeBtnId: "modal-close-btn",
+            nonce: props.nonce,
             children: html`
                   <div style="margin-bottom: 2rem;">
                     <label class="${formLabel}">${t.modal_section_group}</label>
@@ -198,14 +203,14 @@ export const UsersPage = (props: Props) => {
                             <option value="">${t.no_affiliation}</option>
                             ${props.groups.map(g => html`<option value="${g.id}">${g.name}</option>`)}
                         </select>
-                        ${Button({ onclick: "updateUserGroup()", variant: "primary", style: "width:auto; white-space:nowrap; flex-shrink:0;", children: t.save })}
+                        ${Button({ attr: { 'data-action': 'update-user-group' }, variant: "primary", style: "width:auto; white-space:nowrap; flex-shrink:0;", children: t.save })}
                     </div>
                     <small style="color:#94a3b8; margin-top:0.4rem; display:block;">${t.desc_group_override}</small>
                   </div>
 
                   <div class="${tabContainer}">
-                      <button type="button" id="btn-tab-permissions" class="${tabBtn} active" onclick="switchUserTab('permissions')">アプリ権限</button>
-                      <button type="button" id="btn-tab-assignments" class="${tabBtn}" onclick="switchUserTab('assignments')">サービス割当</button>
+                      <button type="button" id="btn-tab-permissions" class="${tabBtn} active" data-action="switch-user-tab" data-tab-name="permissions">アプリ権限</button>
+                      <button type="button" id="btn-tab-assignments" class="${tabBtn}" data-action="switch-user-tab" data-tab-name="assignments">サービス割当</button>
                   </div>
 
                   <div id="tab-permissions" style="display:block;">
@@ -230,25 +235,25 @@ export const UsersPage = (props: Props) => {
                                   </label>
                                   <input type="date" id="perm-valid-from" class="${dateInput}" />
                                   <div class="${quickBtnGroup}">
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -1, 'month')", children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -7, 'day')", children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', -1, 'day')", children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-from', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-from', 'data-amount': '-1', 'data-unit': 'month' }, children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-from', 'data-amount': '-7', 'data-unit': 'day' }, children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-from', 'data-amount': '-1', 'data-unit': 'day' }, children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-from', 'data-amount': '0', 'data-unit': 'day' }, children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
                                   </div>
                              </div>
                              <div>
                                  <label class="${formLabel}">${t.label_valid_to}</label>
                                  <input type="date" id="perm-valid-to" class="${dateInput}" />
                                  <div class="${quickBtnGroup}">
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 1, 'month')", children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 1, 'year')", children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('perm-valid-to', 99, 'forever')", children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-to', 'data-amount': '0', 'data-unit': 'day' }, children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-to', 'data-amount': '1', 'data-unit': 'month' }, children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-to', 'data-amount': '1', 'data-unit': 'year' }, children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'perm-valid-to', 'data-amount': '99', 'data-unit': 'forever' }, children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
                                  </div>
                              </div>
                          </div>
 
-                         ${Button({ id: "btn-grant-perm", onclick: "grantPermission()", children: html`<span class="material-symbols-outlined">add</span> <span>${t.btn_grant}</span>` })}
+                         ${Button({ id: "btn-grant-perm", attr: { 'data-action': 'grant-permission' }, children: html`<span class="material-symbols-outlined">add</span> <span>${t.btn_grant}</span>` })}
                       </div>
 
                       <div id="modal-perm-list"></div>
@@ -258,7 +263,7 @@ export const UsersPage = (props: Props) => {
                       <div class="${grantFormCard}">
                           <div style="margin-bottom: 1.5rem;">
                              <label class="${formLabel}">サービス (Service)</label>
-                             <select id="a-service-id" class="${dateInput}" style="margin-bottom:0;" onchange="updateRoleOptions()">
+                             <select id="a-service-id" class="${dateInput}" style="margin-bottom:0;" data-change="update-role-options">
                                <option value="">-</option>
                                ${props.services.map(s => html`<option value="${s.id}">${s.name}</option>`)}
                              </select>
@@ -286,7 +291,7 @@ export const UsersPage = (props: Props) => {
                                    <input type="date" id="a-valid-to" class="${dateInput}" value="${new Date(Date.now()+31536000000).toISOString().split('T')[0]}" />
                                </div>
                           </div>
-                          ${Button({ onclick: "addAssignment()", children: html`<span class="material-symbols-outlined">add</span> <span>追加</span>` })}
+                          ${Button({ attr: { 'data-action': 'add-assignment' }, children: html`<span class="material-symbols-outlined">add</span> <span>追加</span>` })}
                       </div>
                       
                       <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">割当一覧</h4>
@@ -301,16 +306,17 @@ export const UsersPage = (props: Props) => {
             title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.confirm_revoke_permission || 'Revoke Permission'}</span>`,
             closeAction: "closeRevokeModal()",
             closeBtnId: "revoke-close-btn",
+            nonce: props.nonce,
             children: html`
                   <div style="margin-bottom: 2rem;">
                     <p style="color:#475569; font-size:1rem; line-height:1.5;">${t.confirm_revoke_permission || 'Are you sure you want to revoke this permission?'}</p>
                     <div id="revoke-error-msg" style="margin-top: 1rem; padding: 0.75rem; background: #fef2f2; color: #b91c1c; border-radius: 6px; border: 1px solid #fecaca; display: none;"></div>
                   </div>
                   <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                      <button type="button" onclick="closeRevokeModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">
+                      <button type="button" data-action="close-revoke-modal" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">
                          Cancel
                       </button>
-                      <button type="button" onclick="executeRevoke()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                      <button type="button" data-action="execute-revoke" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                          <span class="material-symbols-outlined" style="font-size:18px;">delete</span> Revoke
                       </button>
                   </div>
@@ -343,7 +349,7 @@ export const UsersPage = (props: Props) => {
           <script type="application/json" id="roles-data">${raw(allRolesJson)}</script>
           <script type="application/json" id="facilities-data">${raw(allFacilitiesJson)}</script>
 
-          <script>
+          <script nonce="${props.nonce}">
           window.__name = function(f) { return f; };
           ${raw(usersClientScript)}
           ${props.inviteUrl ? raw(`

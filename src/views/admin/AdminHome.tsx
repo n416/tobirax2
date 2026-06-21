@@ -11,6 +11,7 @@ interface Props {
   stats: { apps: number, users: number }
   siteName: string
   appConfig: SystemConfig
+  nonce?: string
 }
 
 export const AdminHome = (props: Props) => {
@@ -21,6 +22,7 @@ export const AdminHome = (props: Props) => {
     activeTab: 'home',
     siteName: props.siteName,
     appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       <div style="margin-bottom: 2rem;">
         <h2 style="font-size: 1.5rem; font-weight: 700; color: #1e293b; margin: 0 0 0.5rem 0;">${t.title_dashboard}</h2>
@@ -34,7 +36,7 @@ export const AdminHome = (props: Props) => {
                 ${props.stats.apps}
             </div>
             <div style="width:100%;">
-                ${Button({ variant: 'outline', onclick: "window.location.href='/admin/apps'", children: t.nav_apps })}
+                ${Button({ variant: 'outline', href: '/admin/apps', children: t.nav_apps })}
             </div>
         </div>
         
@@ -44,7 +46,7 @@ export const AdminHome = (props: Props) => {
                 ${props.stats.users}
             </div>
             <div style="width:100%;">
-                ${Button({ variant: 'outline', onclick: "window.location.href='/admin/users'", children: t.nav_users })}
+                ${Button({ variant: 'outline', href: '/admin/users', children: t.nav_users })}
             </div>
         </div>
       </div>

@@ -9,6 +9,7 @@ interface Props {
   t: typeof dict.en
   returnTo?: string
   error?: string
+  nonce?: string
 }
 
 export const Login2FA = (props: Props) => {
@@ -17,6 +18,7 @@ export const Login2FA = (props: Props) => {
   return Layout({
     title: t.title_2fa_verify,
     lang: t.lang,
+    nonce: props.nonce,
     children: Card({
       children: html`
         <div style="text-align: center; margin-bottom: 2rem;">

@@ -10,6 +10,7 @@ interface Props {
   token?: string
   email?: string
   error?: string
+  nonce?: string
 }
 
 export const Invite = (props: Props) => {
@@ -24,6 +25,7 @@ export const Invite = (props: Props) => {
   return Layout({
     title: t.title_invite,
     lang: t.lang,
+    nonce: props.nonce,
     children: Card({
       children: html`
         <div style="text-align: center; margin-bottom: 2rem;">

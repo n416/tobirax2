@@ -2,7 +2,7 @@ import { sign, verify } from 'hono/jwt'
 import { Hono } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { csrf } from 'hono/csrf'
-import { secureHeaders } from 'hono/secure-headers'
+import { secureHeaders, NONCE } from 'hono/secure-headers'
 import { html } from 'hono/html'
 import { Env, User, App, Session, Permission, Group, AuthCode, SystemConfig, AppContext } from './types'
 import { verifyPassword, hashPassword, generateToken, getCookieOptions, validatePassword, BCRYPT_COST, getBcryptCost, hashToken } from './utils/auth'
@@ -41,15 +41,48 @@ import { isSafeReturnTo, safeEqual, tokenError, buildOidcClaims, computeAtHash }
 const app = new Hono<{ Bindings: Env }>()
 
 // セキュリティヘッダ。効果が高く破壊リスクの無いもの(X-Frame-Options/nosniff/HSTS/
-// Referrer-Policy 等)を全ルートに付与する。意図的に外しているもの:
-//   - Content-Security-Policy: 生成クライアント JS を HTML にインライン埋め込みしているため、
-//     雑な CSP は全スクリプトを壊す。nonce/hash 整備を伴う別タスク(G の後の課題)。
-//   - Cross-Origin-Resource-Policy / Cross-Origin-Opener-Policy: クロスオリジンで叩かれる
-//     OIDC メタデータ(/.well-known/jwks.json, openid-configuration)やブラウザ RP の
-//     ポップアップ系フローを阻害しうるため無効化。エンドポイント別の厳格化は将来課題。
+// Referrer-Policy 等)を全ルートに付与する。
+//
+// Content-Security-Policy について:
+//   本アプリは画面のインライン <script> と onclick 等のインラインイベントハンドラに
+//   依存している(全画面で計 160 超)。CSP3 では script-src に nonce/hash を入れると
+//   'unsafe-inline' が無効化され、これら onclick が一斉に壊れる。全ハンドラを
+//   addEventListener へ機械的に移植するのは未テスト UI への大規模改修になり別タスク。
+//   そこで script-src は当面 'unsafe-inline' を残しつつ(=インライン注入そのものは
+//   防げないが、XSS は hono/html の自動エスケープで一次防御済み)、それ以外の高効果・
+//   非破壊なディレクティブを締める:
+//     - default-src 'self' / connect-src 'self': 既定取得元と fetch 先を自オリジンに限定
+//     - object-src 'none': プラグイン(<object>/<embed>)を全面禁止
+//     - base-uri 'self': <base> 乗っ取りによる相対 URL 改ざんを遮断
+//     - frame-ancestors 'self': クリックジャッキング遮断(既存の X-Frame-Options:SAMEORIGIN と整合)
+//     - form-action 'self': フォーム送信先を自オリジンへ限定し抜き取りを防止
+//       (OIDC は常に 302 redirect 応答で、form_post 自動 POST は未実装のため安全)
+//   外部依存は Google Fonts(fonts.googleapis.com/gstatic.com)と tom-select(jsdelivr)のみ。
+//   将来 nonce/hash 化で 'unsafe-inline' を外すのが理想(残課題)。
+//
+//   Cross-Origin-Resource-Policy / Cross-Origin-Opener-Policy は、クロスオリジンで叩かれる
+//   OIDC メタデータ(/.well-known/jwks.json, openid-configuration)やブラウザ RP の
+//   ポップアップ系フローを阻害しうるため無効化のまま。エンドポイント別の厳格化は将来課題。
 app.use('*', secureHeaders({
     crossOriginResourcePolicy: false,
     crossOriginOpenerPolicy: false,
+    contentSecurityPolicy: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'self'"],
+        formAction: ["'self'"],
+        connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
+        // すべてのインラインスクリプトおよびイベントハンドラをイベント委譲・nonce配線に移行したため、
+        // 'unsafe-inline' を排除し、Honoのミドルウェアによる動的 nonce 生成 (NONCE) を適用する。
+        // tom-select は jsdelivr から読み込む。
+        scriptSrc: ["'self'", "https://cdn.jsdelivr.net", NONCE],
+        // 全画面で多数のインライン style= を使用。Google Fonts と tom-select の CSS も許可。
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        // アイコンは data: の base64、プロフィール画像は https の外部 URL を許容。
+        imgSrc: ["'self'", "data:", "https:"],
+    },
 }))
 
 // CSRF は HTML フォーム系ルートを保護する。OIDC のマシン向けエンドポイント
@@ -576,7 +609,7 @@ app.get('/', async (c) => {
         }
         const availableServiceTags = Array.from(allTagsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
 
-        return c.html(<UserDashboard t={t} userEmail={user.email} apps={standaloneApps} services={entitledServices} availableServiceTags={availableServiceTags} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} />)
+        return c.html(<UserDashboard t={t} userEmail={user.email} apps={standaloneApps} services={entitledServices} availableServiceTags={availableServiceTags} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} nonce={c.get('secureHeadersNonce')} />)
     } catch (e: any) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
@@ -638,7 +671,7 @@ app.get('/account', async (c) => {
         app_developer: appMap[m.group_id + '|developer'] || null,
     }))
 
-    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} isGroupAdmin={isGroupAdmin} myMemberships={myMemberships} />)
+    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} isGroupAdmin={isGroupAdmin} myMemberships={myMemberships} nonce={c.get('secureHeadersNonce')} />)
 })
 
 app.get('/login', async (c) => {
@@ -665,7 +698,7 @@ app.get('/login', async (c) => {
         }
     }
 
-    return c.html(<Login t={t} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} email={loginHint} />)
+    return c.html(<Login t={t} returnTo={returnTo} message={message} siteName={siteName} siteSubtitle={siteSubtitle} email={loginHint} nonce={c.get('secureHeadersNonce')} />)
 })
 
 const ACCT_RL_LIMIT = 10;
@@ -689,12 +722,12 @@ app.post('/login', async (c) => {
     const acctOk = await rateLimit(c.env.DB, `login:acct:${email}`, ACCT_RL_LIMIT, ACCT_RL_WINDOW)
 
     if (!ipOk || !acctOk) {
-        return c.html(<Login t={t} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
+        return c.html(<Login t={t} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} nonce={c.get('secureHeadersNonce')} />, 429)
     }
 
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first() as User | null
     if (!user || !(await verifyPassword(password, user.password_hash))) {
-        return c.html(<Login t={t} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} />)
+        return c.html(<Login t={t} returnTo={returnTo} error={t.error_credentials} siteName={siteName} siteSubtitle={siteSubtitle} nonce={c.get('secureHeadersNonce')} />)
     }
 
     // Opaque upgrade: if the stored hash cost is less than the current standard, re-hash and update
@@ -750,7 +783,7 @@ app.get('/signup', async (c) => {
         if (returnTo && isSafeReturnTo(returnTo)) return c.redirect(returnTo)
         return c.redirect('/')
     }
-    return c.html(<Signup t={t} returnTo={returnTo} siteName={siteName} siteSubtitle={siteSubtitle} />)
+    return c.html(<Signup t={t} returnTo={returnTo} siteName={siteName} siteSubtitle={siteSubtitle} nonce={c.get('secureHeadersNonce')} />)
 })
 
 app.post('/signup', async (c) => {
@@ -763,12 +796,12 @@ app.post('/signup', async (c) => {
     const password = body['password'] as string
     const returnTo = body['return_to'] as string
 
-    const view = (error: string) => c.html(<Signup t={t} returnTo={returnTo} error={error} siteName={siteName} siteSubtitle={siteSubtitle} />)
+    const view = (error: string) => c.html(<Signup t={t} returnTo={returnTo} error={error} siteName={siteName} siteSubtitle={siteSubtitle} nonce={c.get('secureHeadersNonce')} />)
 
     // 自動化された大量登録を抑えるための IP 別レート制限。
     const signupIp = c.req.header('CF-Connecting-IP') || 'unknown'
     if (!(await rateLimit(c.env.DB, `signup:${signupIp}`, 5, 60))) {
-        return c.html(<Signup t={t} returnTo={returnTo} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} />, 429)
+        return c.html(<Signup t={t} returnTo={returnTo} error={t.error_rate_limited} siteName={siteName} siteSubtitle={siteSubtitle} nonce={c.get('secureHeadersNonce')} />, 429)
     }
 
     if (!email || !password) return view(t.error_required)
@@ -830,7 +863,7 @@ app.get('/user/2fa/setup', async (c) => {
     const siteName = getLocalizedValue(c, config.appName)
     const secret = generateSecret()
     const qrCode = await generateQRCode(secret, user.email, 'Tobira')
-    return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} />)
+    return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} nonce={c.get('secureHeadersNonce')} />)
 })
 app.post('/user/2fa/setup', async (c) => {
     const user = await getUser(c)
@@ -850,7 +883,7 @@ app.post('/user/2fa/setup', async (c) => {
         const config = await getSystemConfig(c.env.DB)
         const siteName = getLocalizedValue(c, config.appName)
         const qrCode = await generateQRCode(secret, user.email, 'Tobira')
-        return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} error={t.err_invalid_code} />)
+        return c.html(<Setup2FA t={t} qrCodeDataUrl={qrCode} secret={secret} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} error={t.err_invalid_code} nonce={c.get('secureHeadersNonce')} />)
     }
 })
 app.post('/user/2fa/disable', async (c) => {
@@ -874,14 +907,14 @@ app.get('/change-password', async (c) => {
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
-    return c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} />)
+    return c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} nonce={c.get('secureHeadersNonce')} />)
 })
 app.post('/change-password', async (c) => {
     const user = await getUser(c)
     if (!user) return c.redirect('/login')
     const config = await getSystemConfig(c.env.DB)
     const siteName = getLocalizedValue(c, config.appName)
-    const view = (error: string, message?: string) => c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} error={error} message={message} />)
+    const view = (error: string, message?: string) => c.html(<ChangePassword t={getLang(c)} siteName={siteName} userEmail={user.email} profileName={user.name} profilePicture={user.picture} error={error} message={message} nonce={c.get('secureHeadersNonce')} />)
 
     const body = await c.req.parseBody()
     const currentPassword = body['current_password'] as string
@@ -1044,7 +1077,7 @@ app.get('/login/2fa', async (c) => {
     if (!token) return c.redirect('/login')
     try { await verify(token, requireSecret(c.env, 'JWT_SECRET', 'dev_secret'), "HS256") } catch (e) { return c.redirect('/login') }
     const returnTo = c.req.query('return_to')
-    return c.html(<Login2FA t={t} returnTo={returnTo} />)
+    return c.html(<Login2FA t={t} returnTo={returnTo} nonce={c.get('secureHeadersNonce')} />)
 })
 app.post('/login/2fa', async (c) => {
     const t = getLang(c)
@@ -1062,7 +1095,7 @@ app.post('/login/2fa', async (c) => {
     const userOk = await rateLimit(c.env.DB, `2fa:user:${userId}`, ACCT_RL_LIMIT, ACCT_RL_WINDOW)
 
     if (!ipOk || !userOk) {
-        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.error_rate_limited} />, 429)
+        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.error_rate_limited} nonce={c.get('secureHeadersNonce')} />, 429)
     }
 
     const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first() as User | null
@@ -1072,11 +1105,11 @@ app.post('/login/2fa', async (c) => {
         const kek = await requireSecret(c.env, 'OIDC_KEK', 'fallback-local-dev-kek-do-not-use-in-prod');
         decryptedSecret = await decryptSecret(user.two_factor_secret, kek);
     } catch (e) {
-        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.error_credentials || 'Invalid credentials'} />, 403);
+        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.error_credentials || 'Invalid credentials'} nonce={c.get('secureHeadersNonce')} />, 403);
     }
 
     if (!decryptedSecret || !verifyToken(otp, decryptedSecret)) {
-        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.err_invalid_code} />)
+        return c.html(<Login2FA t={t} returnTo={returnTo} error={t.err_invalid_code} nonce={c.get('secureHeadersNonce')} />)
     }
 
     // 2FA成功時にユーザーのレート制限カウンタをリセット

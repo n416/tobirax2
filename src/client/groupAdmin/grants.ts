@@ -45,7 +45,7 @@ window.renderGrants = function() {
                     seat = g.seat_limit + ' <span style="color:#94a3b8; font-size:0.78rem;">(' + (i18n.grantDistributed || '子へ配分') + ' ' + childSeats + ' / ' + (i18n.grantAvailable || '利用可能') + ' ' + Math.max(0, g.seat_limit - childSeats) + ')</span>';
                 }
                 var isRootGrant = (window.availableContracts || []).some(function(c: any) { return c.id === g.contract_id && c.customer_group_id === window.currentGroupId; });
-                var deleteBtn = isRootGrant ? '<button type="button" onclick="removeGrant(' + g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '';
+                var deleteBtn = isRootGrant ? '<button type="button" data-action="remove-grant" data-id="' + g.id + '" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '';
                 return '<tr>'
                     + '<td><strong>' + window.escapeHtml(g.service_name) + '</strong></td>'
                     + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
@@ -113,7 +113,7 @@ function renderChildGrants(kids: any[]) {
             + '<td><span class="material-symbols-outlined" style="font-size:16px; color:#94a3b8; vertical-align:middle; margin-right:0.3rem;">subdirectory_arrow_right</span>' + window.escapeHtml(r.child.name) + '</td>'
             + '<td style="font-size:0.88rem;">' + window.escapeHtml(r.g.service_name) + '</td>'
             + '<td style="font-size:0.85rem; color:#64748b;">' + seat + '</td>'
-            + '<td style="text-align:right;"><button type="button" onclick="removeGrant(' + r.g.id + ')" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\'#fef2f2\';this.style.color=\'#ef4444\';" onmouseout="this.style.background=\'transparent\';this.style.color=\'#94a3b8\';"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
+            + '<td style="text-align:right;"><button type="button" data-action="remove-grant" data-id="' + r.g.id + '" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button></td>'
             + '</tr>';
     }).join('');
 }

@@ -37,7 +37,7 @@ window.openServiceAppsModal = (enc: string, availableApps: AppItem[], appsDataId
   if (compEl) {
     compEl.innerHTML = composed.length ? composed.map((a: AppItem) =>
       '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:0.4rem;"><span>' + a.name + '</span>'
-      + '<a href="javascript:void(0)" onclick="removeServiceApp(\'' + s.id + '\',\'' + a.id + '\')" style="color:#ef4444;text-decoration:none;cursor:pointer;font-size:0.85rem;padding:0.2rem;">' + (window.i18n && window.i18n.btnRemove ? window.i18n.btnRemove : '外す') + '</a></div>'
+      + '<a href="#" data-action="sa-remove-app" data-service-id="' + s.id + '" data-app-id="' + a.id + '" style="color:#ef4444;text-decoration:none;cursor:pointer;font-size:0.85rem;padding:0.2rem;">' + (window.i18n && window.i18n.btnRemove ? window.i18n.btnRemove : '外す') + '</a></div>'
     ).join('') : '<div style="color:#94a3b8;font-size:0.88rem;">' + (window.i18n && window.i18n.svcNoApps ? window.i18n.svcNoApps : '(まだ組み込まれていません)') + '</div>';
   }
 
@@ -113,5 +113,17 @@ window.removeServiceApp = (serviceId: string, appId: string) => {
     doRemove();
   }
 };
+
+// CSP 対応: 組込済みアプリの「外す」リンクは innerHTML で動的に再生成されるため、
+// インライン onclick / javascript: URI を使えない(script-src の 'unsafe-inline' 撤廃で弾かれる)。
+// document へ一度だけ委譲リスナを張り、data-action="sa-remove-app" を拾って処理する。
+document.addEventListener('click', (e) => {
+  const el = (e.target as HTMLElement | null)?.closest('[data-action="sa-remove-app"]') as HTMLElement | null;
+  if (!el) return;
+  e.preventDefault();
+  const serviceId = el.getAttribute('data-service-id');
+  const appId = el.getAttribute('data-app-id');
+  if (serviceId && appId) window.removeServiceApp(serviceId, appId);
+});
 
 export {}

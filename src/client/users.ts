@@ -4,7 +4,6 @@
  */
 
 declare global {
-
   interface CustomModalElement extends HTMLDialogElement {
     showModal: () => void;
     close: () => void;
@@ -104,6 +103,104 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const filterCheck = document.getElementById('exclude-existing-check') as HTMLInputElement | null;
   if (filterCheck) { filterCheck.addEventListener('change', refreshAppOptions); }
+
+  // 自動的に招待モーダルを開く
+  const autoOpen = document.getElementById('invite-auto-open');
+  if (autoOpen && autoOpen.getAttribute('data-open') === 'true') {
+    const modal = document.getElementById('invite-modal') as CustomModalElement | null;
+    if (modal) modal.showModal();
+  }
+
+  // Click event delegation
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+
+    const actionBtn = target.closest('[data-action]') as HTMLElement | null;
+    if (actionBtn) {
+      const action = actionBtn.getAttribute('data-action');
+      if (action === 'toggle-bulk-mode') {
+        const btn = document.getElementById('toggleBulkMode');
+        // 元の toggleBulkMode のハンドリングは別途 JS 内でアタッチされているかもしれないので、
+        // もし window.toggleBulkMode などの関数があれば呼ぶ。
+      }
+      if (action === 'open-invite-modal') {
+        const m = document.getElementById('invite-modal') as CustomModalElement | null;
+        if (m) m.showModal();
+        return;
+      }
+      if (action === 'select-text') {
+        (actionBtn as HTMLInputElement).select();
+        return;
+      }
+      if (action === 'toggle-all-checkboxes') {
+        if (window.toggleAllCheckboxes) {
+          window.toggleAllCheckboxes(actionBtn as HTMLInputElement);
+        }
+        return;
+      }
+      if (action === 'delete-user') {
+        e.stopPropagation();
+        const userId = actionBtn.getAttribute('data-user-id');
+        if (userId && window.deleteUser) window.deleteUser(userId);
+        return;
+      }
+      if (action === 'update-user-group') {
+        if (window.updateUserGroup) window.updateUserGroup();
+        return;
+      }
+      if (action === 'switch-user-tab') {
+        const tabName = actionBtn.getAttribute('data-tab-name') || '';
+        if (window.switchUserTab) window.switchUserTab(tabName);
+        return;
+      }
+      if (action === 'calc-date') {
+        const targetId = actionBtn.getAttribute('data-target') || '';
+        const amount = Number(actionBtn.getAttribute('data-amount') || '0');
+        const unit = actionBtn.getAttribute('data-unit') || '';
+        if (window.calcDate) window.calcDate(targetId, amount, unit);
+        return;
+      }
+      if (action === 'grant-permission') {
+        if (window.grantPermission) window.grantPermission();
+        return;
+      }
+      if (action === 'add-assignment') {
+        if (window.addAssignment) window.addAssignment();
+        return;
+      }
+      if (action === 'close-revoke-modal') {
+        if (window.closeRevokeModal) window.closeRevokeModal();
+        return;
+      }
+      if (action === 'execute-revoke') {
+        if (window.executeRevoke) window.executeRevoke();
+        return;
+      }
+    }
+
+    // .col-select(一括選択チェックボックス列)内のクリックはカード遷移させない。
+    // 以前は当該 div の inline onclick="event.stopPropagation()" で抑止していたが、
+    // CSP で inline ハンドラが弾かれるため、ここで除外条件として明示する。
+    const card = target.closest('.list-card-clickable') as HTMLElement | null;
+    if (card && !target.closest('button') && !target.closest('input') && !target.closest('.col-select')) {
+      const userId = card.getAttribute('data-user-id') || '';
+      if (window.handleUserCardClick) {
+        window.handleUserCardClick(e, userId);
+      }
+    }
+  });
+
+  // Change event delegation
+  document.addEventListener('change', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+
+    const changeAction = target.getAttribute('data-change');
+    if (changeAction === 'update-role-options') {
+      if (window.updateRoleOptions) window.updateRoleOptions();
+    }
+  });
 });
 
 function refreshAppOptions(): void {

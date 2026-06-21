@@ -181,3 +181,33 @@ export const tabStyles = raw(`
     background: #fff !important; color: var(--primary) !important; box-shadow: 0 2px 6px -2px rgba(0,0,0,0.1) !important;
   }
 `);
+
+// CSP 対応: 行アクションボタンのホバー演出は、従来インラインの onmouseover/onmouseout
+// (this.style.* 書き換え)で実装していたが、script-src から 'unsafe-inline' を外したことで
+// これらが CSP に弾かれるようになった。そこで既存の data-action 属性をフックにした
+// CSS :hover へ移行する。ボタンには基本スタイルがインライン style= で付いており、それを
+// ホバー時に上書きする必要があるため !important を付与する。
+export const rowActionHoverStyles = raw(`
+  /* 危険系アイコンボタン(削除/除外): 透明 → 薄赤背景・赤文字 */
+  [data-action="remove-assignment"]:hover,
+  [data-action="remove-facility"]:hover,
+  [data-action="remove-grant"]:hover,
+  [data-action="remove-member"]:hover,
+  [data-action="remove-service"]:hover,
+  [data-action="remove-app"]:hover {
+    background: #fef2f2 !important; color: #ef4444 !important;
+  }
+  /* 中立アイコンボタン(詳細/編集/タグ管理): 透明 → 薄灰背景・藍文字 */
+  [data-action="open-app-edit-modal"]:hover,
+  [data-action="open-service-tags-modal"]:hover {
+    background: #f1f5f9 !important; color: #4f46e5 !important;
+  }
+  /* ピル(再申請): 白 → 薄赤背景 */
+  [data-action="reapply-service"]:hover { background: #fef2f2 !important; }
+  /* ピル(アプリを組み込む): 薄藍背景・藍枠 */
+  [data-action="manage-service-apps"]:hover { background: #eef2ff !important; border-color: #a5b4fc !important; }
+  /* ピル(役割を管理): 薄緑背景・緑枠 */
+  [data-action="manage-roles"]:hover { background: #d1fae5 !important; border-color: #6ee7b7 !important; }
+  /* タグ除去の×ボタン: 不透明度 0.7 → 1 */
+  [data-action="remove-service-tag"]:hover { opacity: 1 !important; }
+`);

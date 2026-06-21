@@ -55,8 +55,8 @@ export const confirmDialogStyles = html`
   </style>
 `
 
-export const ConfirmDialogScript = html`
-  <script>
+export const ConfirmDialogScript = (nonce?: string) => html`
+  <script nonce="${nonce}">
     (function() {
       var dialogHtml = \`
         <dialog id="global-confirm-dialog">

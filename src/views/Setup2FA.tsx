@@ -13,6 +13,7 @@ interface Props {
   profileName?: string | null
   profilePicture?: string | null
   error?: string
+  nonce?: string
 }
 
 // 2段階認証のセットアップ画面。アカウント設定と同じトップバー/カードトーンで視覚統一する。
@@ -110,6 +111,7 @@ export const Setup2FA = (props: Props) => {
     lang: t.lang,
     width: 760,
     align: 'top',
+    nonce: props.nonce,
     children: html`
         ${UserTopbar({
           t, siteName: props.siteName, userEmail: props.userEmail, active: 'account',

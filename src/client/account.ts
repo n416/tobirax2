@@ -51,4 +51,32 @@ window.openApplyModal = openApplyModal;
 window.closeApplyModal = closeApplyModal;
 window.submitApply = submitApply;
 
+document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    
+    const openApplyBtn = target.closest('[data-action="open-apply-modal"]') as HTMLElement | null;
+    if (openApplyBtn) {
+      const gid = openApplyBtn.getAttribute('data-group-id') || '';
+      const rt = openApplyBtn.getAttribute('data-role-type') || '';
+      const label = openApplyBtn.getAttribute('data-role-label') || '';
+      openApplyModal(gid, rt, label);
+      return;
+    }
+
+    const show2faBtn = target.closest('[data-action="show-disable-2fa-modal"]');
+    if (show2faBtn) {
+      const m = document.getElementById('disable-2fa-modal') as any;
+      if (m) m.showModal();
+      return;
+    }
+    
+    const submitApplyBtn = target.closest('[data-action="submit-apply"]');
+    if (submitApplyBtn) {
+      submitApply();
+      return;
+    }
+  });
+});
+
 export {}

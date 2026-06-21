@@ -223,4 +223,131 @@ window.appSecretAction = (action: string) => {
     .catch((err) => { console.error('Error changing secret:', err); });
 };
 
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+
+    const actionBtn = target.closest('[data-action]') as HTMLElement | null;
+    if (actionBtn) {
+      const action = actionBtn.getAttribute('data-action');
+      if (action === 'open-new-app-modal') {
+        const m = document.getElementById('new-app-modal') as CustomModalElement | null;
+        if (m) m.showModal();
+        return;
+      }
+      if (action === 'remove-app-tag') {
+        e.stopPropagation();
+        const appId = actionBtn.getAttribute('data-app-id');
+        const tagId = actionBtn.getAttribute('data-tag-id');
+        if (appId && tagId && window.showConfirm) {
+          window.showConfirm('タグを外しますか？', () => {
+            const form = document.getElementById('remove-app-tag-form') as HTMLFormElement | null;
+            if (form) {
+              (form.querySelector('input[name=app_id]') as HTMLInputElement).value = appId;
+              (form.querySelector('input[name=tag_id]') as HTMLInputElement).value = tagId;
+              form.submit();
+            }
+          });
+        }
+        return;
+      }
+      if (action === 'approve-app') {
+        e.stopPropagation();
+        const appId = actionBtn.getAttribute('data-app-id');
+        if (appId && window.approveApp) {
+          window.approveApp(appId);
+        }
+        return;
+      }
+      if (action === 'open-reject-app-modal') {
+        e.stopPropagation();
+        const appId = actionBtn.getAttribute('data-app-id');
+        if (appId && window.openRejectModal) {
+          window.openRejectModal('/admin/apps/reject', appId);
+        }
+        return;
+      }
+      if (action === 'toggle-app-status') {
+        e.stopPropagation();
+        const appId = actionBtn.getAttribute('data-app-id');
+        const status = actionBtn.getAttribute('data-status') || '';
+        const name = actionBtn.getAttribute('data-name') || '';
+        if (appId && window.toggleAppStatus) {
+          window.toggleAppStatus(appId, status, name);
+        }
+        return;
+      }
+      if (action === 'delete-app') {
+        e.stopPropagation();
+        const appId = actionBtn.getAttribute('data-app-id');
+        if (appId && window.deleteApp) {
+          window.deleteApp(appId);
+        }
+        return;
+      }
+      if (action === 'app-secret-action') {
+        const actionType = actionBtn.getAttribute('data-action-type');
+        if (actionType && window.appSecretAction) {
+          window.appSecretAction(actionType);
+        }
+        return;
+      }
+      if (action === 'close-toggle-modal') {
+        if (window.closeToggleModal) window.closeToggleModal();
+        return;
+      }
+      if (action === 'execute-toggle') {
+        if (window.executeToggle) window.executeToggle();
+        return;
+      }
+      if (action === 'close-delete-modal') {
+        if (window.closeDeleteModal) window.closeDeleteModal();
+        return;
+      }
+      if (action === 'execute-delete') {
+        if (window.executeDelete) window.executeDelete();
+        return;
+      }
+    }
+
+    const card = target.closest('.list-card-clickable') as HTMLElement | null;
+    if (card && !target.closest('a') && !target.closest('button') && !target.closest('select')) {
+      if (window.openEditAppModal) {
+        window.openEditAppModal(card);
+      }
+    }
+  });
+
+  document.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement | HTMLSelectElement;
+    if (!target) return;
+
+    const changeAction = target.getAttribute('data-change');
+    if (changeAction === 'handle-new-icon-preview') {
+      if (window.handleIconPreview) {
+        window.handleIconPreview(target as HTMLInputElement, 'new-icon-preview');
+      }
+    } else if (changeAction === 'handle-edit-icon-preview') {
+      if (window.handleIconPreview) {
+        window.handleIconPreview(target as HTMLInputElement, 'edit-icon-preview');
+      }
+    } else if (changeAction === 'add-app-tag') {
+      const val = target.value;
+      if (val) {
+        const appId = target.getAttribute('data-app-id');
+        if (appId) {
+          const form = document.getElementById('add-app-tag-form') as HTMLFormElement | null;
+          if (form) {
+            (form.querySelector('input[name=app_id]') as HTMLInputElement).value = appId;
+            (form.querySelector('input[name=tag_id]') as HTMLInputElement).value = val;
+            form.submit();
+          }
+        }
+      }
+    }
+  });
+});
+
 export {}

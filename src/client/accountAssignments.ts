@@ -61,6 +61,29 @@ document.addEventListener('DOMContentLoaded', () => {
   if (svc) svc.addEventListener('change', refreshRoles);
   if (fac) fac.addEventListener('change', refreshRoles);
   refreshRoles();
+
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+    const actionEl = target.closest('[data-action]') as HTMLElement | null;
+    if (!actionEl) return;
+    const action = actionEl.getAttribute('data-action');
+    if (!action) return;
+
+    if (action === 'open-new-role-modal') {
+      const modal = document.getElementById('new-role-modal') as CustomModalElement | null;
+      if (modal) modal.showModal();
+      return;
+    }
+    if (action === 'open-new-assignment-modal') {
+      const modal = document.getElementById('new-assignment-modal') as CustomModalElement | null;
+      if (modal) {
+        modal.showModal();
+        refreshRoles();
+      }
+      return;
+    }
+  });
 });
 
 export {}

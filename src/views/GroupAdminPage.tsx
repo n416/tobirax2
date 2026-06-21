@@ -9,7 +9,7 @@ import { Modal } from './components/Modal'
 import { MultiSelect } from './components/MultiSelect'
 import { ServiceAppsModal } from './components/ServiceAppsModal'
 
-import { sectionTitle, card, tabBar, groupSelectWrapper, badge, tableWrap, formLabel, dateInput, selectInput, infoBox, actionBtn, tabStyles } from './styles/groupAdminStyles'
+import { sectionTitle, card, tabBar, groupSelectWrapper, badge, tableWrap, formLabel, dateInput, selectInput, infoBox, actionBtn, tabStyles, rowActionHoverStyles } from './styles/groupAdminStyles'
 import { groupAdminClientScript } from './scripts/generated/groupAdmin'
 import { GroupAdminModals } from './components/GroupAdminModals'
 import { safeJsonStringify } from '../utils/json'
@@ -104,6 +104,7 @@ interface Props {
   serviceTagsByGroup: Record<string, ServiceTagDetail[]>
   customTagsByGroup: Record<string, Pick<Tag, 'id' | 'name' | 'status' | 'created_at'>[]>
   availableTags: Pick<Tag, 'id' | 'name'>[]
+  nonce?: string
 }
 
 export const GroupAdminPage = (props: Props) => {
@@ -143,6 +144,7 @@ export const GroupAdminPage = (props: Props) => {
       lang: t.lang,
       width: 1000,
       align: 'top',
+      nonce: props.nonce,
       children: html`
         ${UserTopbar({ t, siteName: props.siteName, userEmail: props.userEmail, active: 'group-admin', profileName: props.profileName, profilePicture: props.profilePicture, isGroupAdmin: true })}
         <div style="text-align:center; padding:4rem 2rem; color:var(--text-sub);">
@@ -162,6 +164,7 @@ export const GroupAdminPage = (props: Props) => {
     lang: t.lang,
     width: 1000,
     align: 'top',
+    nonce: props.nonce,
     children: html`
       ${UserTopbar({ t, siteName: props.siteName, userEmail: props.userEmail, active: 'group-admin', profileName: props.profileName, profilePicture: props.profilePicture, isGroupAdmin: true })}
 
@@ -188,7 +191,7 @@ export const GroupAdminPage = (props: Props) => {
               </select>
             </div>
           </div>
-          ${Button({ onclick: "openCreateChildGroupModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">domain_add</span> 子グループを作成` })}
+          ${Button({ attr: { "data-action": "open-create-child-group-modal" }, style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">domain_add</span> 子グループを作成` })}
         </div>
       ` : html`
         <div style="margin-bottom:1.5rem; display:flex; align-items:center; justify-content:space-between;">
@@ -197,29 +200,29 @@ export const GroupAdminPage = (props: Props) => {
             <strong style="font-size:1.1rem;">${groups[0].name}</strong>
             <input type="hidden" id="group-select" value="${firstGroupId}" />
           </div>
-          ${Button({ onclick: "openCreateChildGroupModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">domain_add</span> 子グループを作成` })}
+          ${Button({ attr: { "data-action": "open-create-child-group-modal" }, style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">domain_add</span> 子グループを作成` })}
         </div>
       `}
 
       <div class="${tabBar}">
-        <button id="tab-btn-members" onclick="switchTab('members')">
+        <button id="tab-btn-members" data-action="switch-tab" data-tab-name="members">
           <span class="material-symbols-outlined">group</span>${t.ga_tab_members}
         </button>
-        <button id="tab-btn-assignments" onclick="switchTab('assignments')">
+        <button id="tab-btn-assignments" data-action="switch-tab" data-tab-name="assignments">
           <span class="material-symbols-outlined">assignment_ind</span>${t.ga_tab_assignments}
         </button>
         ${isBillingAdmin ? html`
-        <button id="tab-btn-grants" onclick="switchTab('grants')">
+        <button id="tab-btn-grants" data-action="switch-tab" data-tab-name="grants">
           <span class="material-symbols-outlined">card_membership</span>${t.ga_tab_grants}
         </button>
         ` : ''}
-        <button id="tab-btn-access" onclick="switchTab('access')">
+        <button id="tab-btn-access" data-action="switch-tab" data-tab-name="access">
           <span class="material-symbols-outlined">lock_open</span>${t.ga_tab_access}
         </button>
-        <button id="tab-btn-facilities" onclick="switchTab('facilities')">
+        <button id="tab-btn-facilities" data-action="switch-tab" data-tab-name="facilities">
           <span class="material-symbols-outlined">domain</span>施設
         </button>
-        <button id="tab-btn-apps" onclick="switchTab('apps')">
+        <button id="tab-btn-apps" data-action="switch-tab" data-tab-name="apps">
           <span class="material-symbols-outlined">apps</span>${t.ga_tab_apps}
         </button>
       </div>
@@ -227,7 +230,7 @@ export const GroupAdminPage = (props: Props) => {
       <!-- メンバータブ -->
       <div id="tab-members" class="tab-content">
         <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-          ${Button({ onclick: "openAddModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">person_add</span> ${t.am_add_member}` })}
+          ${Button({ attr: { "data-action": "open-add-member-modal" }, style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">person_add</span> ${t.am_add_member}` })}
         </div>
         <div class="${card}">
           <div class="${tableWrap}">
@@ -261,7 +264,7 @@ export const GroupAdminPage = (props: Props) => {
             <span class="material-symbols-outlined">group</span>割当済みメンバー
           </div>
           <div id="btn-add-assign-wrap" style="display:flex; justify-content:flex-end; align-items:center; gap:0.75rem;">
-            ${Button({ onclick: "openAssignModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">assignment_add</span> ${t.ga_add_assignment}` })}
+            ${Button({ attr: { "data-action": "open-assign-modal" }, style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">assignment_add</span> ${t.ga_add_assignment}` })}
           </div>
         </div>
         
@@ -302,7 +305,7 @@ export const GroupAdminPage = (props: Props) => {
                <label class="${formLabel}">用途 (Use)</label>
                <input type="text" id="f-building-use" class="${dateInput}" placeholder="Office" />
             </div>
-            ${Button({ onclick: "addFacility()", children: html`<span class="material-symbols-outlined">add_business</span> <span>新規追加</span>` })}
+            ${Button({ attr: { "data-action": "add-facility" }, children: html`<span class="material-symbols-outlined">add_business</span> <span>新規追加</span>` })}
 
             <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e2e8f0;" />
 
@@ -313,7 +316,7 @@ export const GroupAdminPage = (props: Props) => {
                   <option value=""></option>
                </select>
             </div>
-            ${Button({ onclick: "moveFacility()", children: html`<span class="material-symbols-outlined">drive_file_move</span> <span>このグループへ移動</span>` })}
+            ${Button({ attr: { "data-action": "move-facility" }, children: html`<span class="material-symbols-outlined">drive_file_move</span> <span>このグループへ移動</span>` })}
          </div>
 
          <div class="${sectionTitle}" style="margin-bottom: 0.75rem;">
@@ -353,16 +356,16 @@ export const GroupAdminPage = (props: Props) => {
           </div>
           <div class="${card}">
             <div class="${tableWrap}">
-              <table>
-                <thead>
-                  <tr>
-                    <th>契約名</th>
-                    <th>席数上限</th>
-                  </tr>
-                </thead>
-                <tbody id="contracts-table-body">
-                </tbody>
-              </table>
+               <table>
+                 <thead>
+                   <tr>
+                     <th>契約名</th>
+                     <th>席数上限</th>
+                   </tr>
+                 </thead>
+                 <tbody id="contracts-table-body">
+                 </tbody>
+               </table>
             </div>
           </div>
         </div>
@@ -372,7 +375,7 @@ export const GroupAdminPage = (props: Props) => {
             <span class="material-symbols-outlined">inventory_2</span>自グループの利用枠 (実体)
           </div>
           <div id="btn-open-grant-wrap" style="display:flex; justify-content:flex-end; align-items:center; gap:0.75rem;">
-            ${Button({ onclick: "openGrantModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
+            ${Button({ attr: { "data-action": "open-grant-modal" }, style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add_card</span> ${t.ga_open_grant}` })}
           </div>
         </div>
         
@@ -455,7 +458,7 @@ export const GroupAdminPage = (props: Props) => {
           <div class="${card}" style="max-width:600px;">
             <label class="${formLabel}">申請理由 (必須)</label>
             <textarea id="dev-apply-reason" class="${dateInput}" style="min-height:80px; margin-bottom:1rem;" placeholder="アプリの利用目的などを入力してください"></textarea>
-            ${Button({ onclick: "applyDeveloper()", style: "width:auto;", children: html`<span class="material-symbols-outlined">send</span> 承認を申請する` })}
+            ${Button({ attr: { "data-action": "apply-developer" }, style: "width:auto;", children: html`<span class="material-symbols-outlined">send</span> 承認を申請する` })}
             <div id="dev-rejected-msg" style="display:none; margin-top:1.5rem; color:#b91c1c; background:#fef2f2; padding:1rem; border-radius:8px; align-items:flex-start; gap:0.5rem; flex-direction:column;">
               <div style="display:flex; align-items:center; gap:0.5rem; font-weight:600;"><span class="material-symbols-outlined">error</span><span>前回の申請は以下の事由により却下されました。理由を修正して再度申請してください。</span></div>
               <div style="padding:0.75rem; background:rgba(0,0,0,0.03); border-radius:6px; width:100%; box-sizing:border-box; white-space:pre-wrap; margin-top:0.5rem;" id="dev-rejected-reason-text"></div>
@@ -482,7 +485,7 @@ export const GroupAdminPage = (props: Props) => {
           <div class="${sectionTitle}"><span class="material-symbols-outlined">category</span>${t.ga_svc_section}</div>
           <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_svc_desc}</div>
           <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-            ${Button({ onclick: "openServiceModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.ga_svc_create}` })}
+            ${Button({ attr: { "data-action": "open-service-modal" }, style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.ga_svc_create}` })}
           </div>
           <div class="${card}">
             <div class="${tableWrap}">
@@ -499,7 +502,7 @@ export const GroupAdminPage = (props: Props) => {
           <div class="${sectionTitle}" style="margin-top:1rem;"><span class="material-symbols-outlined">apps</span>${t.ga_app_section}</div>
           <div class="${infoBox}"><span class="material-symbols-outlined">info</span>${t.ga_app_desc}</div>
           <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
-            ${Button({ onclick: "openAppModal()", style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">note_add</span> ${t.ga_app_request}` })}
+            ${Button({ attr: { "data-action": "open-app-modal" }, style: "width:auto;", children: html`<span class="material-symbols-outlined" style="font-size:18px;">note_add</span> ${t.ga_app_request}` })}
           </div>
           <div class="${card}">
             <div class="${tableWrap}">
@@ -515,7 +518,7 @@ export const GroupAdminPage = (props: Props) => {
       </div>
 
       
-      ${GroupAdminModals(props, t, userOptions)}
+      ${GroupAdminModals(props, t, userOptions, props.nonce)}
       <script type="application/json" id="ga-members-data">${raw(membersByGroupJson)}</script>
       <script type="application/json" id="ga-assigns-data">${raw(assignmentsByGroupJson)}</script>
       <script type="application/json" id="ga-perms-data">${raw(permsByGroupJson)}</script>
@@ -533,7 +536,7 @@ export const GroupAdminPage = (props: Props) => {
       <script type="application/json" id="ga-service-tags-data">${raw(serviceTagsByGroupJson)}</script>
       <script type="application/json" id="ga-custom-tags-data">${raw(customTagsByGroupJson)}</script>
       <script type="application/json" id="ga-available-tags-data">${raw(availableTagsJson)}</script>
-      <script>
+      <script nonce="${props.nonce}">
         window.i18n = {
           noMembers: '${t.am_no_members}',
           roleAdmin: '${t.am_role_group_admin}',
@@ -585,13 +588,14 @@ export const GroupAdminPage = (props: Props) => {
           svcConfirmRemoveApp: '${t.ga_svc_confirm_remove_app}',
         };
       </script>
-      <script>
+      <script nonce="${props.nonce}">
       window.__name = function(f) { return f; };
       window.__isBillingAdmin = ${isBillingAdmin ? 'true' : 'false'};
       ${raw(groupAdminClientScript)}
       </script>
       <style>
       ${tabStyles}
+      ${rowActionHoverStyles}
       </style>
     `
   })

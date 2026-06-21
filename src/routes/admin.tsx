@@ -67,7 +67,7 @@ adminRouter.get('/admin', async (c) => {
         apps: Number(await c.env.DB.prepare('SELECT COUNT(*) as c FROM apps').first('c') ?? 0),
         users: Number(await c.env.DB.prepare('SELECT COUNT(*) as c FROM users').first('c') ?? 0)
     }
-    return c.html(<AdminHome t={t} userEmail={user.email} stats={stats} siteName={siteName} appConfig={config} />)
+    return c.html(<AdminHome t={t} userEmail={user.email} stats={stats} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
 })
 adminRouter.get('/admin/apps', async (c) => {
     const user = await getAdmin(c)
@@ -84,7 +84,7 @@ adminRouter.get('/admin/apps', async (c) => {
         ORDER BY (a.status = 'pending') DESC, a.created_at DESC
     `).all<App & { owner_group_name: string | null; service_count: number }>()
     const tagsResult = await c.env.DB.prepare("SELECT * FROM tags WHERE status = 'active' ORDER BY name").all<Tag>()
-    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results} availableTags={tagsResult.results} siteName={siteName} appConfig={config} />)
+    return c.html(<AppsPage t={getLang(c)} userEmail={user.email} apps={results} availableTags={tagsResult.results} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
 })
 
 adminRouter.get('/admin/tags', async (c) => {
@@ -120,7 +120,7 @@ adminRouter.get('/admin/tags', async (c) => {
         ORDER BY s.name
     `).all<ServiceTagMap>()
 
-    return c.html(<TagsPage t={getLang(c)} userEmail={user.email} tags={tags.results} pendingServiceTags={pendingServiceTags.results} allServices={allServices.results} serviceTagsMap={serviceTagsMap.results} siteName={siteName} appConfig={config} />)
+    return c.html(<TagsPage t={getLang(c)} userEmail={user.email} tags={tags.results} pendingServiceTags={pendingServiceTags.results} allServices={allServices.results} serviceTagsMap={serviceTagsMap.results} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
 })
 
 adminRouter.post('/admin/tags/create', async (c) => {
@@ -376,7 +376,7 @@ adminRouter.get('/admin/groups', async (c) => {
         const apps = await c.env.DB.prepare('SELECT * FROM apps').all<App>()
         if (!groups.success) throw new Error('Groups DB Error: ' + groups.error)
         if (!apps.success) throw new Error('Apps DB Error: ' + apps.error)
-        return c.html(<GroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} apps={apps.results} siteName={siteName} appConfig={config} />)
+        return c.html(<GroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} apps={apps.results} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
     } catch (e: any) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
@@ -417,7 +417,7 @@ adminRouter.get('/admin/users', async (c) => {
     const services = await c.env.DB.prepare('SELECT * FROM services').all<Service>()
     const roles = await c.env.DB.prepare('SELECT * FROM service_role_master').all<ServiceRole>()
     const facilities = await c.env.DB.prepare('SELECT * FROM facilities').all<Facility>()
-    return c.html(<UsersPage t={getLang(c)} userEmail={user.email} users={users.results} apps={apps.results} groups={groups.results} services={services.results} roles={roles.results} facilities={facilities.results} inviteUrl={c.req.query('invite_url')} error={c.req.query('error')} siteName={siteName} appConfig={config} />)
+    return c.html(<UsersPage t={getLang(c)} userEmail={user.email} users={users.results} apps={apps.results} groups={groups.results} services={services.results} roles={roles.results} facilities={facilities.results} inviteUrl={c.req.query('invite_url')} error={c.req.query('error')} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
 })
 adminRouter.post('/admin/invite', async (c) => {
     const user = await getAdmin(c)
@@ -654,7 +654,7 @@ adminRouter.get('/admin/am/groups', async (c) => {
         const contracts = await c.env.DB.prepare('SELECT ct.*, s.name AS service_name, g.name AS group_name FROM service_contracts ct LEFT JOIN services s ON ct.service_id = s.id LEFT JOIN groups g ON ct.customer_group_id = g.id ORDER BY ct.valid_from DESC').all<AccountGroupContract>()
         if (!groups.success) throw new Error('Groups DB Error: ' + groups.error)
         if (!users.success) throw new Error('Users DB Error: ' + users.error)
-        return c.html(<AccountGroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} users={users.results} facilities={facilities.results} contracts={contracts.results} siteName={siteName} appConfig={config} />)
+        return c.html(<AccountGroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} users={users.results} facilities={facilities.results} contracts={contracts.results} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
     } catch (e: any) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
@@ -855,7 +855,7 @@ adminRouter.get('/admin/am/services', async (c) => {
         WHERE a.status = 'active' ORDER BY a.name
     `).all<App & { group_name?: string | null }>()
     return c.html(<AccountServicesPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        providers={providers.results} services={services.results} groups={groups.results} apps={allApps.results} />)
+        providers={providers.results} services={services.results} groups={groups.results} apps={allApps.results} nonce={c.get('secureHeadersNonce')} />)
 })
 
 adminRouter.get('/admin/am/contracts', async (c) => {
@@ -876,7 +876,7 @@ adminRouter.get('/admin/am/contracts', async (c) => {
     const groups = await c.env.DB.prepare('SELECT * FROM groups ORDER BY name').all<Group>()
 
     return c.html(<AccountContractsPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        services={services.results} contracts={contracts.results} groups={groups.results} />)
+        services={services.results} contracts={contracts.results} groups={groups.results} nonce={c.get('secureHeadersNonce')} />)
 })
 
 adminRouter.get('/admin/am/services/:id', async (c) => {
@@ -894,7 +894,7 @@ adminRouter.get('/admin/am/services/:id', async (c) => {
     `).bind(serviceId).all<ServiceRole>()
 
     return c.html(<AccountServiceDetailPage t={getLang(c)} userEmail={user.email} siteName={siteName} appConfig={config}
-        service={service} roles={roles.results} error={c.req.query('error')} />)
+        service={service} roles={roles.results} error={c.req.query('error')} nonce={c.get('secureHeadersNonce')} />)
 })
 
 adminRouter.post('/admin/api/service/app/add', async (c) => {
@@ -1272,6 +1272,7 @@ adminRouter.get('/admin/logs', async (c) => {
         logs={results}
         siteName={siteName}
         appConfig={config}
+        nonce={c.get('secureHeadersNonce')}
     />)
 })
 
@@ -1436,5 +1437,6 @@ adminRouter.get('/admin/am/developers', async (c) => {
         applications={results}
         siteName={siteName}
         appConfig={config}
+        nonce={c.get('secureHeadersNonce')}
     />)
 })

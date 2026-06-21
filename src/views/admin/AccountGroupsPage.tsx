@@ -32,6 +32,7 @@ interface Props {
   contracts?: AccountGroupContract[]
   siteName: string
   appConfig: SystemConfig
+  nonce?: string
 }
 
 export const AccountGroupsPage = (props: Props) => {
@@ -89,6 +90,7 @@ export const AccountGroupsPage = (props: Props) => {
     activeTab: 'am-groups',
     siteName: props.siteName,
     appConfig: props.appConfig,
+    nonce: props.nonce,
     children: html`
       <div>
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem;">
@@ -97,7 +99,7 @@ export const AccountGroupsPage = (props: Props) => {
               <h3 style="font-size:1rem; font-weight:normal; color:#64748b;">${t.am_subtitle}</h3>
             </hgroup>
             ${Button({
-              onclick: "document.getElementById('new-group-modal').showModal()",
+              attr: { 'data-action': 'open-new-group-modal' },
               style: "width: auto; margin-bottom: 0;",
               children: html`<span class="material-symbols-outlined" style="font-size:18px;">add</span> ${t.am_btn_add_group}`
             })}
@@ -107,6 +109,7 @@ export const AccountGroupsPage = (props: Props) => {
             id: "new-group-modal",
             title: t.am_header_new_group,
             closeAction: "this.closest('.custom-modal').close()",
+            nonce: props.nonce,
             children: html`
                   <form method="POST" action="/admin/am/groups">
                     <div class="grid-vertical">
@@ -140,7 +143,7 @@ export const AccountGroupsPage = (props: Props) => {
           <div class="${listGrid}">
             ${flatTree.length === 0 ? html`<div style="text-align:center; padding:2rem; color:#94a3b8;">${t.no_groups}</div>` : ''}
             ${flatTree.map(({ g, depth }) => html`
-              <div class="${listCard}" style="margin-left:${depth * 1.75}rem;" onclick="openGroupModal('${g.id}', '${g.name}', '${g.parent_id || ''}')">
+              <div class="${listCard}" style="margin-left:${depth * 1.75}rem;" data-action="open-group-modal" data-id="${g.id}" data-name="${g.name}" data-parent-id="${g.parent_id || ''}">
                 <div style="flex-grow:1; display:flex; align-items:center; gap:0.6rem;">
                     ${depth > 0 ? html`<span class="material-symbols-outlined" style="font-size:18px; color:#cbd5e1; flex-shrink:0;">subdirectory_arrow_right</span>` : ''}
                     <div>
@@ -152,7 +155,7 @@ export const AccountGroupsPage = (props: Props) => {
                     </div>
                 </div>
                 <div>
-                     <button type="button" class="${deleteBtn}" title="${t.delete}" onclick="deleteGroup('${g.id}', event)">
+                     <button type="button" class="${deleteBtn}" title="${t.delete}" data-action="delete-group" data-id="${g.id}">
                         <span class="material-symbols-outlined">delete</span>
                      </button>
                 </div>
@@ -165,6 +168,7 @@ export const AccountGroupsPage = (props: Props) => {
             title: html`${t.am_header_members}: <span id="modal-group-name" style="font-weight:400; color:#64748b; margin-left:0.5rem;"></span>`,
             closeAction: "closeGroupModal()",
             closeBtnId: "modal-close-btn",
+            nonce: props.nonce,
             children: html`
                  <div style="margin-bottom: 2rem;">
                     <label class="${formLabel}">${t.am_label_parent}</label>
@@ -175,14 +179,14 @@ export const AccountGroupsPage = (props: Props) => {
                                 ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
                             </select>
                         </div>
-                        ${Button({ onclick: "saveParent()", style: "width:auto; white-space:nowrap; flex-shrink:0;", children: t.save })}
+                        ${Button({ attr: { 'data-action': 'save-parent' }, style: "width:auto; white-space:nowrap; flex-shrink:0;", children: t.save })}
                     </div>
                  </div>
 
                  <div class="${tabContainer}">
-                     <button type="button" id="btn-tab-members" class="${tabBtn} active" onclick="switchTab('members')">${t.am_header_members}</button>
-                     <button type="button" id="btn-tab-facilities" class="${tabBtn}" onclick="switchTab('facilities')">${t.am_section_facilities || '施設'}</button>
-                     <button type="button" id="btn-tab-grants" class="${tabBtn}" onclick="switchTab('grants')">利用枠</button>
+                     <button type="button" id="btn-tab-members" class="${tabBtn} active" data-action="switch-tab" data-tab="members">${t.am_header_members}</button>
+                     <button type="button" id="btn-tab-facilities" class="${tabBtn}" data-action="switch-tab" data-tab="facilities">${t.am_section_facilities || '施設'}</button>
+                     <button type="button" id="btn-tab-grants" class="${tabBtn}" data-action="switch-tab" data-tab="grants">利用枠</button>
                  </div>
 
                  <div id="tab-members" style="display:block;">
@@ -217,25 +221,24 @@ export const AccountGroupsPage = (props: Props) => {
                                   <label class="${formLabel}">${t.label_valid_from}</label>
                                   <input type="date" id="m-valid-from" class="${dateInput}" />
                                   <div class="${quickBtnGroup}">
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -1, 'month')", children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -7, 'day')", children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', -1, 'day')", children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-from', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-from', 'data-offset': '-1', 'data-unit': 'month' }, children: "-1ヶ月", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-from', 'data-offset': '-7', 'data-unit': 'day' }, children: "-1週間", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-from', 'data-offset': '-1', 'data-unit': 'day' }, children: "-1日", style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-from', 'data-offset': '0', 'data-unit': 'day' }, children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
                                   </div>
                              </div>
                              <div>
                                  <label class="${formLabel}">${t.label_valid_to}</label>
                                  <input type="date" id="m-valid-to" class="${dateInput}" />
                                  <div class="${quickBtnGroup}">
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 0, 'day')", children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 1, 'month')", children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 1, 'year')", children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
-                                      ${Button({ variant: "outline", onclick: "calcDate('m-valid-to', 99, 'forever')", children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-to', 'data-offset': '0', 'data-unit': 'day' }, children: t.btn_date_today, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-to', 'data-offset': '1', 'data-unit': 'month' }, children: t.btn_term_1mo, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-to', 'data-offset': '1', 'data-unit': 'year' }, children: t.btn_term_1yr, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
+                                      ${Button({ variant: "outline", attr: { 'data-action': 'calc-date', 'data-target': 'm-valid-to', 'data-offset': '99', 'data-unit': 'forever' }, children: t.btn_term_forever, style: "padding:0.6rem 0.5rem; font-size:0.85rem;" })}
                                  </div>
                              </div>
                         </div>
-
-                        ${Button({ id: "btn-add-member", onclick: "addMembers()", children: html`<span class="material-symbols-outlined">person_add</span> <span>${t.am_add_member}</span>` })}
+                        ${Button({ id: "btn-add-member", attr: { 'data-action': 'add-members' }, children: html`<span class="material-symbols-outlined">person_add</span> <span>${t.am_add_member}</span>` })}
                      </div>
 
                      <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">${t.am_header_members}</h4>
@@ -253,7 +256,7 @@ export const AccountGroupsPage = (props: Props) => {
                            <label class="${formLabel}">用途 (Use)</label>
                            <input type="text" id="f-building-use" class="${dateInput}" placeholder="Office" />
                         </div>
-                        ${Button({ onclick: "addFacility()", children: html`<span class="material-symbols-outlined">add_business</span> <span>新規追加</span>` })}
+                        ${Button({ attr: { 'data-action': 'add-facility' }, children: html`<span class="material-symbols-outlined">add_business</span> <span>新規追加</span>` })}
 
                         <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e2e8f0;" />
 
@@ -262,8 +265,8 @@ export const AccountGroupsPage = (props: Props) => {
                            <label class="${formLabel}">移動元のグループ (Source Group)</label>
                            <div class="${tomSelectWrapper} searchable" style="margin-bottom:0;">
                              <select id="f-move-source-group" class="tom-select" placeholder="グループを選択...">
-                                <option value=""></option>
-                                ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
+                                 <option value=""></option>
+                                 ${parentOptions.map(g => html`<option value="${g.id}">${g.name}</option>`)}
                              </select>
                            </div>
                         </div>
@@ -273,7 +276,7 @@ export const AccountGroupsPage = (props: Props) => {
                               <option value=""></option>
                            </select>
                         </div>
-                        ${Button({ onclick: "moveFacility()", children: html`<span class="material-symbols-outlined">drive_file_move</span> <span>このグループへ移動</span>` })}
+                        ${Button({ attr: { 'data-action': 'move-facility' }, children: html`<span class="material-symbols-outlined">drive_file_move</span> <span>このグループへ移動</span>` })}
                      </div>
 
                      <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">${t.am_section_facilities || '施設一覧'}</h4>
@@ -302,7 +305,7 @@ export const AccountGroupsPage = (props: Props) => {
                                  <input type="date" id="g-valid-to" class="${dateInput}" value="${new Date(Date.now()+31536000000).toISOString().split('T')[0]}" />
                              </div>
                         </div>
-                        ${Button({ onclick: "addGrant()", children: html`<span class="material-symbols-outlined">add</span> <span>追加</span>` })}
+                        ${Button({ attr: { 'data-action': 'add-grant' }, children: html`<span class="material-symbols-outlined">add</span> <span>追加</span>` })}
                      </div>
 
                      <h4 style="font-size:1.1rem; margin:2rem 0 1rem; font-weight:600; color:#334155;">利用枠一覧</h4>
@@ -315,13 +318,14 @@ export const AccountGroupsPage = (props: Props) => {
             id: "remove-confirm-modal",
             title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.am_btn_remove}</span>`,
             closeAction: "closeRemoveModal()",
+            nonce: props.nonce,
             children: html`
                   <div style="margin-bottom: 2rem;">
                     <p style="color:#475569; font-size:1rem; line-height:1.5;">${t.am_confirm_remove_member}</p>
                   </div>
                   <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                      <button type="button" onclick="closeRemoveModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
-                      <button type="button" onclick="executeRemove()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                      <button type="button" data-action="close-remove-modal" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
+                      <button type="button" data-action="execute-remove" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                          <span class="material-symbols-outlined" style="font-size:18px;">person_remove</span> ${t.am_btn_remove}
                       </button>
                   </div>
@@ -332,13 +336,14 @@ export const AccountGroupsPage = (props: Props) => {
             id: "remove-fac-modal",
             title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.delete}</span>`,
             closeAction: "closeRemoveFacModal()",
+            nonce: props.nonce,
             children: html`
                   <div style="margin-bottom: 2rem;">
                     <p style="color:#475569; font-size:1rem; line-height:1.5;">本当にこの施設を削除しますか？（割当も解除されます）</p>
                   </div>
                   <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                      <button type="button" onclick="closeRemoveFacModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
-                      <button type="button" onclick="executeRemoveFac()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                      <button type="button" data-action="close-remove-fac-modal" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
+                      <button type="button" data-action="execute-remove-fac" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                          <span class="material-symbols-outlined" style="font-size:18px;">delete</span> ${t.delete}
                       </button>
                   </div>
@@ -349,13 +354,14 @@ export const AccountGroupsPage = (props: Props) => {
             id: "delete-confirm-modal",
             title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.delete}</span>`,
             closeAction: "closeDeleteModal()",
+            nonce: props.nonce,
             children: html`
                   <div style="margin-bottom: 2rem;">
                     <p style="color:#475569; font-size:1rem; line-height:1.5; white-space:pre-wrap;">${t.am_confirm_delete_group}</p>
                   </div>
                   <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-                      <button type="button" onclick="closeDeleteModal()" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
-                      <button type="button" onclick="executeDelete()" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                      <button type="button" data-action="close-delete-modal" style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
+                      <button type="button" data-action="execute-delete" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
                          <span class="material-symbols-outlined" style="font-size:18px;">delete</span> ${t.delete}
                       </button>
                   </div>
@@ -382,7 +388,7 @@ export const AccountGroupsPage = (props: Props) => {
 
           <script type="application/json" id="user-data">${raw(allUsersJson)}</script>
 
-          <script>
+          <script nonce="${props.nonce}">
           ${raw(accountGroupsClientScript)}
           </script>
       </div>

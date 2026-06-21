@@ -5,16 +5,17 @@ import { MultiSelect } from './MultiSelect'
 import { ServiceAppsModal } from './ServiceAppsModal'
 import { formLabel, dateInput, selectInput, infoBox } from '../styles/groupAdminStyles'
 
-export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
+export const GroupAdminModals = (props: any, t: any, userOptions: any, nonce?: string) => html`
       <!-- サービス作成モーダル -->
       ${Modal({
         id: "custom-confirm-modal",
         title: "確認",
-        closeAction: "closeConfirmModal()",
+        closeCallback: "closeConfirmModal",
+        nonce: nonce,
         children: html`
           <div id="custom-confirm-message" style="margin-bottom: 1.5rem; font-size: 1rem; color: #334155; line-height: 1.5;"></div>
           <div style="display: flex; justify-content: flex-end; gap: 1rem;">
-            <button type="button" onclick="closeConfirmModal()" style="padding: 0.6rem 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: transparent; cursor: pointer; color: #475569; font-weight: 600;">キャンセル</button>
+            <button type="button" data-modal-close style="padding: 0.6rem 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: transparent; cursor: pointer; color: #475569; font-weight: 600;">キャンセル</button>
             <button type="button" id="custom-confirm-execute-btn" style="padding: 0.6rem 1.5rem; border: none; border-radius: 8px; background: #ef4444; color: white; cursor: pointer; font-weight: 600;">実行する</button>
           </div>
         `
@@ -23,7 +24,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'add-service-modal',
         title: t.ga_svc_create,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeAddServiceModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <div>
@@ -31,7 +33,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
               <input type="text" id="s-name" class="${dateInput}" />
             </div>
             <div style="margin-top:0.5rem;">
-              ${Button({ onclick: "addService()", children: html`<span class="material-symbols-outlined">add</span> ${t.ga_svc_create}` })}
+              ${Button({ attr: { "data-action": "add-service" }, children: html`<span class="material-symbols-outlined">add</span> ${t.ga_svc_create}` })}
             </div>
           </div>
         `
@@ -41,7 +43,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'add-app-modal',
         title: t.ga_app_request,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeAddAppModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <div>
@@ -63,7 +66,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
 
             <div class="${infoBox}"><span class="material-symbols-outlined">key</span>${t.ga_app_secret_note}</div>
             <div style="margin-top:0.25rem;">
-              ${Button({ onclick: "addApp()", children: html`<span class="material-symbols-outlined">send</span> ${t.ga_app_request}` })}
+              ${Button({ attr: { "data-action": "add-app" }, children: html`<span class="material-symbols-outlined">send</span> ${t.ga_app_request}` })}
             </div>
           </div>
         `
@@ -73,7 +76,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'edit-app-modal-ga',
         title: t.edit,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeEditAppModalGa",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <input type="hidden" id="ape-id" />
@@ -98,8 +102,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
                     The secret is hashed and cannot be viewed. You can generate a new one if lost.
                 </small>
                 <div style="display:flex; gap:0.5rem; margin-top:0.6rem;">
-                    <button type="button" onclick="window.appSecretActionGa('regenerate')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 ${t.btn_regenerate_secret || 'Regenerate Secret'}</button>
-                    <button type="button" onclick="window.appSecretActionGa('clear')" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">${t.btn_make_public || 'Make Public (No Secret)'}</button>
+                    <button type="button" data-action="app-secret-action-ga" data-action-type="regenerate" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">🔄 ${t.btn_regenerate_secret || 'Regenerate Secret'}</button>
+                    <button type="button" data-action="app-secret-action-ga" data-action-type="clear" style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:0.35rem 0.7rem; font-size:0.85rem; cursor:pointer;">${t.btn_make_public || 'Make Public (No Secret)'}</button>
                 </div>
                 <div id="new-secret-banner-ga" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:1rem; border-radius:8px; margin-top:1rem;">
                     <div style="font-weight:bold; margin-bottom:0.5rem;">New Secret Generated. Please copy it now! It will NOT be shown again.</div>
@@ -109,7 +113,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
 
             <div style="margin-top:0.25rem;">
               <span id="ape-save-btn" style="display:flex;">
-                ${Button({ onclick: "updateApp()", children: html`<span class="material-symbols-outlined">save</span> ${t.save}` })}
+                ${Button({ attr: { "data-action": "update-app" }, children: html`<span class="material-symbols-outlined">save</span> ${t.save}` })}
               </span>
             </div>
           </div>
@@ -120,7 +124,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'add-member-modal',
         title: t.am_add_member,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeAddMemberModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <div>
@@ -153,7 +158,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
               </div>
             </div>
             <div style="margin-top:0.5rem;">
-              ${Button({ onclick: "addMember()", children: html`<span class="material-symbols-outlined">person_add</span> ${t.am_add_member}` })}
+              ${Button({ attr: { "data-action": "add-member" }, children: html`<span class="material-symbols-outlined">person_add</span> ${t.am_add_member}` })}
             </div>
           </div>
         `
@@ -163,7 +168,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'create-child-group-modal',
         title: '子グループを作成',
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeCreateChildGroupModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <div>
@@ -179,7 +185,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
               </select>
             </div>
             <div style="margin-top:0.5rem;">
-              ${Button({ onclick: "createChildGroup()", children: html`<span class="material-symbols-outlined">domain_add</span> 作成する` })}
+              ${Button({ attr: { "data-action": "create-child-group" }, children: html`<span class="material-symbols-outlined">domain_add</span> 作成する` })}
             </div>
           </div>
         `
@@ -189,12 +195,13 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'remove-confirm-modal',
         title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.am_btn_remove}</span>`,
-        closeAction: 'closeRemoveModal()',
+        closeCallback: 'closeRemoveModal',
+        nonce: nonce,
         children: html`
           <p style="color:#475569; font-size:1rem; line-height:1.5; margin-bottom:2rem;">${t.am_confirm_remove_member}</p>
           <div style="display:flex; justify-content:flex-end; gap:1rem;">
-            <button type="button" onclick="closeRemoveModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
-            <button type="button" onclick="executeRemove()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">person_remove</span>${t.am_btn_remove}</button>
+            <button type="button" data-modal-close style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+            <button type="button" data-action="execute-remove-member" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">person_remove</span>${t.am_btn_remove}</button>
           </div>
         `
       })}
@@ -203,7 +210,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'add-assign-modal',
         title: t.ga_add_assignment,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeAddAssignModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <div id="a-no-grant" style="display:none;" class="${infoBox}">
@@ -215,11 +223,11 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
             </div>
             <div>
               <label class="${formLabel}">${t.ga_assign_service}</label>
-              <select id="a-service" class="${selectInput}" onchange="refreshAssignRoles()"></select>
+              <select id="a-service" class="${selectInput}" data-change="refresh-assign-roles"></select>
             </div>
             <div>
               <label class="${formLabel}">${t.ga_assign_facility}</label>
-              <select id="a-facility" class="${selectInput}" onchange="refreshAssignRoles()"></select>
+              <select id="a-facility" class="${selectInput}" data-change="refresh-assign-roles"></select>
             </div>
             <div>
               <label class="${formLabel}">${t.ga_assign_role}</label>
@@ -236,7 +244,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
               </div>
             </div>
             <div style="margin-top:0.5rem;">
-              ${Button({ onclick: "addAssignment()", children: html`<span class="material-symbols-outlined">assignment_add</span> ${t.ga_add_assignment}` })}
+              ${Button({ attr: { "data-action": "add-assignment" }, children: html`<span class="material-symbols-outlined">assignment_add</span> ${t.ga_add_assignment}` })}
             </div>
           </div>
         `
@@ -246,12 +254,13 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'remove-assign-modal',
         title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.am_btn_remove}</span>`,
-        closeAction: 'closeRemoveAssignModal()',
+        closeCallback: 'closeRemoveAssignModal',
+        nonce: nonce,
         children: html`
           <p style="color:#475569; font-size:1rem; line-height:1.5; margin-bottom:2rem;">${t.ga_confirm_remove_assignment}</p>
           <div style="display:flex; justify-content:flex-end; gap:1rem;">
-            <button type="button" onclick="closeRemoveAssignModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
-            <button type="button" onclick="executeRemoveAssignment()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span>${t.am_btn_remove}</button>
+            <button type="button" data-modal-close style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+            <button type="button" data-action="execute-remove-assignment" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span>${t.am_btn_remove}</button>
           </div>
         `
       })}
@@ -260,7 +269,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'add-grant-modal',
         title: t.ga_open_grant,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeAddGrantModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.1rem;">
             <div id="g-no-contract" style="display:none;" class="${infoBox}">
@@ -268,7 +278,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
             </div>
             <div>
               <label class="${formLabel}">${t.ga_grant_target}</label>
-              <select id="g-target" class="${selectInput}" onchange="onGrantTargetChange()"></select>
+              <select id="g-target" class="${selectInput}" data-change="on-grant-target-change"></select>
             </div>
             <div>
               <label class="${formLabel}">${t.ga_grant_contract}</label>
@@ -292,7 +302,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
             </div>
             <div id="g-error" style="display:none; color:#b91c1c; background:#fef2f2; border-radius:8px; padding:0.65rem 0.85rem; font-size:0.85rem;"></div>
             <div style="margin-top:0.5rem;">
-              ${Button({ onclick: "addGrant()", children: html`<span class="material-symbols-outlined">add_card</span> ${t.ga_open_grant}` })}
+              ${Button({ attr: { "data-action": "add-grant" }, children: html`<span class="material-symbols-outlined">add_card</span> ${t.ga_open_grant}` })}
             </div>
           </div>
         `
@@ -302,23 +312,25 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'remove-grant-modal',
         title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.am_btn_remove}</span>`,
-        closeAction: 'closeRemoveGrantModal()',
+        closeCallback: 'closeRemoveGrantModal',
+        nonce: nonce,
         children: html`
           <p style="color:#475569; font-size:1rem; line-height:1.5; margin-bottom:2rem;">${t.ga_confirm_remove_grant}</p>
           <div style="display:flex; justify-content:flex-end; gap:1rem;">
-            <button type="button" onclick="closeRemoveGrantModal()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
-            <button type="button" onclick="executeRemoveGrant()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span>${t.am_btn_remove}</button>
+            <button type="button" data-modal-close style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+            <button type="button" data-action="execute-remove-grant" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span>${t.am_btn_remove}</button>
           </div>
         `
       })}
 
-      ${ServiceAppsModal(t, '/group-admin/api')}
+      ${ServiceAppsModal(t, '/group-admin/api', nonce)}
 
       <!-- 役割管理モーダル -->
       ${Modal({
         id: 'manage-roles-modal',
         title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">manage_accounts</span> 役割の管理 - <span id="mr-service-name"></span></span>`,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeManageRolesModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <!-- 現在の役割リスト -->
@@ -344,7 +356,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
               <input type="text" id="mr-facility-type" class="${dateInput}" placeholder="例: 倉庫" />
             </div>
             <div style="margin-top:0.5rem; text-align: right;">
-              ${Button({ onclick: "addRole()", children: html`<span class="material-symbols-outlined">add</span> 役割を追加`, style: "width:auto;" })}
+              ${Button({ attr: { "data-action": "add-role" }, children: html`<span class="material-symbols-outlined">add</span> 役割を追加`, style: "width:auto;" })}
             </div>
           </div>
         `
@@ -354,14 +366,15 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'ra-reject-modal',
         title: html`<span style="color:#b91c1c; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">block</span>${t.ra_reject_title}</span>`,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeRaRejectModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1rem;">
             <p style="color:#475569; font-size:0.92rem; line-height:1.5;">${t.ra_reject_desc}</p>
             <textarea id="ra-reject-reason" class="${dateInput}" style="min-height:90px;" placeholder="${t.ra_reject_placeholder}"></textarea>
             <div style="display:flex; justify-content:flex-end; gap:0.75rem;">
-              <button type="button" onclick="this.closest('.custom-modal').close()" style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
-              <button type="button" onclick="executeRejectRole()" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:700;cursor:pointer;">${t.ra_reject_submit}</button>
+              <button type="button" data-modal-close style="background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:8px;padding:0.5rem 1rem;font-weight:600;cursor:pointer;">${t.cancel}</button>
+              <button type="button" data-action="execute-reject-role" style="background:#ef4444;color:white;border:none;border-radius:8px;padding:0.5rem 1rem;font-weight:700;cursor:pointer;">${t.ra_reject_submit}</button>
             </div>
           </div>
         `
@@ -371,7 +384,8 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
       ${Modal({
         id: 'manage-tags-modal',
         title: html`<span style="display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">local_offer</span> タグ管理 - <span id="mt-service-name"></span></span>`,
-        closeAction: "this.closest('.custom-modal').close()",
+        closeCallback: "closeManageTagsModal",
+        nonce: nonce,
         children: html`
           <div style="display:flex; flex-direction:column; gap:1.25rem;">
             <!-- 現在適用されているタグ -->
@@ -385,7 +399,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
             <div style="display:flex; gap:0.5rem;">
               <select id="mt-available-tags" class="${selectInput}" style="flex:1;">
               </select>
-              ${Button({ onclick: "applyServiceTag()", children: html`<span class="material-symbols-outlined">add</span> 適用`, style: "width:auto;" })}
+              ${Button({ attr: { "data-action": "apply-service-tag" }, children: html`<span class="material-symbols-outlined">add</span> 適用`, style: "width:auto;" })}
             </div>
 
             <div style="margin: 0.5rem 0; font-size:0.85rem; color:#64748b; text-align:center;">または</div>
@@ -394,7 +408,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any) => html`
             <div style="font-weight: 600; color: var(--text-main); font-size: 0.95rem;">独自タグの申請</div>
             <div style="display:flex; gap:0.5rem;">
               <input type="text" id="mt-custom-tag-name" class="${dateInput}" placeholder="タグ名" style="flex:1;" />
-              ${Button({ onclick: "requestCustomTag()", children: html`<span class="material-symbols-outlined">send</span> 申請`, style: "width:auto;" })}
+              ${Button({ attr: { "data-action": "request-custom-tag" }, children: html`<span class="material-symbols-outlined">send</span> 申請`, style: "width:auto;" })}
             </div>
             <div style="font-size:0.78rem; color:#94a3b8; margin-top:-0.5rem;">※独自タグはシステム管理者の承認が必要です。</div>
           </div>

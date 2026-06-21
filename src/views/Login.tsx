@@ -11,6 +11,7 @@ interface Props {
   siteSubtitle: string
   // OIDC login_hint: pre-fills the email field (RP-supplied identifier hint).
   email?: string
+  nonce?: string
 }
 
 export const Login = (props: Props) => {

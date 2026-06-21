@@ -32,8 +32,8 @@ export const filterSelectGlobalStyles = html`
 `
 
 // グローバルに一度だけ注入するTomSelect初期化ユーティリティ
-export const FilterSelectScript = html`
-  <script>
+export const FilterSelectScript = (nonce?: string) => html`
+  <script nonce="${nonce}">
     window.initFilterSelect = function(elementOrId) {
         if (!window.TomSelect) return null;
         var sel = typeof elementOrId === 'string' ? document.getElementById(elementOrId) : elementOrId;
