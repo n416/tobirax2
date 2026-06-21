@@ -1,4 +1,5 @@
 import { html } from 'hono/html'
+import type { Child } from 'hono/jsx'
 import { Style, css } from 'hono/css'
 import { filterSelectGlobalStyles, FilterSelectScript } from './FilterSelect'
 import { confirmDialogStyles, ConfirmDialogScript } from './ConfirmDialogScript'
@@ -10,7 +11,7 @@ interface LayoutProps {
   width?: number | string
   // 'center'(既定・ログインカード向け) / 'top'(ダッシュボード等のページ向け)
   align?: 'center' | 'top'
-  children: any
+  children: Child
   nonce?: string
 }
 

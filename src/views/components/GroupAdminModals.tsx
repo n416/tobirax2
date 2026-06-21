@@ -5,7 +5,7 @@ import { MultiSelect } from './MultiSelect'
 import { ServiceAppsModal } from './ServiceAppsModal'
 import { formLabel, dateInput, selectInput, infoBox } from '../styles/groupAdminStyles'
 
-export const GroupAdminModals = (props: any, t: any, userOptions: any, nonce?: string) => html`
+export const GroupAdminModals = (props: { allUsers: { id: string; email: string; name?: string | null }[] }, t: typeof import('../../i18n').dict.en, userOptions: { value: string; text: string }[], nonce?: string) => html`
       <!-- サービス作成モーダル -->
       ${Modal({
         id: "custom-confirm-modal",
@@ -191,7 +191,7 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any, nonce?: s
               <div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:0.4rem;">任命するユーザーを選択してください。</div>
               <select id="ccg-admin-user" class="${selectInput}">
                 <option value="">ユーザーを選択</option>
-                ${props.allUsers.map((u: any) => html`<option value="${u.id}">${u.name ? `${u.name} <${u.email}>` : u.email}</option>`)}
+                ${props.allUsers.map(u => html`<option value="${u.id}">${u.name ? `${u.name} <${u.email}>` : u.email}</option>`)}
               </select>
             </div>
             <div style="margin-top:0.5rem;">

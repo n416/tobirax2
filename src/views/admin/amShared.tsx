@@ -1,4 +1,5 @@
 import { html, raw } from 'hono/html'
+import type { Child } from 'hono/jsx'
 import { css } from 'hono/css'
 
 // アカウントマネージャ各画面で共通利用する見た目部品。
@@ -40,7 +41,7 @@ export const amBadge = css`
 export const amEmpty = (text: string) => html`<div style="text-align:center; padding:1.5rem; color:#94a3b8;">${text}</div>`
 
 // セクション見出し(タイトル+サブタイトル+右側アクション)。
-export const amSectionHead = (title: string, subtitle: string, action?: any) => html`
+export const amSectionHead = (title: string, subtitle: string, action?: Child) => html`
   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1.5rem;">
     <hgroup>
       <h2 style="margin-bottom:0;">${title}</h2>

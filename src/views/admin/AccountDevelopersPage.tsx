@@ -63,7 +63,7 @@ export const AccountDevelopersPage = (props: Props) => {
   
 
   function statusBadge(st: string) {
-    const map: any = {
+    const map: Record<string, [string, string, string]> = {
       pending:  ['#c2410c', '#fff7ed', '申請中'],
       rejected: ['#b91c1c', '#fef2f2', '却下'],
       approved: ['#16a34a', '#f0fdf4', '承認済'],
@@ -73,7 +73,7 @@ export const AccountDevelopersPage = (props: Props) => {
   }
 
   function roleTypeBadge(rt: string) {
-    const map: any = {
+    const map: Record<string, [string, string, string]> = {
       group_admin:   ['#9a3412', '#ffedd5', t.am_role_group_admin],
       billing_admin: ['#5b21b6', '#ede9fe', t.am_role_billing_admin],
       developer:     ['#0e7490', '#cffafe', t.am_role_developer],

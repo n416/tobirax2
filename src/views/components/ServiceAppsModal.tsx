@@ -17,7 +17,7 @@ const infoBox = css`
   display: flex; align-items: flex-start; gap: 0.75rem;
 `
 
-export const ServiceAppsModal = (t: any, apiPrefix: string, nonce?: string) => {
+export const ServiceAppsModal = (t: typeof import('../../i18n').dict.en, apiPrefix: string, nonce?: string) => {
   return html`
 
     <!-- サービスへのアプリ組み込みモーダル -->

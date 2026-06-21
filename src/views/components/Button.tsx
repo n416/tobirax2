@@ -1,9 +1,10 @@
 import { html, raw } from 'hono/html'
+import type { Child } from 'hono/jsx'
 import { css } from 'hono/css'
 
 interface ButtonProps {
   type?: "submit" | "button" | "reset"
-  children: any
+  children: Child
   id?: string
   className?: string
   onclick?: string

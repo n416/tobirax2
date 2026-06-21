@@ -1,7 +1,8 @@
 import { html } from 'hono/html'
+import type { Child } from 'hono/jsx'
 import { css } from 'hono/css'
 
-export const Card = (props: { children: any }) => {
+export const Card = (props: { children: Child }) => {
   const cardClass = css`
     background: var(--glass-bg);
     backdrop-filter: blur(20px);

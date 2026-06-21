@@ -18,7 +18,7 @@ interface RegToken {
 interface Props {
   t: typeof dict.en
   userEmail: string
-  apps: (App & { owner_group_name: string | null; service_count: number; tags?: any[] })[]
+  apps: (App & { owner_group_name: string | null; service_count: number; tags?: { tag_id: string; tag_name: string; app_tag_status: string }[] })[]
   availableTags?: Tag[]
   siteName: string
   appConfig: SystemConfig
@@ -172,7 +172,7 @@ export const AppsPage = (props: Props) => {
                 </div>
 
                 <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.5rem; align-items:center;">
-                    ${(app.tags || []).map((at: any) => html`
+                    ${(app.tags || []).map(at => html`
                         <span style="display:inline-flex; align-items:center; gap:0.2rem; background:#f1f5f9; border:1px solid #e2e8f0; padding:2px 6px; border-radius:12px; font-size:0.75rem; color:#475569;">
                             <span class="material-symbols-outlined" style="font-size:12px;">label</span>
                             ${at.tag_name}
@@ -184,7 +184,7 @@ export const AppsPage = (props: Props) => {
                         <div style="display:inline-flex; align-items:center; gap:0.2rem;">
                             <select data-change="add-app-tag" data-app-id="${app.id}" style="font-size:0.75rem; padding:2px 4px; border:1px dashed #cbd5e1; border-radius:12px; background:transparent; color:#64748b; outline:none; cursor:pointer;">
                                 <option value="">+ タグ追加</option>
-                                ${(props.availableTags || []).filter(t => !(app.tags||[]).find((at:any) => at.tag_id === t.id)).map(t => html`
+                                ${(props.availableTags || []).filter(t => !(app.tags||[]).find(at => at.tag_id === t.id)).map(t => html`
                                     <option value="${t.id}">${t.name}</option>
                                 `)}
                             </select>

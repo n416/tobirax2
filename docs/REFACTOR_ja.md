@@ -173,6 +173,10 @@ OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB
 起動して group-admin ポータル＋admin 系10ページ＋UserDashboard を実データで fetch し、SSR エラー無し・
 値漏れ（`src="undefined"` 等）無しを目視確認（[[safe-refactor-untested-areas]] の方針）。
 
+第四弾（2026-06-21）: **Phase 1: View コンポーネント props の `: any` 解消**を実施。
+`Layout.tsx`, `Button.tsx`, `Card.tsx`, `Modal.tsx`, `Input.tsx`, `GroupAdminModals.tsx`, `ServiceAppsModal.tsx`, `amShared.tsx` などのプロパティ型を `Child` 等の具体的な型に置換。`AppsPage.tsx` の `tags` も型付け。
+挙動不変・`tsc` クリーン・ユニット 107＋統合 41＋クライアントテスト 8 全緑。
+
 ### G の残り（低優先・任意）
 
 サーバ側の型負債は実質解消済み。残るのは次のみで、いずれも価値が低いか正当:

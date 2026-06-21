@@ -1,4 +1,5 @@
 import { html } from 'hono/html'
+import type { Child } from 'hono/jsx'
 import { css } from 'hono/css'
 
 interface InputProps {
@@ -7,7 +8,7 @@ interface InputProps {
   placeholder?: string
   required?: boolean
   value?: string
-  icon?: any
+  icon?: string | Child
 }
 
 export const Input = (props: InputProps) => {

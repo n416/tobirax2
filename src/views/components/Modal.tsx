@@ -1,13 +1,14 @@
 import { html } from 'hono/html'
+import type { Child } from 'hono/jsx'
 import { css, keyframes } from 'hono/css'
 
 interface ModalProps {
     id: string
-    title: any
+    title: string | Child
     closeAction?: string
     closeCallback?: string
     closeBtnId?: string
-    children: any
+    children: Child
     nonce?: string
 }
 

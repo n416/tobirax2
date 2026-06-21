@@ -1,4 +1,5 @@
 import { html, raw } from 'hono/html'
+import type { Child } from 'hono/jsx'
 import { css, Style } from 'hono/css'
 import { dict } from '../../i18n'
 import { SystemConfig } from '../../types'
@@ -11,7 +12,7 @@ interface LayoutProps {
     t: typeof dict.en
     userEmail: string
     activeTab: string
-    children: any
+    children: Child
     siteName: string
     appConfig: SystemConfig
     nonce?: string
