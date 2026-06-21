@@ -275,7 +275,7 @@ window.openServiceTagsModal = function(serviceId: string, serviceName: string) {
 
 window.applyServiceTag = function() {
     if (!currentTagsServiceId) return;
-    var tagId = (document.getElementById('mt-available-tags') as HTMLSelectElement | null)?.value;
+    var tagId = (document.getElementById('mt-available-tags') as unknown as HTMLSelectElement | null)?.value;
     if (!tagId) return;
     
     fetch('/group-admin/api/service_tags/apply', {

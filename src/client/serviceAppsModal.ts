@@ -52,7 +52,7 @@ window.openServiceAppsModal = (enc: string, availableApps: AppItem[], appsDataId
   }
 
   const addable = (apps || []).filter((a: AppItem) => composedIds.indexOf(a.id) === -1);
-  const sel = document.getElementById('sa-app') as HTMLSelectElement | null;
+  const sel = document.getElementById('sa-app') as unknown as HTMLSelectElement | null;
   if (sel) {
     let opts = '<option value="">' + (window.i18n && window.i18n.svcSelectApp ? window.i18n.svcSelectApp : 'アプリを選択') + '</option>';
     addable.forEach((a: AppItem) => {
@@ -79,7 +79,7 @@ window.openServiceAppsModal = (enc: string, availableApps: AppItem[], appsDataId
 
 window.addServiceApp = () => {
   const serviceId = (document.getElementById('sa-service-id') as HTMLInputElement).value;
-  const appId = (document.getElementById('sa-app') as HTMLSelectElement).value;
+  const appId = (document.getElementById('sa-app') as unknown as HTMLSelectElement).value;
   if (!appId) {
     console.error(window.i18n && window.i18n.svcSelectApp ? window.i18n.svcSelectApp : 'アプリを選択してください');
     return;

@@ -6,7 +6,7 @@ let tsControlMoveFacility: any = null;
 window.loadAllFacilitiesForMove = function(groupIdToExclude?: string) {
     fetch('/group-admin/api/facilities/all')
         .then(function(r) { return r.json(); })
-        .then(function(facs: Facility[]) {
+        .then(function(_facs: unknown) { var facs = _facs as Facility[];
             var selEl = document.getElementById('f-move-id');
             if (!selEl) return;
             var filtered = facs.filter(function(f: Facility) { return f.managing_group_id !== groupIdToExclude; });
@@ -81,7 +81,7 @@ window.addFacility = function() {
         if (!r.ok) throw new Error('Error ' + r.status); 
         return r.json(); 
     })
-    .then(function(data: Record<string, string>) {
+    .then(function(_data: unknown) { var data = _data as Record<string, string>;
         if (data.error) throw new Error(data.error);
         window.location.reload();
     })
@@ -90,7 +90,7 @@ window.addFacility = function() {
 
 window.moveFacility = function() {
     if (!window.currentGroupId) return;
-    var fid = tsControlMoveFacility ? tsControlMoveFacility.getValue() : (document.getElementById('f-move-id') as HTMLSelectElement | null)?.value;
+    var fid = tsControlMoveFacility ? tsControlMoveFacility.getValue() : (document.getElementById('f-move-id') as unknown as HTMLSelectElement | null)?.value;
     if (!fid) return;
     
     fetch('/group-admin/api/facility/move', {
@@ -102,7 +102,7 @@ window.moveFacility = function() {
         if (!r.ok) throw new Error('Error ' + r.status); 
         return r.json(); 
     })
-    .then(function(data: Record<string, string>) {
+    .then(function(_data: unknown) { var data = _data as Record<string, string>;
         if (data.error) throw new Error(data.error);
         window.location.reload();
     })
@@ -118,7 +118,7 @@ window.removeFacility = function(fid: string) {
                 body: JSON.stringify({ id: fid })
             })
             .then(function(r) { return r.json(); })
-            .then(function(data: Record<string, string>) {
+            .then(function(_data: unknown) { var data = _data as Record<string, string>;
                 if (data.error) {
                     if (window.showAlert) window.showAlert('エラー: ' + data.error);
                 } else {

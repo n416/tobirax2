@@ -47,7 +47,7 @@ window.renderGrants = function() {
                 } else {
                     seat = g.seat_limit + ' <span style="color:#94a3b8; font-size:0.78rem;">(' + (i18n.grantDistributed || '子へ配分') + ' ' + childSeats + ' / ' + (i18n.grantAvailable || '利用可能') + ' ' + Math.max(0, g.seat_limit - childSeats) + ')</span>';
                 }
-                var isRootGrant = (window.availableContracts || []).some(function(c: ServiceContract) { return c.id === g.contract_id && c.customer_group_id === window.currentGroupId; });
+                var isRootGrant = (window.availableContracts || []).some(function(c: ServiceContract & { service_name: string, group_name?: string }) { return c.id === g.contract_id && c.customer_group_id === window.currentGroupId; });
                 var deleteBtn = isRootGrant ? '<button type="button" data-action="remove-grant" data-id="' + g.id + '" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '';
                 return '<tr>'
                     + '<td><strong>' + window.escapeHtml(g.service_name) + '</strong></td>'
@@ -61,7 +61,7 @@ window.renderGrants = function() {
 
     var openGrantBtnWrap = document.getElementById('btn-open-grant-wrap');
     if (openGrantBtnWrap) {
-        var myContractsBtn = (window.availableContracts || []).filter(function(c: any) { return c.customer_group_id === window.currentGroupId; });
+        var myContractsBtn = (window.availableContracts || []).filter(function(c: ServiceContract & { service_name: string, group_name?: string }) { return c.customer_group_id === window.currentGroupId; });
         var parentGrantsBtn = (window.grantsDetailByGroup && window.grantsDetailByGroup[window.currentGroupId]) ? window.grantsDetailByGroup[window.currentGroupId] : [];
         if (myContractsBtn.length === 0 && parentGrantsBtn.length === 0) {
             openGrantBtnWrap.style.display = 'none';
@@ -73,12 +73,12 @@ window.renderGrants = function() {
     var contractsSec = document.getElementById('contracts-section');
     var contractsBody = document.getElementById('contracts-table-body');
     if (contractsSec && contractsBody) {
-        var myContracts = (window.availableContracts || []).filter(function(c: any) { return c.customer_group_id === window.currentGroupId; });
+        var myContracts = (window.availableContracts || []).filter(function(c: ServiceContract & { service_name: string, group_name?: string }) { return c.customer_group_id === window.currentGroupId; });
         if (myContracts.length === 0) {
             contractsSec.style.display = 'none';
         } else {
             contractsSec.style.display = '';
-            contractsBody.innerHTML = myContracts.map(function(c: any) {
+            contractsBody.innerHTML = myContracts.map(function(c: ServiceContract & { service_name: string, group_name?: string }) {
                 var seat = (c.seat_limit == null) ? (i18n.seatUnlimited || '無制限') : c.seat_limit;
                 return '<tr>'
                     + '<td><strong>' + window.escapeHtml(c.service_name) + (c.group_name ? ' (' + window.escapeHtml(c.group_name) + ')' : '') + '</strong></td>'
@@ -91,16 +91,16 @@ window.renderGrants = function() {
     renderChildGrants(kids);
 };
 
-function renderChildGrants(kids: any[]) {
+function renderChildGrants(kids: {id: string, name: string}[]) {
     var i18n = window.i18n || {};
     var sec = document.getElementById('child-grants-section');
     var body = document.getElementById('child-grants-table-body');
     if (!body) return;
     
-    var rows: { child: any, g: any }[] = [];
-    (kids || []).forEach(function(ch: any) {
+    var rows: { child: {id: string, name: string}, g: Grant }[] = [];
+    (kids || []).forEach(function(ch: {id: string, name: string}) {
         var cg = (window.grantsDetailByGroup && window.grantsDetailByGroup[ch.id]) ? window.grantsDetailByGroup[ch.id] : [];
-        cg.forEach(function(g: any) { rows.push({ child: ch, g: g }); });
+        cg.forEach(function(g: Grant) { rows.push({ child: ch, g: g }); });
     });
     
     if (sec) sec.style.display = (kids && kids.length > 0) ? '' : 'none';
@@ -110,7 +110,7 @@ function renderChildGrants(kids: any[]) {
         return;
     }
     
-    body.innerHTML = rows.map(function(r: any) {
+    body.innerHTML = rows.map(function(r: { child: {id: string, name: string}, g: Grant }) {
         var seat = (r.g.seat_limit == null) ? (i18n.seatUnlimited || '無制限') : r.g.seat_limit;
         return '<tr>'
             + '<td><span class="material-symbols-outlined" style="font-size:16px; color:#94a3b8; vertical-align:middle; margin-right:0.3rem;">subdirectory_arrow_right</span>' + window.escapeHtml(r.child.name) + '</td>'
@@ -127,12 +127,12 @@ window.openGrantModal = function() {
     
     var kids = (window.childrenByGroup && window.childrenByGroup[window.currentGroupId]) ? window.childrenByGroup[window.currentGroupId] : [];
     var targetOpts = [{ id: window.currentGroupId, label: ((window.i18n || {}).grantSelf || '自グループ') }];
-    kids.forEach(function(ch: any) { targetOpts.push({ id: ch.id, label: ch.name }); });
+    kids.forEach(function(ch: {id: string, name: string}) { targetOpts.push({ id: ch.id, label: ch.name }); });
     
     var tgtEl = document.getElementById('g-target');
     window.fillSelect(tgtEl, targetOpts, 'id', 'label', '');
     
-    if (tgtEl) (tgtEl as HTMLSelectElement).value = window.currentGroupId;
+    if (tgtEl) (tgtEl as unknown as HTMLSelectElement).value = window.currentGroupId;
     
     var seatEl = document.getElementById('g-seat') as HTMLInputElement | null; 
     if (seatEl) seatEl.value = '';
@@ -150,7 +150,7 @@ window.openGrantModal = function() {
 };
 
 window.onGrantTargetChange = function() {
-    var tgt = (document.getElementById('g-target') as HTMLSelectElement | null)?.value || window.currentGroupId;
+    var tgt = (document.getElementById('g-target') as unknown as HTMLSelectElement | null)?.value || window.currentGroupId;
     var isSelf = (tgt === window.currentGroupId);
     var contractEl = document.getElementById('g-contract');
     var warn = document.getElementById('g-no-contract');
@@ -158,10 +158,10 @@ window.onGrantTargetChange = function() {
     var i18n = window.i18n || {};
 
     if (isSelf) {
-        var contracts = (window.availableContracts || []).filter(function(c: any) { return c.customer_group_id === window.currentGroupId; });
+        var contracts = (window.availableContracts || []).filter(function(c: ServiceContract & { service_name: string, group_name?: string }) { return c.customer_group_id === window.currentGroupId; });
         window.fillSelect(
             contractEl, 
-            contracts.map(function(ct: any) { 
+            contracts.map(function(ct: ServiceContract & { service_name: string, group_name?: string }) { 
                 return { id: ct.id, label: ct.service_name + (ct.group_name ? ' / ' + ct.group_name : '') + (ct.seat_limit != null ? ' (' + ct.seat_limit + ')' : '') }; 
             }), 
             'id', 
@@ -174,7 +174,7 @@ window.onGrantTargetChange = function() {
         var parentGrants = (window.grantsDetailByGroup && window.grantsDetailByGroup[window.currentGroupId]) ? window.grantsDetailByGroup[window.currentGroupId] : [];
         window.fillSelect(
             contractEl, 
-            parentGrants.map(function(g: any) {
+            parentGrants.map(function(g: Grant) {
                 var childSeats = window.childDistributedSeats(window.currentGroupId, g.service_id);
                 var remain = (g.seat_limit == null) ? (i18n.grantUnlimited || '無制限') : Math.max(0, g.seat_limit - childSeats);
                 return { id: g.contract_id, label: g.service_name + ' (' + (i18n.grantAvailable || '利用可能') + ' ' + remain + ')' };
@@ -208,8 +208,8 @@ function showGrantError(msg: string) {
 }
 
 window.addGrant = function() {
-    var target = (document.getElementById('g-target') as HTMLSelectElement | null)?.value || window.currentGroupId;
-    var contractId = (document.getElementById('g-contract') as HTMLSelectElement | null)?.value;
+    var target = (document.getElementById('g-target') as unknown as HTMLSelectElement | null)?.value || window.currentGroupId;
+    var contractId = (document.getElementById('g-contract') as unknown as HTMLSelectElement | null)?.value;
     var seatVal = (((document.getElementById('g-seat') as HTMLInputElement | null)?.value || '') + '').trim();
     var sv = (document.getElementById('g-valid-from') as HTMLInputElement | null)?.value;
     var ev = (document.getElementById('g-valid-to') as HTMLInputElement | null)?.value;
@@ -234,7 +234,7 @@ window.addGrant = function() {
         })
     })
     .then(function(r) { 
-        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e: Record<string, string>) { throw new Error(e.error || ('Error ' + r.status)); }); 
+        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(_e: unknown) { var e = _e as Record<string, string>; throw new Error(e.error || ('Error ' + r.status)); }); 
         return r.json(); 
     })
     .then(function() { window.location.reload(); })
@@ -268,7 +268,7 @@ window.executeRemoveGrant = function() {
         body: JSON.stringify({ id: removeGrantTargetId, context_group_id: window.currentGroupId }) 
     })
     .then(function(r) { 
-        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e: Record<string, string>) { throw new Error(e.error || ('Error ' + r.status)); }); 
+        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(_e: unknown) { var e = _e as Record<string, string>; throw new Error(e.error || ('Error ' + r.status)); }); 
         return r.json(); 
     })
     .then(function() {

@@ -89,7 +89,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var savedGroupId: string | null = null;
     try { savedGroupId = localStorage.getItem('ga_current_group_id'); } catch(e) {}
 
-    var sel = document.getElementById('group-select') as HTMLSelectElement | null;
+    var sel = document.getElementById('group-select') as unknown as HTMLSelectElement | null;
     var tsInstance: any = null;
 
     if (sel && typeof window.TomSelect !== 'undefined' && sel.tagName === 'SELECT') {
@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     } else if (sel && sel.value) {
         sel.addEventListener('change', function(e: Event) {
-            var target = e.target as HTMLSelectElement;
+            var target = e.target as unknown as HTMLSelectElement;
             window.currentGroupId = target.value;
             try { localStorage.setItem('ga_current_group_id', window.currentGroupId); } catch(e) {}
             if (window.renderAll) window.renderAll();
@@ -293,7 +293,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 window.switchGroup = function() {
-    var sel = document.getElementById('group-select') as HTMLSelectElement | null;
+    var sel = document.getElementById('group-select') as unknown as HTMLSelectElement | null;
     if (sel) {
         window.currentGroupId = sel.value;
         try { localStorage.setItem('ga_current_group_id', window.currentGroupId); } catch(e) {}

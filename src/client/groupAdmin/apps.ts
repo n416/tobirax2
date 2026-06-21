@@ -78,7 +78,7 @@ window.addApp = function() {
         })
     })
     .then(function(r) { 
-        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e) { throw new Error(e.error || ('Error ' + r.status)); }); 
+        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e: unknown) { var errObj = e as any; throw new Error(errObj.error || ('Error ' + r.status)); }); 
         return r.json(); 
     })
     .then(function() { window.location.reload(); })
@@ -182,7 +182,7 @@ window.appSecretActionGa = function(action: string) {
         body: JSON.stringify({ id: id, action: action })
     })
     .then(function(r) { return r.json(); })
-    .then(function(data: Record<string, string>) {
+    .then(function(_data: unknown) { var data = _data as Record<string, string>;
         if (data.error) {
             if (window.showAlert) window.showAlert('Error: ' + data.error);
             return;

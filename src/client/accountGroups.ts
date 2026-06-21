@@ -224,7 +224,7 @@ window.openGroupModal = (id: string, name: string, parentId?: string) => {
   if (titleEl) titleEl.innerText = name;
 
   // 親グループ選択: 現在値をセットし、自分自身は親候補から無効化
-  const parentSel = document.getElementById('m-parent') as HTMLSelectElement | null;
+  const parentSel = document.getElementById('m-parent') as unknown as HTMLSelectElement | null;
   if (parentSel) {
     for (let i = 0; i < parentSel.options.length; i++) {
       parentSel.options[i].disabled = (parentSel.options[i].value === id);
@@ -262,7 +262,7 @@ window.closeGroupModal = () => { if (gModal) gModal.close(); window.resetAddButt
 window.saveParent = () => {
   const pid = tsControlParentEdit
     ? tsControlParentEdit.getValue()
-    : ((document.getElementById('m-parent') as HTMLSelectElement | null)?.value ?? '');
+    : ((document.getElementById('m-parent') as unknown as HTMLSelectElement | null)?.value ?? '');
   window.showConfirm(i18n.moveWarn || 'Moving this group revokes all license grants held by it and its descendants. They must be re-distributed from the new parent. Continue?', () => {
     fetch('/admin/am/groups/parent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: currentGroupId, parent_id: pid }) })
       .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((e: any) => { throw new Error(e.error || 'err'); }); } return r.json(); })
@@ -313,7 +313,7 @@ window.editMember = (userId: string, ga: number, ba: number, dev: number, startT
 window.loadMembers = (id: string) => {
   fetch('/admin/api/am/group-members/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((data) => { currentMembers = data.members || []; window.renderMembers(currentMembers); })
+    .then((_data: unknown) => { const data = _data as any; currentMembers = data.members || []; window.renderMembers(currentMembers); })
     .catch((e) => { console.error(e); });
 };
 
@@ -454,8 +454,7 @@ window.loadAllFacilitiesForMove = () => {
 
         fetch('/admin/api/am/group-facilities/' + encodeURIComponent(value) + '?t=' + new Date().getTime())
           .then((r) => r.json())
-          .then((data) => {
-            if (data.facilities) {
+          .then((_data: unknown) => { const data = _data as any; if (data.facilities) {
               data.facilities.forEach((f: FacilityData) => {
                 if (f.managing_group_id === currentGroupId) return; // 自分のグループの施設は移動候補に出さない
                 const label = (f.structure_no || '') + ' ' + (f.building_use || '');
@@ -481,7 +480,7 @@ window.loadAllFacilitiesForMove = () => {
 window.loadFacilities = (id: string) => {
   fetch('/admin/api/am/group-facilities/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((data) => { currentFacilities = data.facilities || []; window.renderFacilities(currentFacilities); })
+    .then((_data: unknown) => { const data = _data as any; currentFacilities = data.facilities || []; window.renderFacilities(currentFacilities); })
     .catch((e) => { console.error(e); });
 };
 
@@ -595,7 +594,7 @@ window.removeGrant = (gid: string) => {
 };
 
 window.addGrant = () => {
-  const cid = (document.getElementById('g-contract-id') as HTMLSelectElement).value;
+  const cid = (document.getElementById('g-contract-id') as unknown as HTMLSelectElement).value;
   const seats = (document.getElementById('g-seat-limit') as HTMLInputElement).value;
   const vf = (document.getElementById('g-valid-from') as HTMLInputElement).value;
   const vt = (document.getElementById('g-valid-to') as HTMLInputElement).value;
@@ -612,7 +611,7 @@ window.addGrant = () => {
 window.loadGrants = (id: string) => {
   fetch('/admin/api/am/group-grants/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((data) => { window.renderGrants(data.grants || []); });
+    .then((_data: unknown) => { const data = _data as any; window.renderGrants(data.grants || []); });
 };
 
 window.renderGrants = (list: GrantData[]) => {

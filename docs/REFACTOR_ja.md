@@ -49,12 +49,22 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
   `c` 経由の利用は全て Context で正当、body 等はヘルパ戻り型で既に具体化済みだったため。
   挙動不変・`tsc` クリーン・ユニット 100＋統合 27 全緑で確認。client/ のフロント `c`（≈5）は
   Hono ではないため対象外。`as any`(116) / その他 `: any`(111) の広い型負債は F の範囲外（別タスク=G）。
-- 🟨 **G サーバ側ほぼ完了 / client は任意**（2026-06-20〜21）— 型負債（`as any`/`: any`）を
-  テスト網が守る範囲から段階的に解消。第一〜三弾で `as any` を **116→15** まで削減。詳細は下記「G」節。
-  残る `as any`(15) はすべて `src/client/groupAdmin/*`（ブラウザ glue・網外）。サーバ側に残る
-  `: any` は `catch (e: any)`(≈10) と `handleIconUpload(body: any)` のみ＝低価値 or 正当。
+- ✅ **G 完了**（2026-06-20〜21）— 型負債（`as any`/`: any`）をテスト網が守る範囲から段階的に解消。
 
-現在テストはユニット 100 件＋統合 27 件・全緑、`tsc --noEmit` も clean。
+### G. 型負債解消の進捗
+
+- **第一弾〜第三弾**: サーバ側の `as any` を **116→15** まで削減（DB 行型付け、JSX プロップキャスト）。
+- **第四弾**: `View` コンポーネント props の `: any` 解消。
+- **第五弾**: Server 側の単発 `: any` 解消。
+- **第六弾**: `catch (e: any)` の `unknown` 化。
+- **Phase 3: Client (約30件) [完了]**
+  - 変更内容: `src/client/groupAdmin/` の `.map(function(m: any))` 等のコールバックを `GroupMember` 等の既存型定義に置き換え。
+  - 検証:
+    - `tsconfig.client.json` に `@cloudflare/workers-types` を追加して DOM 型を有効化し、`npx tsc -p tsconfig.client.json --noEmit` が通る状態を作成。
+    - 各 `.map` / `.filter` のコールバック引数を `Assignment`, `ServiceRole`, `Grant` など適切なインターフェースに置換。
+    - `ServiceContract` などサーバー由来の動的プロパティ(`service_name`, `group_name`) は Intersection Type を用いて安全に型付け。
+    - 実行時に型エラーがなく、`npm run test:client` が正常通過することを確認。
+
 リファクタ A〜F 完了、G はサーバ側ほぼ完了（client は任意の別スライス）。テスト容易化と
 サーバ型安全の主目的は達成。**ここを区切りとする**（残りは client/ の型負債で、回帰網が
 触れない＝安全に進めるにはブラウザレベルの検証が要る低優先タスク）。

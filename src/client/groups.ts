@@ -202,8 +202,7 @@ window.editGroupPerm = (appId: string, startTs: number, endTs: number) => {
 window.loadGroupPerms = (id: string) => {
   fetch('/admin/api/group-details/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((data) => {
-      window.renderGroupPerms(data.permissions);
+    .then((_data: unknown) => { const data = _data as any; window.renderGroupPerms(data.permissions);
       currentGroupPermissions = data.permissions;
     })
     .catch((e) => { console.error(e); });
@@ -282,7 +281,7 @@ window.grantGroupPermission = () => {
   const dateStrEnd = dateVal ? new Date(dateVal).toLocaleDateString() : (i18n.termForever || 'Forever');
   let appIds: string[] = [];
   if (tsControl) { appIds = tsControl.getValue(); if (!Array.isArray(appIds)) appIds = [appIds]; }
-  else { const appSelect = document.getElementById('g-perm-app-id') as HTMLSelectElement; if (appSelect.value) appIds = [appSelect.value]; }
+  else { const appSelect = document.getElementById('g-perm-app-id') as unknown as HTMLSelectElement; if (appSelect.value) appIds = [appSelect.value]; }
   appIds = appIds.filter((id: string) => id !== '');
   if (appIds.length === 0) { window.showAlert(i18n.alertSelectApp || 'Select at least one App'); return; }
   const warningMessages: string[] = [];

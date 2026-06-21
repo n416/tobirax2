@@ -6,7 +6,8 @@
     "strict": true,
     "noEmit": true,
     "lib": ["DOM", "ES2020"],
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/client"]
 }

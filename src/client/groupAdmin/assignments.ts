@@ -55,7 +55,7 @@ window.renderAssignments = function() {
         el.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:2rem;">' + (window.i18n.noAssignments || '割当がありません') + '</td></tr>';
         return;
     }
-    el.innerHTML = list.map(function(a: any) {
+    el.innerHTML = list.map(function(a: Assignment) {
         var facility = window.escapeHtml(a.structure_no || a.facility_id || '-');
         if (a.building_use) facility += ' (' + window.escapeHtml(a.building_use) + ')';
         var roleName = window.escapeHtml(a.role_name || '-');
@@ -72,9 +72,9 @@ window.renderAssignments = function() {
 };
 
 window.refreshAssignRoles = function() {
-    var svcEl = document.getElementById('a-service') as HTMLSelectElement | null;
-    var facEl = document.getElementById('a-facility') as HTMLSelectElement | null;
-    var roleEl = document.getElementById('a-role') as HTMLSelectElement | null;
+    var svcEl = document.getElementById('a-service') as unknown as HTMLSelectElement | null;
+    var facEl = document.getElementById('a-facility') as unknown as HTMLSelectElement | null;
+    var roleEl = document.getElementById('a-role') as unknown as HTMLSelectElement | null;
     if (!svcEl || !facEl || !roleEl) return;
     
     var serviceId = svcEl.value;
@@ -91,11 +91,11 @@ window.refreshAssignRoles = function() {
     }
     
     var roles = (serviceId && window.rolesByService) ? (window.rolesByService[serviceId] || []) : [];
-    var filtered = roles.filter(function(r: any) { 
+    var filtered = roles.filter(function(r: ServiceRole) { 
         return r.facility_type == null || r.facility_type === buildingUse; 
     });
     
-    window.fillSelect(roleEl, filtered.map(function(r: any) { return { id: r.id, role_name: r.role_name }; }), 'id', 'role_name', '役割なし (None)');
+    window.fillSelect(roleEl, filtered.map(function(r: ServiceRole) { return { id: r.id, role_name: r.role_name }; }), 'id', 'role_name', '役割なし (None)');
 };
 
 window.openAssignModal = function() {
@@ -107,7 +107,7 @@ window.openAssignModal = function() {
     
     window.fillSelect(
         document.getElementById('a-user'), 
-        members.map(function(x: any) { return { user_id: x.user_id, label: (x.name ? x.name + ' <' + x.email + '>' : x.email) }; }), 
+        members.map(function(x: GroupMember) { return { user_id: x.user_id, label: (x.name ? x.name + ' <' + x.email + '>' : x.email) }; }), 
         'user_id', 
         'label', 
         window.i18n.selectUser || '利用者を選択'
@@ -120,7 +120,7 @@ window.openAssignModal = function() {
         window.i18n.selectService || 'サービスを選択'
     );
     
-    var facList = (window.facilities || []).map(function(f: any) { 
+    var facList = (window.facilities || []).map(function(f: Facility) { 
         var lbl = (f.structure_no || f.id) + (f.building_use ? ' (' + f.building_use + ')' : ''); 
         return { id: f.id, label: lbl }; 
     });
@@ -141,10 +141,10 @@ window.openAssignModal = function() {
 };
 
 window.addAssignment = function() {
-    var userId = (document.getElementById('a-user') as HTMLSelectElement | null)?.value;
-    var serviceId = (document.getElementById('a-service') as HTMLSelectElement | null)?.value;
-    var facilityId = (document.getElementById('a-facility') as HTMLSelectElement | null)?.value;
-    var roleId = (document.getElementById('a-role') as HTMLSelectElement | null)?.value;
+    var userId = (document.getElementById('a-user') as unknown as HTMLSelectElement | null)?.value;
+    var serviceId = (document.getElementById('a-service') as unknown as HTMLSelectElement | null)?.value;
+    var facilityId = (document.getElementById('a-facility') as unknown as HTMLSelectElement | null)?.value;
+    var roleId = (document.getElementById('a-role') as unknown as HTMLSelectElement | null)?.value;
     var sv = (document.getElementById('a-valid-from') as HTMLInputElement | null)?.value;
     var ev = (document.getElementById('a-valid-to') as HTMLInputElement | null)?.value;
     
@@ -171,7 +171,7 @@ window.addAssignment = function() {
     })
     .then(function(r) { 
         if (!r.ok) {
-            return r.json().catch(function() { return {}; }).then(function(e: Record<string, string>) { throw new Error(e.error || ('Error ' + r.status)); }); 
+            return r.json().catch(function() { return {}; }).then(function(_e: unknown) { var e = _e as Record<string, string>; throw new Error(e.error || ('Error ' + r.status)); }); 
         }
         return r.json(); 
     })

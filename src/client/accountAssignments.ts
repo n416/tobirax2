@@ -31,9 +31,9 @@ const FAC_USE: Record<string, string> = facUseEl ? JSON.parse(facUseEl.textConte
 const i18nNoRole: string = i18nEl ? JSON.parse(i18nEl.textContent || '""') : 'No role';
 
 function refreshRoles(): void {
-  const svc = document.getElementById('a-service') as HTMLSelectElement | null;
-  const fac = document.getElementById('a-facility') as HTMLSelectElement | null;
-  const role = document.getElementById('a-role') as HTMLSelectElement | null;
+  const svc = document.getElementById('a-service') as unknown as HTMLSelectElement | null;
+  const fac = document.getElementById('a-facility') as unknown as HTMLSelectElement | null;
+  const role = document.getElementById('a-role') as unknown as HTMLSelectElement | null;
   if (!svc || !fac || !role) return;
   const use = FAC_USE[fac.value] || null;
   const matched = ROLES.filter((r) => r.service_id === svc.value && (r.facility_type == null || r.facility_type === use));

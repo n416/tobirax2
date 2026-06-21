@@ -86,8 +86,7 @@ window.addMember = function() {
     })
     .then(function(r) { 
         if (!r.ok) {
-            return r.json().catch(function() { return {}; }).then(function(err) {
-                throw new Error(err.error || 'Error ' + r.status);
+            return r.json().catch(function() { return {}; }).then(function(_err: unknown) { var err = _err as any; throw new Error(err.error || 'Error ' + r.status);
             });
         }
         return r.json(); 
@@ -181,7 +180,7 @@ window.createChildGroup = function() {
         if (!r.ok) throw new Error('Error ' + r.status);
         return r.json();
     })
-    .then(function(data: Record<string, string>) {
+    .then(function(_data: unknown) { var data = _data as Record<string, string>;
         window.location.reload();
     })
     .catch(function(e: Error) {

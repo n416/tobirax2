@@ -265,7 +265,7 @@ window.refreshUserDetails = () => {
     .then((data: any) => {
       const emailEl = document.getElementById('modal-user-email');
       if (emailEl) emailEl.innerText = data.email;
-      const groupSel = document.getElementById('modal-group-select') as HTMLSelectElement | null;
+      const groupSel = document.getElementById('modal-group-select') as unknown as HTMLSelectElement | null;
       if (groupSel) groupSel.value = data.group_id || '';
       window.renderPerms(data.permissions);
       if (window.loadAssignments) window.loadAssignments(data.assignments || []);
@@ -444,10 +444,10 @@ window.loadAssignments = (list: AssignmentData[]) => {
 };
 
 window.addAssignment = () => {
-  const sid = (document.getElementById('a-service-id') as HTMLSelectElement).value;
-  const gid = (document.getElementById('modal-group-select') as HTMLSelectElement).value;
-  const fid = (document.getElementById('a-facility-id') as HTMLSelectElement).value;
-  const rid = (document.getElementById('a-role-id') as HTMLSelectElement).value;
+  const sid = (document.getElementById('a-service-id') as unknown as HTMLSelectElement).value;
+  const gid = (document.getElementById('modal-group-select') as unknown as HTMLSelectElement).value;
+  const fid = (document.getElementById('a-facility-id') as unknown as HTMLSelectElement).value;
+  const rid = (document.getElementById('a-role-id') as unknown as HTMLSelectElement).value;
   const vf = (document.getElementById('a-valid-from') as HTMLInputElement).value;
   const vt = (document.getElementById('a-valid-to') as HTMLInputElement).value;
   if (!sid || !fid || !rid) { window.showAlert('必須項目が入力されていません'); return; }
@@ -477,8 +477,8 @@ window.removeAssignment = (id: string) => {
 };
 
 window.updateRoleOptions = () => {
-  const sid = (document.getElementById('a-service-id') as HTMLSelectElement).value;
-  const sel = document.getElementById('a-role-id') as HTMLSelectElement;
+  const sid = (document.getElementById('a-service-id') as unknown as HTMLSelectElement).value;
+  const sel = document.getElementById('a-role-id') as unknown as HTMLSelectElement;
   sel.innerHTML = '<option value="">-</option>';
   ALL_ROLES.forEach((r: any) => {
     if (r.service_id === sid) {
@@ -507,7 +507,7 @@ window.grantPermission = () => {
   const dateStrEnd = dateVal ? new Date(dateVal).toLocaleDateString() : (i18n.termForever || 'Forever');
   let appIds: string[] = [];
   if (tsControl) { appIds = tsControl.getValue(); if (!Array.isArray(appIds)) appIds = [appIds]; }
-  else { const appSelect = document.getElementById('perm-app-id') as HTMLSelectElement; if (appSelect.value) appIds = [appSelect.value]; }
+  else { const appSelect = document.getElementById('perm-app-id') as unknown as HTMLSelectElement; if (appSelect.value) appIds = [appSelect.value]; }
   appIds = appIds.filter((id: string) => id !== '');
   if (appIds.length === 0) { window.showAlert(i18n.alertSelectApp || 'Select at least one App'); return; }
   const warningMessages: string[] = [];
@@ -592,7 +592,7 @@ window.executeRevoke = () => {
 };
 
 window.updateUserGroup = () => {
-  const gid = (document.getElementById('modal-group-select') as HTMLSelectElement).value;
+  const gid = (document.getElementById('modal-group-select') as unknown as HTMLSelectElement).value;
   fetch('/admin/api/user/group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: currentUserId, group_id: gid }) })
     .then((r) => { if (!r.ok) { return r.json().catch(() => ({})).then((err: any) => { throw new Error(err.error || 'Server returned ' + r.status); }); } return r.json(); })
     .then(() => { window.closeUserModal(); window.location.reload(); })
