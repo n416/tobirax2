@@ -671,7 +671,43 @@ app.get('/account', async (c) => {
         app_developer: appMap[m.group_id + '|developer'] || null,
     }))
 
-    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} isGroupAdmin={isGroupAdmin} myMemberships={myMemberships} nonce={c.get('secureHeadersNonce')} />)
+    type ConsentRow = {
+        app_id: string
+        app_name: string
+        icon_url: string | null
+        scope: string
+        granted_at: number
+    }
+    const { results: consents } = await c.env.DB.prepare(`
+        SELECT c.app_id, c.scope, c.granted_at, a.name AS app_name, a.icon_url
+        FROM consents c
+        JOIN apps a ON a.id = c.app_id
+        WHERE c.user_id = ?
+        ORDER BY a.name
+    `).bind(user.id).all<ConsentRow>()
+
+    return c.html(<AccountPage t={t} userEmail={user.email} siteName={siteName} has2FA={!!user.two_factor_secret} profileName={user.name} profileUsername={user.preferred_username} profilePicture={user.picture} message={message} isGroupAdmin={isGroupAdmin} myMemberships={myMemberships} consents={consents} nonce={c.get('secureHeadersNonce')} />)
+})
+
+app.post('/account/revoke-consent', async (c) => {
+    const ctx = await getUserCtx(c)
+    if (!ctx) return c.redirect('/login')
+    const { user } = ctx
+    const body = await c.req.parseBody()
+    const appId = body['app_id'] as string
+    if (!appId) return c.redirect('/account')
+
+    // Remove consent
+    await c.env.DB.prepare('DELETE FROM consents WHERE user_id = ? AND app_id = ?')
+        .bind(user.id, appId).run()
+    
+    // Revoke any active sessions/auth_codes for this app
+    await c.env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ? AND app_id = ?')
+        .bind(user.id, appId).run()
+    await c.env.DB.prepare('DELETE FROM auth_codes WHERE user_id = ? AND app_id = ?')
+        .bind(user.id, appId).run()
+
+    return c.redirect('/account?msg=success_consent_revoked')
 })
 
 app.get('/login', async (c) => {

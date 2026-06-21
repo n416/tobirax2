@@ -166,4 +166,45 @@ describe('OIDC consent flow', () => {
     const row = await env.DB.prepare('SELECT * FROM consents WHERE app_id = ?').bind(appId).first()
     expect(row).toBeNull()
   })
+
+  it('Account /account 画面で付与済み consent を取得できる', async () => {
+    const { userId, appId, sid } = await setup()
+    await env.DB.prepare('INSERT INTO consents (user_id, app_id, scope, granted_at) VALUES (?, ?, ?, ?)')
+      .bind(userId, appId, 'openid email', Math.floor(Date.now() / 1000)).run()
+
+    const res = await SELF.fetch(`${ISSUER}/account`, { headers: cookie(sid) })
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain('Smart City Portal')
+    expect(body).toContain('action="/account/revoke-consent"')
+  })
+
+  it('Account /account/revoke-consent で同意と関連セッションを削除できる', async () => {
+    const { userId, appId, sid } = await setup()
+    await env.DB.prepare('INSERT INTO consents (user_id, app_id, scope, granted_at) VALUES (?, ?, ?, ?)')
+      .bind(userId, appId, 'openid email', Math.floor(Date.now() / 1000)).run()
+    
+    // session も作っておく
+    await env.DB.prepare('INSERT INTO app_sessions (token, refresh_token, user_id, app_id, expires_at) VALUES (?, ?, ?, ?, ?)')
+      .bind('tok123', 'ref123', userId, appId, Math.floor(Date.now() / 1000) + 3600).run()
+
+    const res = await SELF.fetch(`${ISSUER}/account/revoke-consent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Origin: ISSUER,
+        ...cookie(sid),
+      },
+      body: new URLSearchParams({ app_id: appId }).toString(),
+      redirect: 'manual'
+    })
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toContain('/account?msg=success_consent_revoked')
+
+    const c = await env.DB.prepare('SELECT * FROM consents WHERE app_id = ?').bind(appId).first()
+    expect(c).toBeNull()
+    const s = await env.DB.prepare('SELECT * FROM app_sessions WHERE app_id = ?').bind(appId).first()
+    expect(s).toBeNull()
+  })
 })

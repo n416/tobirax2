@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "build:client": "npx tsx scripts/build-client.ts",
-    "dev": "concurrently -k -n client,server \"npx tsx scripts/build-client.ts --watch\" \"wrangler dev\"",
+    "db:check": "npx tsx scripts/check-db-sync.ts",
+    "dev": "npm run db:check && concurrently -k -n client,server \"npx tsx scripts/build-client.ts --watch\" \"wrangler dev\"",
     "deploy": "npm run build:client && wrangler deploy --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "setup:secrets": "npx tsx scripts/setup-secrets.ts",

@@ -71,6 +71,19 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
+    const showRevokeBtn = target.closest('[data-action="show-revoke-modal"]');
+    if (showRevokeBtn) {
+      const appId = showRevokeBtn.getAttribute('data-app-id') || '';
+      const appName = showRevokeBtn.getAttribute('data-app-name') || '';
+      const input = document.getElementById('revoke-app-id') as HTMLInputElement | null;
+      if (input) input.value = appId;
+      const nameEl = document.getElementById('revoke-app-name');
+      if (nameEl) nameEl.textContent = appName;
+      const m = document.getElementById('revoke-consent-modal') as any;
+      if (m) m.showModal();
+      return;
+    }
+
     const submitApplyBtn = target.closest('[data-action="submit-apply"]');
     if (submitApplyBtn) {
       submitApply();

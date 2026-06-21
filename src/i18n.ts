@@ -328,6 +328,13 @@ export const dict = {
     back_to_account: 'Back to Account Settings',
     desc_change_password: 'Set a new password for signing in.',
 
+    account_consents_header: 'Connected Apps',
+    account_consents_desc: 'Applications you have granted access to your account.',
+    btn_revoke: 'Revoke Access',
+    confirm_revoke_consent: 'Revoke access for this application? It will no longer be able to access your account.',
+    success_consent_revoked: 'Access revoked successfully.',
+    no_connected_apps: 'No connected apps.',
+
     section_apps: 'Applications',
     header_new_app: 'Register New App',
     header_edit_app: 'Edit App',
@@ -884,6 +891,13 @@ export const dict = {
     msg_profile_saved: 'プロフィールを更新しました。',
     back_to_account: 'アカウント設定に戻る',
     desc_change_password: 'サインインに使う新しいパスワードを設定します。',
+
+    account_consents_header: '連携アプリ',
+    account_consents_desc: 'あなたのアカウントへのアクセスを許可しているアプリです。',
+    btn_revoke: '連携解除',
+    confirm_revoke_consent: 'このアプリとの連携を解除しますか？ 今後あなたの情報にアクセスできなくなります。',
+    success_consent_revoked: 'アプリの連携を解除しました。',
+    no_connected_apps: '連携中のアプリはありません。',
 
     section_apps: '連携アプリ一覧',
     header_new_app: '新規アプリ登録',

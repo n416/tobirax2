@@ -12,6 +12,14 @@ interface RoleAppState {
   admin_reason: string | null
 }
 
+interface ConsentRow {
+  app_id: string
+  app_name: string
+  icon_url: string | null
+  scope: string
+  granted_at: number
+}
+
 interface MyMembership {
   group_id: string
   group_name: string
@@ -34,6 +42,7 @@ interface Props {
   message?: string
   isGroupAdmin?: boolean
   myMemberships?: MyMembership[]
+  consents?: ConsentRow[]
   nonce?: string
 }
 
@@ -301,11 +310,72 @@ export const AccountPage = (props: Props) => {
             </div>
           `
         })}
+        ` : ''}
+
+        <!-- 連携アプリ (Consents) -->
+        <section class="${card}">
+          <div class="${cardHead}">
+            <span class="material-symbols-outlined">apps</span>
+            <div>
+              <h2>${t.account_consents_header}</h2>
+              <p>${t.account_consents_desc}</p>
+            </div>
+          </div>
+          
+          <div style="display:flex; flex-direction:column; gap:1rem;">
+            ${(props.consents && props.consents.length > 0) ? props.consents.map(c => html`
+              <div style="background:var(--bg-card, #f8fafc); border:1px solid #e2e8f0; border-radius:12px; padding:1.25rem; display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:1rem;">
+                  <div style="width:40px; height:40px; border-radius:8px; background:#fff; display:flex; justify-content:center; align-items:center; overflow:hidden; border:1px solid #e2e8f0;">
+                    ${c.icon_url ? html`<img src="${c.icon_url}" style="width:100%; height:100%; object-fit:cover;" />` : html`<span class="material-symbols-outlined" style="color:#94a3b8;">apps</span>`}
+                  </div>
+                  <div>
+                    <div style="font-weight:700; color:var(--text-main); font-size:1rem;">${c.app_name}</div>
+                    <div style="font-size:0.8rem; color:var(--text-sub); margin-top:0.2rem;">
+                      <span class="material-symbols-outlined" style="font-size:14px; vertical-align:-2px;">calendar_today</span> 
+                      ${new Date(c.granted_at * 1000).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <button type="button" data-action="show-revoke-modal" data-app-id="${c.app_id}" data-app-name="${c.app_name}" style="background:transparent; color:#ef4444; border:1px solid #fca5a5; border-radius:8px; padding:0.4rem 0.8rem; font-weight:600; cursor:pointer; font-size:0.85rem; display:flex; align-items:center; gap:0.3rem;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">link_off</span>${t.btn_revoke}
+                  </button>
+                </div>
+              </div>
+            `) : html`
+              <div style="text-align:center; padding:2rem; color:var(--text-sub); font-size:0.9rem;">
+                ${t.no_connected_apps}
+              </div>
+            `}
+          </div>
+        </section>
+
+        ${Modal({
+          id: 'revoke-consent-modal',
+          title: html`<span style="color:#ef4444; display:flex; align-items:center; gap:0.5rem;"><span class="material-symbols-outlined">warning</span> ${t.btn_revoke}</span>`,
+          nonce: props.nonce,
+          children: html`
+            <form id="revoke-consent-form" method="POST" action="/account/revoke-consent" style="margin:0;">
+              <input type="hidden" name="app_id" id="revoke-app-id" value="" />
+              <div style="margin-bottom: 1.5rem;">
+                <p style="color:#475569; font-size:1rem; line-height:1.5;">${t.confirm_revoke_consent}</p>
+                <p id="revoke-app-name" style="font-weight:700; color:var(--text-main); margin-top:0.5rem; font-size:1.1rem; text-align:center; padding:0.5rem; background:#f1f5f9; border-radius:8px;"></p>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 1rem;">
+                <button type="button" data-modal-close style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">${t.cancel}</button>
+                <button type="submit" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                  <span class="material-symbols-outlined" style="font-size:18px;">link_off</span> ${t.btn_revoke}
+                </button>
+              </div>
+            </form>
+          `
+        })}
+
         <script nonce="${props.nonce}">
           window.__name = function(f) { return f; };
           ${raw(accountClientScript)}
         </script>
-        ` : ''}
     `
   })
 }
