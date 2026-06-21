@@ -440,7 +440,7 @@ oidcRouter.get('/entitlements/me', async (c) => {
     }
 
     // 各サービスについて ①②③ 全通過の割当を列挙する。
-    const services: Array<{ service: { id: string; name: string }; entitlements: any[] }> = []
+    const services: Array<{ service: { id: string; name: string }; entitlements: Awaited<ReturnType<typeof getEntitlements>> }> = []
     for (const s of boundServices) {
         services.push({ service: { id: s.id, name: s.name }, entitlements: await getEntitlements(c, session.user_id, s.id) })
     }

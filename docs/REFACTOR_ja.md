@@ -177,6 +177,10 @@ OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB
 `Layout.tsx`, `Button.tsx`, `Card.tsx`, `Modal.tsx`, `Input.tsx`, `GroupAdminModals.tsx`, `ServiceAppsModal.tsx`, `amShared.tsx` などのプロパティ型を `Child` 等の具体的な型に置換。`AppsPage.tsx` の `tags` も型付け。
 挙動不変・`tsc` クリーン・ユニット 107＋統合 41＋クライアントテスト 8 全緑。
 
+第五弾（2026-06-21）: **Phase 2: Server 側の単発の `: any` 解消**を実施。
+`routes/oidc.tsx` の `entitlements` を `Awaited<ReturnType<typeof getEntitlements>>` に、`utils/json.ts` の `safeJsonStringify` 引数を `unknown` に、`oidc/keys.ts` の `JSON.parse` 戻り値を `unknown` とし、型チェックを行って安全なアクセスに。`index.tsx` の `handleIconUpload` 引数を `Record<string, unknown>` に修正。
+挙動不変・`tsc` クリーン・ユニット 107＋統合 41 全緑。
+
 ### G の残り（低優先・任意）
 
 サーバ側の型負債は実質解消済み。残るのは次のみで、いずれも価値が低いか正当:

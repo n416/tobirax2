@@ -122,7 +122,7 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
 }
 
 // アイコンアップロード用ヘルパー
-export async function handleIconUpload(body: any): Promise<string | null> {
+export async function handleIconUpload(body: Record<string, unknown>): Promise<string | null> {
     const file = body['icon_file'];
     if (file && file instanceof File && file.size > 0) {
         const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];

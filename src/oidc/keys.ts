@@ -101,11 +101,14 @@ async function buildEnvelope(kekKey: CryptoKey, now: number): Promise<KeyEnvelop
 // unrecognised (legacy plaintext) — so the caller persists the v3 format.
 export function parseStored(value: string | undefined, now: number): { envs: KeyEnvelope[]; wasV3: boolean } {
   if (!value) return { envs: [], wasV3: false }
-  let v: any
+  let v: unknown
   try { v = JSON.parse(value) } catch { return { envs: [], wasV3: false } }
-  if (v && v.v === 3 && Array.isArray(v.keys)) return { envs: v.keys as KeyEnvelope[], wasV3: true }
-  if (v && v.v === 2 && v.iv && v.ct && v.kid && v.publicJwk) {
-    return { envs: [{ kid: v.kid, publicJwk: v.publicJwk, iv: v.iv, ct: v.ct, createdAt: now }], wasV3: false }
+  if (typeof v === 'object' && v !== null) {
+    const obj = v as Record<string, unknown>
+    if (obj.v === 3 && Array.isArray(obj.keys)) return { envs: obj.keys as KeyEnvelope[], wasV3: true }
+    if (obj.v === 2 && typeof obj.iv === 'string' && typeof obj.ct === 'string' && typeof obj.kid === 'string' && typeof obj.publicJwk === 'object') {
+      return { envs: [{ kid: obj.kid, publicJwk: obj.publicJwk as KeyEnvelope['publicJwk'], iv: obj.iv, ct: obj.ct, createdAt: now }], wasV3: false }
+    }
   }
   return { envs: [], wasV3: false }
 }
