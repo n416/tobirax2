@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "test:oidc": "vitest run test/oidc",
     "test:utils": "vitest run test/utils",
-    "test:integration": "vitest run --config vitest.integration.config.mts"
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:csp": "vitest run --config vitest.integration.config.mts test/integration/csp-smoke.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
