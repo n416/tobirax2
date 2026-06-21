@@ -1,4 +1,5 @@
 import './types';
+import type { AppInfo } from './types';
 
 // ステータスバッジの描画用ヘルパー (services.tsと同じ。共有するかローカルで定義)
 function statusBadge(st: string) {
@@ -22,11 +23,11 @@ window.renderApps = function() {
         return;
     }
     
-    el.innerHTML = list.map(function(a: any) {
+    el.innerHTML = list.map(function(a: AppInfo) {
         var dataAttr = encodeURIComponent(JSON.stringify(a));
         var reasonInfo = '';
         if (a.status === 'rejected' && a.reason) {
-            reasonInfo = '<div style="margin-top:0.4rem; padding:0.5rem; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.75rem; color:#b91c1c;"><strong>却下事由:</strong> ' + a.reason.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br/>') + '<br/><span style="color:#ef4444; font-weight:bold;">※ 編集して保存すると自動的に再申請されます。</span></div>';
+            reasonInfo = '<div style="margin-top:0.4rem; padding:0.5rem; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.75rem; color:#b91c1c;"><strong>却下事由:</strong> ' + a.reason.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>') + '<br/><span style="color:#ef4444; font-weight:bold;">※ 編集して保存すると自動的に再申請されます。</span></div>';
         }
 
         return '<tr>'
@@ -46,7 +47,7 @@ window.openAppModal = function() {
         var e = document.getElementById(id) as HTMLInputElement | null; 
         if (e) e.value = ''; 
     });
-    var m = document.getElementById('add-app-modal') as any;
+    var m = document.getElementById('add-app-modal') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') m.showModal();
 };
 
@@ -181,7 +182,7 @@ window.appSecretActionGa = function(action: string) {
         body: JSON.stringify({ id: id, action: action })
     })
     .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function(data: Record<string, string>) {
         if (data.error) {
             if (window.showAlert) window.showAlert('Error: ' + data.error);
             return;
@@ -208,11 +209,11 @@ window.appSecretActionGa = function(action: string) {
         
         if (window.appsByGroup && window.currentGroupId) {
             var list = window.appsByGroup[window.currentGroupId] || [];
-            var app = list.find(function(x: any) { return x.id === id; });
+            var app = list.find(function(x: AppInfo) { return x.id === id; });
             if (app) app.has_secret = action === 'regenerate' ? 1 : 0;
         }
     })
-    .catch(function(err) { 
+    .catch(function(err: unknown) { 
         console.error('Error:', err); 
         if (window.showAlert) window.showAlert('Failed to update secret'); 
     });

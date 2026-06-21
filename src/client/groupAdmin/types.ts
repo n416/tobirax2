@@ -1,4 +1,5 @@
 export interface GroupMember {
+    id: string;
     user_id: string;
     name?: string;
     email?: string;
@@ -17,7 +18,9 @@ export interface Assignment {
     service_name?: string;
     facility_id?: string;
     structure_no?: string;
+    building_use?: string;
     role_name?: string;
+    user_email?: string;
     valid_from?: number;
     valid_to?: number;
 }
@@ -26,7 +29,7 @@ export interface Grant {
     id: number;
     service_id: string;
     service_name?: string;
-    contract_id?: number;
+    contract_id?: string;
     seat_limit?: number | null;
     valid_from?: number;
     valid_to?: number;
@@ -36,6 +39,17 @@ export interface Facility {
     id: string;
     structure_no?: string;
     building_use?: string;
+    managing_group_id?: string;
+    group_name?: string;
+}
+
+export interface GroupAdminPermission {
+    id?: number | string;
+    source?: string;
+    app_name?: string;
+    user_email?: string;
+    valid_from?: number;
+    valid_to?: number;
 }
 
 export interface Service {

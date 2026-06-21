@@ -13,6 +13,7 @@
     "db:clear": "npx tsx scripts/clear-db.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:client": "vitest run -c vitest.client.config.mts",
     "test:oidc": "vitest run test/oidc",
     "test:utils": "vitest run test/utils",
     "test:integration": "vitest run --config vitest.integration.config.mts",
@@ -32,6 +33,7 @@
     "@types/qrcode": "^1.5.5",
     "concurrently": "^10.0.3",
     "esbuild": "^0.28.1",
+    "happy-dom": "^20.10.6",
     "typescript": "^5.0.0",
     "vitest": "^4.1.9",
     "wrangler": "^4.56.0"

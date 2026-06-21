@@ -1,4 +1,5 @@
 import './types';
+import type { GroupMember } from './types';
 
 window.renderMembers = function() {
     var el = document.getElementById('members-table-body');
@@ -10,7 +11,7 @@ window.renderMembers = function() {
         return;
     }
     
-    el.innerHTML = list.map(function(m: any) {
+    el.innerHTML = list.map(function(m: GroupMember) {
         function badge(color: string, bg: string, label: string) {
             return '<span style="font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; color:' + color + '; background:' + bg + '; margin-right:4px;">' + label + '</span>';
         }
@@ -35,7 +36,7 @@ window.renderMembers = function() {
 };
 
 window.openAddModal = function() {
-    var m = document.getElementById('add-member-modal') as any;
+    var m = document.getElementById('add-member-modal') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') m.showModal();
     if (window.tsCtrl) window.tsCtrl.clear();
     
@@ -100,16 +101,16 @@ window.addMember = function() {
     });
 };
 
-var removeMemberTargetId: number | null = null;
+var removeMemberTargetId: string | null = null;
 
-window.removeMember = function(mid: any) {
+window.removeMember = function(mid: string) {
     removeMemberTargetId = mid;
     var m = document.getElementById('remove-confirm-modal') as any;
     if (m && typeof m.showModal === 'function') m.showModal();
 };
 
 window.closeRemoveModal = function() {
-    var m = document.getElementById('remove-confirm-modal') as any;
+    var m = document.getElementById('remove-confirm-modal') as CustomModalElement | null;
     if (m && typeof m.close === 'function') m.close();
     removeMemberTargetId = null;
 };
@@ -129,20 +130,20 @@ window.executeRemove = function() {
     .then(function() {
         window.closeRemoveMemberModal();
         if (window.membersByGroup && window.currentGroupId) {
-            window.membersByGroup[window.currentGroupId] = (window.membersByGroup[window.currentGroupId] || []).filter(function(m: any) {
+            window.membersByGroup[window.currentGroupId] = (window.membersByGroup[window.currentGroupId] || []).filter(function(m: GroupMember) {
                 return m.id !== removeMemberTargetId;
             });
         }
         removeMemberTargetId = null;
         window.renderMembers();
     })
-    .catch(function(e) {
+    .catch(function(e: Error) {
         console.error('Error: ' + e.message);
     });
 };
 
 window.openCreateChildGroupModal = function() {
-    var m = document.getElementById('create-child-group-modal') as any;
+    var m = document.getElementById('create-child-group-modal') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') m.showModal();
     
     var nameEl = document.getElementById('ccg-name') as HTMLInputElement | null;
@@ -180,10 +181,10 @@ window.createChildGroup = function() {
         if (!r.ok) throw new Error('Error ' + r.status);
         return r.json();
     })
-    .then(function() {
+    .then(function(data: Record<string, string>) {
         window.location.reload();
     })
-    .catch(function(e) {
+    .catch(function(e: Error) {
         console.error('Error: ' + e.message);
     });
 };

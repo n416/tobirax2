@@ -1,4 +1,6 @@
 import './types';
+import type { Assignment, Grant, GroupMember, Facility } from './types';
+import type { ServiceRole } from '../../types';
 
 window.renderAssignments = function() {
     var summaryEl = document.getElementById('assigns-summary');
@@ -17,16 +19,16 @@ window.renderAssignments = function() {
         } else {
             summaryEl.style.display = 'grid';
             var htmlStr = '';
-            grants.forEach(function(g: any) {
+            grants.forEach(function(g: Grant) {
                 var usedUsers: Record<string, boolean> = {};
-                list.forEach(function(a: any) {
+                list.forEach(function(a: Assignment) {
                     if (a.service_id === g.service_id) {
                         usedUsers[a.user_id] = true;
                     }
                 });
                 var usedCount = Object.keys(usedUsers).length;
                 var childSeats = window.childDistributedSeats(window.currentGroupId, g.service_id);
-                var effLimit = (g.seat_limit == null) ? null : Math.max(0, g.seat_limit - childSeats);
+                var effLimit = (g.seat_limit == null) ? null : Math.max(0, (g.seat_limit || 0) - childSeats);
                 var limitStr = (effLimit == null) ? '無制限' : String(effLimit);
                 var isFull = (effLimit != null && usedCount >= effLimit);
                 var remainingStr = (effLimit == null) ? '上限なし' : ('残り ' + (effLimit - usedCount) + ' 枠');
@@ -169,12 +171,12 @@ window.addAssignment = function() {
     })
     .then(function(r) { 
         if (!r.ok) {
-            return r.json().catch(function() { return {}; }).then(function(e) { throw new Error(e.error || ('Error ' + r.status)); }); 
+            return r.json().catch(function() { return {}; }).then(function(e: Record<string, string>) { throw new Error(e.error || ('Error ' + r.status)); }); 
         }
         return r.json(); 
     })
     .then(function() { window.location.reload(); })
-    .catch(function(e) {
+    .catch(function(e: Error) {
         if (e.message === 'no_grant') console.error(window.i18n.errNoGrant || '利用枠がありません');
         else if (e.message === 'seat') console.error(window.i18n.errSeat || '席数上限に達しています');
         else console.error('Error: ' + e.message);
@@ -185,12 +187,12 @@ var removeAssignTargetId: number | null = null;
 
 window.removeAssignment = function(aid: number) {
     removeAssignTargetId = aid;
-    var m = document.getElementById('remove-assign-modal') as any;
+    var m = document.getElementById('remove-assign-modal') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') m.showModal();
 };
 
 window.closeRemoveAssignModal = function() {
-    var m = document.getElementById('remove-assign-modal') as any;
+    var m = document.getElementById('remove-assign-modal') as CustomModalElement | null;
     if (m && typeof m.close === 'function') m.close();
     removeAssignTargetId = null;
 };
@@ -209,12 +211,12 @@ window.executeRemoveAssignment = function() {
     })
     .then(function() {
         if (window.assignsByGroup && window.currentGroupId) {
-            window.assignsByGroup[window.currentGroupId] = (window.assignsByGroup[window.currentGroupId] || []).filter(function(a: any) { 
+            window.assignsByGroup[window.currentGroupId] = (window.assignsByGroup[window.currentGroupId] || []).filter(function(a: Assignment) { 
                 return a.id !== removeAssignTargetId; 
             });
         }
         window.closeRemoveAssignModal();
         window.renderAssignments();
     })
-    .catch(function(e) { console.error('Error: ' + e.message); });
+    .catch(function(e: Error) { console.error('Error: ' + e.message); });
 };

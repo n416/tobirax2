@@ -1,35 +1,36 @@
 import './types';
 
 // HTMLエスケープ関数: innerHTML連結時にXSSを防止する
-window.escapeHtml = function(v: any): string {
+window.escapeHtml = function(v: unknown): string {
     return String(v == null ? '' : v)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 };
 
-// 日付フォーマット
-window.fmt = function(unixSec: any): string {
-    if (!unixSec) return '—';
+// 日付フォーマッタ
+window.fmt = function(unixSec: number | null | undefined): string {
+    if (!unixSec) return '-';
     if (unixSec > 2000000000) return '無期限';
     var d = new Date(unixSec * 1000);
     return d.getFullYear() + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + ('0' + d.getDate()).slice(-2);
 };
 
-window.fillSelect = function(el: any, items: any[], valueKey: string, textKey: string, placeholder: string) {
+window.fillSelect = function(el: HTMLSelectElement | null, items: Record<string, unknown>[], valueKey: string, textKey: string, placeholder: string) {
     if (!el) return;
     var html = '<option value="">' + placeholder + '</option>';
-    items.forEach(function(it: any) { 
+    items.forEach(function(it: Record<string, unknown>) { 
         html += '<option value="' + window.escapeHtml(it[valueKey]) + '">' + window.escapeHtml(it[textKey]) + '</option>'; 
     });
     el.innerHTML = html;
 };
 
+import type { Grant } from './types';
 window.childDistributedSeats = function(groupId: string, serviceId: string) {
     var kids = (window.childrenByGroup && window.childrenByGroup[groupId]) ? window.childrenByGroup[groupId] : [];
     var sum = 0;
-    kids.forEach(function(ch: any) {
+    kids.forEach(function(ch: { id: string }) {
         var cg = (window.grantsDetailByGroup && window.grantsDetailByGroup[ch.id]) ? window.grantsDetailByGroup[ch.id] : [];
-        cg.forEach(function(g: any) { 
+        cg.forEach(function(g: Grant) { 
             if (g.service_id === serviceId && g.seat_limit != null) sum += g.seat_limit; 
         });
     });

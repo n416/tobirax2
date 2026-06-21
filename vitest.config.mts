@@ -19,6 +19,9 @@ export default defineConfig({
     // 統合テスト(test/integration)は workerd 上で走らせる別 config
     // (vitest.integration.config.mts / npm run test:integration)に隔離する。
     // ここ(素の Node)で拾うと cloudflare:test を解決できず壊れるため除外する。
-    exclude: ['test/integration/**', 'node_modules/**'],
+    // client テスト(test/client)は happy-dom 上で走らせる別 config
+    // (vitest.client.config.mts / npm run test:client)に隔離する。Node には
+    // window/document が無く壊れるため除外する。
+    exclude: ['test/integration/**', 'test/client/**', 'node_modules/**'],
   },
 })

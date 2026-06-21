@@ -1,4 +1,5 @@
 import './types';
+import type { GroupAdminPermission } from './types';
 
 // アクセス権タブ(#tab-access)の描画。
 // サーバは permissionsByGroup を渡し、init.ts が ga-perms-data から
@@ -18,7 +19,7 @@ window.renderPerms = function() {
         return;
     }
 
-    el.innerHTML = list.map(function(p: any) {
+    el.innerHTML = list.map(function(p: GroupAdminPermission) {
         // 適用元バッジ: グループ共通権限か、ユーザー個別権限か。
         var isGroup = p.source === 'group';
         var srcColor = isGroup ? '#5b21b6' : '#475569';

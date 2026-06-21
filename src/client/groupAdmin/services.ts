@@ -1,4 +1,6 @@
 import './types';
+import type { Service, AppInfo, ServiceTag, TagInfo } from './types';
+import type { ServiceRole } from '../../types';
 
 // ステータスバッジの描画用ヘルパー
 function statusBadge(st: string) {
@@ -22,20 +24,20 @@ window.renderServices = function() {
         return;
     }
     
-    el.innerHTML = list.map(function(s: any) {
+    el.innerHTML = list.map(function(s: Service) {
         var apps = s.apps || [];
-        var chips = apps.length ? apps.map(function(a: any) {
+        var chips = apps.length ? apps.map(function(a: AppInfo) {
             return '<span style="display:inline-flex;align-items:center;gap:0.25rem;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:999px;padding:2px 6px 2px 10px;font-size:0.78rem;margin:0 0.25rem 0.25rem 0;">' + window.escapeHtml(a.name)
                 + (s.status !== 'active' ? '<button type="button" title="外す" data-action="remove-service-app" data-service-id="' + s.id + '" data-app-id="' + a.id + '" style="background:none;border:none;color:#6366f1;cursor:pointer;padding:0 2px;line-height:1;font-size:0.95rem;">×</button>' : '') + '</span>';
         }).join('') : '<span style="color:#cbd5e1;">—</span>';
         
         var reasonInfo = '';
         if (s.status === 'rejected' && s.reason) {
-            reasonInfo = '<div style="margin-top:0.5rem; padding:0.5rem; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.8rem; color:#b91c1c;"><strong>却下事由:</strong> ' + s.reason.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br/>') + '</div>';
+            reasonInfo = '<div style="margin-top:0.5rem; padding:0.5rem; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; font-size:0.8rem; color:#b91c1c;"><strong>却下事由:</strong> ' + s.reason.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>') + '</div>';
         }
         
-        var sTags = window.serviceTagsByGroup && window.serviceTagsByGroup[window.currentGroupId] ? window.serviceTagsByGroup[window.currentGroupId].filter(function(t: any) { return t.service_id === s.id; }) : [];
-        var tagsHtml = sTags.map(function(t: any) {
+        var sTags = window.serviceTagsByGroup && window.serviceTagsByGroup[window.currentGroupId] ? window.serviceTagsByGroup[window.currentGroupId].filter(function(t: ServiceTag) { return t.service_id === s.id; }) : [];
+        var tagsHtml = sTags.map(function(t: ServiceTag) {
             var color = t.status === 'active' ? '#047857' : (t.status === 'rejected' ? '#b91c1c' : '#c2410c');
             var bg = t.status === 'active' ? '#d1fae5' : (t.status === 'rejected' ? '#fef2f2' : '#fff7ed');
             var label = window.escapeHtml(t.tag_name);
@@ -66,7 +68,7 @@ window.openServiceModal = function() {
     if (!window.currentGroupId) return;
     var nameEl = document.getElementById('s-name') as HTMLInputElement | null; 
     if (nameEl) nameEl.value = '';
-    var m = document.getElementById('add-service-modal') as any;
+    var m = document.getElementById('add-service-modal') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') m.showModal();
 };
 
@@ -87,7 +89,7 @@ window.addService = function() {
         return r.json(); 
     })
     .then(function() { window.location.reload(); })
-    .catch(function(e) { console.error('Error: ' + e.message); });
+    .catch(function(e: Error) { console.error('Error: ' + e.message); });
 };
 
 window.removeService = function(id: string) {
@@ -103,7 +105,7 @@ window.removeService = function(id: string) {
                 return r.json(); 
             })
             .then(function() { window.location.reload(); })
-            .catch(function(e) { console.error('Error: ' + e.message); });
+            .catch(function(e: Error) { console.error('Error: ' + e.message); });
         });
     }
 };
@@ -121,14 +123,14 @@ window.reapplyService = function(id: string) {
                 return r.json(); 
             })
             .then(function() { window.location.reload(); })
-            .catch(function(e) { console.error('Error: ' + e.message); });
+            .catch(function(e: Error) { console.error('Error: ' + e.message); });
         });
     }
 };
 
 window.manageServiceApps = function(serviceId: string, serviceNameEnc: string) {
     var services = (window.servicesByGroup && window.currentGroupId && window.servicesByGroup[window.currentGroupId]) ? window.servicesByGroup[window.currentGroupId] : [];
-    var s = services.find(function(x: any) { return x.id === serviceId; });
+    var s = services.find(function(x: Service) { return x.id === serviceId; });
     if (!s) return;
     
     var availableApps = (window.approvedAppsByGroup && window.currentGroupId && window.approvedAppsByGroup[window.currentGroupId]) ? window.approvedAppsByGroup[window.currentGroupId] : [];
@@ -142,7 +144,7 @@ let currentManageRolesServiceId: string | null = null;
 
 window.manageRoles = function(serviceId: string, serviceNameEnc: string) {
     currentManageRolesServiceId = serviceId;
-    var m = document.getElementById('manage-roles-modal') as any;
+    var m = document.getElementById('manage-roles-modal') as CustomModalElement | null;
     var titleEl = document.getElementById('mr-service-name');
     if (titleEl) titleEl.innerText = decodeURIComponent(serviceNameEnc);
     
@@ -153,7 +155,7 @@ window.manageRoles = function(serviceId: string, serviceNameEnc: string) {
         if (roles.length === 0) {
             roleListEl.innerHTML = '<div style="color:#94a3b8; font-size:0.9rem;">登録されている役割はありません。</div>';
         } else {
-            roleListEl.innerHTML = roles.map(function(r: any) {
+            roleListEl.innerHTML = roles.map(function(r: ServiceRole) {
                 return '<div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem; border-bottom:1px solid #f1f5f9;">'
                     + '<div><strong>' + window.escapeHtml(r.role_name) + '</strong> <span style="color:#64748b; font-size:0.8rem;">[' + window.escapeHtml(r.role_code) + ']</span>'
                     + (r.facility_type ? ' <span style="font-size:0.75rem; color:#0f172a; background:#e2e8f0; padding:2px 6px; border-radius:4px;">' + window.escapeHtml(r.facility_type) + '</span>' : '')
@@ -200,7 +202,7 @@ window.addRole = function() {
         return r.json(); 
     })
     .then(function() { window.location.reload(); })
-    .catch(function(e) { console.error('Error: ' + e.message); });
+    .catch(function(e: Error) { console.error('Error: ' + e.message); });
 };
 
 window.removeRole = function(id: number) {
@@ -216,7 +218,7 @@ window.removeRole = function(id: number) {
                 return r.json(); 
             })
             .then(function() { window.location.reload(); })
-            .catch(function(e) { console.error('Error: ' + e.message); });
+            .catch(function(e: Error) { console.error('Error: ' + e.message); });
         });
     }
 };
@@ -226,7 +228,7 @@ let currentTagsServiceId: string | null = null;
 
 window.openServiceTagsModal = function(serviceId: string, serviceName: string) {
     currentTagsServiceId = serviceId;
-    var m = document.getElementById('manage-tags-modal') as any;
+    var m = document.getElementById('manage-tags-modal') as CustomModalElement | null;
     var nameEl = document.getElementById('mt-service-name');
     if (nameEl) nameEl.textContent = decodeURIComponent(serviceName);
 
@@ -234,14 +236,14 @@ window.openServiceTagsModal = function(serviceId: string, serviceName: string) {
     var availableTagsEl = document.getElementById('mt-available-tags');
 
     var sTags = window.serviceTagsByGroup && window.currentGroupId && window.serviceTagsByGroup[window.currentGroupId] 
-        ? window.serviceTagsByGroup[window.currentGroupId].filter(function(t: any) { return t.service_id === serviceId; }) 
+        ? window.serviceTagsByGroup[window.currentGroupId].filter(function(t: ServiceTag) { return t.service_id === serviceId; }) 
         : [];
         
     if (appliedTagsEl) {
         if (sTags.length === 0) {
             appliedTagsEl.innerHTML = '<span style="color:#94a3b8; font-size:0.85rem; width:100%; text-align:center; padding: 0.5rem 0;">適用されているタグはありません</span>';
         } else {
-            appliedTagsEl.innerHTML = sTags.map(function(t: any) {
+            appliedTagsEl.innerHTML = sTags.map(function(t: ServiceTag) {
                 var color = t.status === 'active' ? '#047857' : (t.status === 'rejected' ? '#b91c1c' : '#c2410c');
                 var bg = t.status === 'active' ? '#d1fae5' : (t.status === 'rejected' ? '#fef2f2' : '#fff7ed');
                 var label = window.escapeHtml(t.tag_name);
@@ -256,8 +258,8 @@ window.openServiceTagsModal = function(serviceId: string, serviceName: string) {
     if (availableTagsEl) {
         var optionsHtml = '<option value="">追加するタグを選択...</option>';
         var avail = window.availableTags || [];
-        avail.forEach(function(t: any) {
-            var applied = sTags.some(function(at: any) { return at.tag_id === t.id; });
+        avail.forEach(function(t: TagInfo) {
+            var applied = sTags.some(function(at: ServiceTag) { return at.tag_id === t.id; });
             if (!applied) {
                 optionsHtml += '<option value="' + window.escapeHtml(t.id) + '">' + window.escapeHtml(t.name) + '</option>';
             }
@@ -302,7 +304,7 @@ window.removeServiceTag = function(serviceId: string, tagId: string) {
                 return r.json(); 
             })
             .then(function() { window.location.reload(); })
-            .catch(function(e) { console.error('Error:', e.message); });
+            .catch(function(e: Error) { console.error('Error:', e.message); });
         });
     }
 };

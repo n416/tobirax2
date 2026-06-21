@@ -1,4 +1,6 @@
 import './types';
+import type { Grant } from './types';
+import type { ServiceContract } from '../../types';
 
 window.renderGrants = function() {
     var i18n = window.i18n || {};
@@ -12,13 +14,14 @@ window.renderGrants = function() {
             summaryEl.style.display = 'none';
         } else {
             summaryEl.style.display = 'flex';
-            summaryEl.innerHTML = list.map(function(g: any) {
+            summaryEl.innerHTML = list.map(function(g: Grant) {
                 var childSeats = window.childDistributedSeats(window.currentGroupId, g.service_id);
                 var unlimited = (g.seat_limit == null);
                 var totalStr = unlimited ? (i18n.grantUnlimited || '無制限') : g.seat_limit;
-                var availNum = unlimited ? null : Math.max(0, g.seat_limit - childSeats);
+                var limitNum = g.seat_limit || 0;
+                var availNum = unlimited ? null : Math.max(0, limitNum - childSeats);
                 var availStr = unlimited ? (i18n.grantUnlimited || '無制限') : availNum;
-                var over = (!unlimited && childSeats > g.seat_limit);
+                var over = (!unlimited && childSeats > limitNum);
                 return '<div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; flex:1; min-width:260px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">'
                     + '<div style="font-size:0.9rem; font-weight:700; color:#0f172a; margin-bottom:0.65rem;">' + window.escapeHtml(g.service_name) + '</div>'
                     + '<div style="display:flex; gap:0.75rem;">'
@@ -36,7 +39,7 @@ window.renderGrants = function() {
         if (list.length === 0) {
             el.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94a3b8; padding:2rem;">' + (i18n.noGrants || '利用枠がありません') + '</td></tr>';
         } else {
-            el.innerHTML = list.map(function(g: any) {
+            el.innerHTML = list.map(function(g: Grant) {
                 var childSeats = window.childDistributedSeats(window.currentGroupId, g.service_id);
                 var seat;
                 if (g.seat_limit == null) {
@@ -44,7 +47,7 @@ window.renderGrants = function() {
                 } else {
                     seat = g.seat_limit + ' <span style="color:#94a3b8; font-size:0.78rem;">(' + (i18n.grantDistributed || '子へ配分') + ' ' + childSeats + ' / ' + (i18n.grantAvailable || '利用可能') + ' ' + Math.max(0, g.seat_limit - childSeats) + ')</span>';
                 }
-                var isRootGrant = (window.availableContracts || []).some(function(c: any) { return c.id === g.contract_id && c.customer_group_id === window.currentGroupId; });
+                var isRootGrant = (window.availableContracts || []).some(function(c: ServiceContract) { return c.id === g.contract_id && c.customer_group_id === window.currentGroupId; });
                 var deleteBtn = isRootGrant ? '<button type="button" data-action="remove-grant" data-id="' + g.id + '" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:7px;border-radius:50%;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.2s;"><span class="material-symbols-outlined" style="font-size:18px;">delete</span></button>' : '';
                 return '<tr>'
                     + '<td><strong>' + window.escapeHtml(g.service_name) + '</strong></td>'
@@ -231,11 +234,11 @@ window.addGrant = function() {
         })
     })
     .then(function(r) { 
-        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e) { throw new Error(e.error || ('Error ' + r.status)); }); 
+        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e: Record<string, string>) { throw new Error(e.error || ('Error ' + r.status)); }); 
         return r.json(); 
     })
     .then(function() { window.location.reload(); })
-    .catch(function(e) {
+    .catch(function(e: Error) {
         if (e.message === 'over_budget') showGrantError(i18n.errOverBudget || '親の残り枠を超えています');
         else if (e.message === 'seat_required') showGrantError(i18n.errSeatRequired || '上限枠数を入力してください');
         else showGrantError('Error: ' + e.message);
@@ -246,12 +249,12 @@ var removeGrantTargetId: number | null = null;
 
 window.removeGrant = function(gid: number) {
     removeGrantTargetId = gid;
-    var m = document.getElementById('remove-grant-modal') as any;
+    var m = document.getElementById('remove-grant-modal') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') m.showModal();
 };
 
 window.closeRemoveGrantModal = function() {
-    var m = document.getElementById('remove-grant-modal') as any;
+    var m = document.getElementById('remove-grant-modal') as CustomModalElement | null;
     if (m && typeof m.close === 'function') m.close();
     removeGrantTargetId = null;
 };
@@ -265,14 +268,14 @@ window.executeRemoveGrant = function() {
         body: JSON.stringify({ id: removeGrantTargetId, context_group_id: window.currentGroupId }) 
     })
     .then(function(r) { 
-        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e) { throw new Error(e.error || ('Error ' + r.status)); }); 
+        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e: Record<string, string>) { throw new Error(e.error || ('Error ' + r.status)); }); 
         return r.json(); 
     })
     .then(function() {
         if (window.grantsDetailByGroup) {
             Object.keys(window.grantsDetailByGroup).forEach(function(gid: string) {
                 if (window.grantsDetailByGroup) {
-                    window.grantsDetailByGroup[gid] = (window.grantsDetailByGroup[gid] || []).filter(function(g: any) { 
+                    window.grantsDetailByGroup[gid] = (window.grantsDetailByGroup[gid] || []).filter(function(g: Grant) { 
                         return g.id !== removeGrantTargetId; 
                     });
                 }
@@ -282,7 +285,7 @@ window.executeRemoveGrant = function() {
         window.renderGrants();
         if (window.renderAssignments) window.renderAssignments();
     })
-    .catch(function(e) {
+    .catch(function(e: Error) {
         console.error('Error: ' + e.message);
     });
 };

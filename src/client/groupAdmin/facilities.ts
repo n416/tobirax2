@@ -1,21 +1,22 @@
 import './types';
+import type { Facility } from './types';
 
 let tsControlMoveFacility: any = null;
 
 window.loadAllFacilitiesForMove = function(groupIdToExclude?: string) {
     fetch('/group-admin/api/facilities/all')
         .then(function(r) { return r.json(); })
-        .then(function(facs: any[]) {
+        .then(function(facs: Facility[]) {
             var selEl = document.getElementById('f-move-id');
             if (!selEl) return;
-            var filtered = facs.filter(function(f: any) { return f.managing_group_id !== groupIdToExclude; });
+            var filtered = facs.filter(function(f: Facility) { return f.managing_group_id !== groupIdToExclude; });
             
             if (!tsControlMoveFacility && typeof window.TomSelect !== 'undefined') {
                 tsControlMoveFacility = new window.TomSelect('#f-move-id', {
                     valueField: 'id',
                     labelField: 'label',
                     searchField: ['label'],
-                    options: filtered.map(function(f: any) {
+                    options: filtered.map(function(f: Facility) {
                         var gName = f.group_name || 'Unknown Group';
                         var lbl = (f.structure_no || f.id) + (f.building_use ? ' (' + f.building_use + ')' : '') + ' - [' + gName + ']';
                         return { id: f.id, label: lbl };
@@ -25,7 +26,7 @@ window.loadAllFacilitiesForMove = function(groupIdToExclude?: string) {
                 });
             } else if (tsControlMoveFacility) {
                 tsControlMoveFacility.clearOptions();
-                tsControlMoveFacility.addOptions(filtered.map(function(f: any) {
+                tsControlMoveFacility.addOptions(filtered.map(function(f: Facility) {
                     var gName = window.escapeHtml(f.group_name || 'Unknown Group');
                     var lbl = window.escapeHtml(f.structure_no || f.id) + (f.building_use ? ' (' + window.escapeHtml(f.building_use) + ')' : '') + ' - [' + gName + ']';
                     return { id: f.id, label: lbl };
@@ -33,7 +34,7 @@ window.loadAllFacilitiesForMove = function(groupIdToExclude?: string) {
                 tsControlMoveFacility.refreshOptions(false);
             }
         })
-        .catch(function(e) { console.error('Failed to load facilities for move', e); });
+        .catch(function(e: unknown) { console.error('Failed to load facilities for move', e); });
 };
 
 window.renderFacilities = function() {
@@ -46,14 +47,14 @@ window.renderFacilities = function() {
     var el = document.getElementById('facilities-table-body');
     if (!el) return;
     
-    var list = (window.facilities || []).filter(function(f: any) { return f.managing_group_id === window.currentGroupId; });
+    var list = (window.facilities || []).filter(function(f: Facility) { return f.managing_group_id === window.currentGroupId; });
     
     if (list.length === 0) {
         el.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#94a3b8; padding:2rem;">登録されている施設はありません</td></tr>';
         return;
     }
     
-    el.innerHTML = list.map(function(f: any) {
+    el.innerHTML = list.map(function(f: Facility) {
         var fNo = window.escapeHtml(f.structure_no || f.id);
         var fUse = window.escapeHtml(f.building_use || '—');
         return '<tr>'
@@ -80,11 +81,11 @@ window.addFacility = function() {
         if (!r.ok) throw new Error('Error ' + r.status); 
         return r.json(); 
     })
-    .then(function(data) {
+    .then(function(data: Record<string, string>) {
         if (data.error) throw new Error(data.error);
         window.location.reload();
     })
-    .catch(function(e) { console.error('Error:', e.message); });
+    .catch(function(e: Error) { console.error('Error:', e.message); });
 };
 
 window.moveFacility = function() {
@@ -101,11 +102,11 @@ window.moveFacility = function() {
         if (!r.ok) throw new Error('Error ' + r.status); 
         return r.json(); 
     })
-    .then(function(data) {
+    .then(function(data: Record<string, string>) {
         if (data.error) throw new Error(data.error);
         window.location.reload();
     })
-    .catch(function(e) { console.error('Error:', e.message); });
+    .catch(function(e: Error) { console.error('Error:', e.message); });
 };
 
 window.removeFacility = function(fid: string) {
@@ -117,14 +118,14 @@ window.removeFacility = function(fid: string) {
                 body: JSON.stringify({ id: fid })
             })
             .then(function(r) { return r.json(); })
-            .then(function(data) {
+            .then(function(data: Record<string, string>) {
                 if (data.error) {
                     if (window.showAlert) window.showAlert('エラー: ' + data.error);
                 } else {
                     window.location.reload();
                 }
             })
-            .catch(function(e) { console.error('Error:', e.message); });
+            .catch(function(e: Error) { console.error('Error:', e.message); });
         });
     }
 };
