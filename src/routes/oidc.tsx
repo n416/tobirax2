@@ -15,6 +15,9 @@ import {
   getEntitlements,
   getSessionRow,
 } from '../index';
+import { getLang } from '../i18n';
+import { scopesCovered } from '../oidc/consent';
+import { Consent } from '../views/Consent';
 import {
   isSafeReturnTo,
   buildRedirect,
@@ -29,6 +32,23 @@ import {
 } from '../oidc/helpers';
 
 export const oidcRouter = new Hono<{ Bindings: Env }>();
+
+// 認可コードを発行して RP へリダイレクトする。/authorize(同意スキップ時)と
+// /authorize/decision(同意承認時)の両方から呼ぶ。auth_time はセッション由来を渡す。
+async function issueAuthorizationCode(c: AppContext, opts: {
+    userId: string; appId: string; redirectUri: string; responseMode?: string;
+    scope: string; nonce?: string | null; state?: string;
+    codeChallenge?: string | null; codeChallengeMethod?: string | null; authTime: number | null;
+}): Promise<Response> {
+    const code = generateToken()
+    const hashedCode = await hashToken(code)
+    const expires = Math.floor(Date.now() / 1000) + 300
+    await c.env.DB.prepare(
+        'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(hashedCode, opts.userId, opts.appId, expires, opts.nonce || null, opts.codeChallenge || null, opts.codeChallengeMethod || null, opts.redirectUri, opts.scope, opts.authTime).run()
+    await writeAuditLog(c, 'OIDC_AUTHORIZE_SUCCESS', { redirect_uri: opts.redirectUri, scope: opts.scope }, opts.userId, opts.appId)
+    return c.redirect(buildRedirect(opts.redirectUri, opts.responseMode, { code, state: opts.state }))
+}
 
 oidcRouter.get('/.well-known/openid-configuration', (c) => {
     const issuer = new URL(c.req.url).origin
@@ -148,17 +168,116 @@ oidcRouter.get('/authorize', async (c) => {
         return c.redirect(buildRedirect(redirectUri, responseMode, { error: 'access_denied', error_description: check.reason || 'access denied', state }))
     }
 
-    const code = generateToken()
-    const hashedCode = await hashToken(code)
-    const expires = Math.floor(Date.now() / 1000) + 300
+    // OIDC ユーザー同意(consent)。記憶方式: (user, client) について保存済みスコープが
+    // 今回の要求を網羅していればスキップ。prompt=consent は常に再同意を要求する。
+    const promptConsent = promptValues.includes('consent')
+    const existingConsent = await c.env.DB.prepare('SELECT scope FROM consents WHERE user_id = ? AND app_id = ?')
+        .bind(user.id, app.id).first<{ scope: string }>()
+    const hasConsent = !!existingConsent && scopesCovered(existingConsent.scope, scope)
+    if (promptConsent || !hasConsent) {
+        // prompt=none は一切の UI を禁止する → consent_required を返す(OIDC Core 3.1.2.1)。
+        if (promptNone) {
+            await writeAuditLog(c, 'OIDC_AUTHORIZE_ERROR', { error: 'consent_required' }, user.id, app.id)
+            return c.redirect(buildRedirect(redirectUri, responseMode, {
+                error: 'consent_required',
+                error_description: 'user consent is required but prompt=none',
+                state,
+            }))
+        }
+        const t = getLang(c)
+        const scopes = (scope || 'openid').split(/\s+/).filter(Boolean)
+        // 同意決定 POST(/authorize/decision)へ元パラメータを引き継ぐ。redirect_uri 等は
+        // decision 側で必ず再検証する(隠しフィールドは信用しない)。
+        return c.html(<Consent
+            t={t}
+            appName={app.name}
+            userEmail={user.email}
+            scopes={scopes}
+            params={{
+                client_id: app.id,
+                redirect_uri: redirectUri,
+                scope,
+                state: state || '',
+                nonce: nonce || '',
+                code_challenge: q.code_challenge || '',
+                code_challenge_method: q.code_challenge_method || '',
+                response_mode: responseMode || '',
+                response_type: responseType || '',
+            }}
+            nonce={c.get('secureHeadersNonce')}
+        />)
+    }
+
     // セッションの実際の auth_time を code に持ち込み、id_token がユーザーの実認証時刻を
     // 反映するようにする(OIDC auth_time)。
-    await c.env.DB.prepare(
-        'INSERT INTO auth_codes (code, user_id, app_id, expires_at, nonce, code_challenge, code_challenge_method, redirect_uri, scope, auth_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(hashedCode, user.id, app.id, expires, nonce || null, q.code_challenge || null, q.code_challenge_method || null, redirectUri, scope, session?.auth_time ?? null).run()
+    return issueAuthorizationCode(c, {
+        userId: user.id, appId: app.id, redirectUri, responseMode, scope,
+        nonce, state, codeChallenge: q.code_challenge, codeChallengeMethod: q.code_challenge_method,
+        authTime: session?.auth_time ?? null,
+    })
+})
 
-    await writeAuditLog(c, 'OIDC_AUTHORIZE_SUCCESS', { redirect_uri: redirectUri, scope }, user.id, app.id);
-    return c.redirect(buildRedirect(redirectUri, responseMode, { code, state }))
+// OIDC ユーザー同意(consent)の決定。同意画面のフォームがここへ POST する。
+// CSRF は global csrf() で保護(本パスは exempt ではない=同一オリジンのフォームのみ通る)。
+// 隠しフィールドは信用せず、client / redirect_uri / PKCE / 権限を必ず再検証してから発行する。
+oidcRouter.post('/authorize/decision', async (c) => {
+    const body = await c.req.parseBody()
+    const f = (k: string) => (typeof body[k] === 'string' ? body[k] as string : '')
+    const decision = f('decision')
+    const clientId = f('client_id')
+    const redirectUri = f('redirect_uri')
+    const scope = f('scope') || 'openid'
+    const state = f('state')
+    const nonce = f('nonce')
+    const codeChallenge = f('code_challenge')
+    const codeChallengeMethod = f('code_challenge_method')
+    const responseMode = f('response_mode')
+
+    // セッション必須(同意操作中に失効していたらログインへ)。
+    const session = await getSessionRow(c)
+    const user = session
+        ? await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(session.user_id).first() as User | null
+        : null
+    if (!user) return c.redirect('/login')
+
+    // クライアントと redirect_uri を再検証する(オープンリダイレクト/改ざん防止)。
+    const app = await c.env.DB.prepare('SELECT * FROM apps WHERE id = ?').bind(clientId).first() as App | null
+    if (!app || !isAllowedRedirectUri(redirectUri, app)) {
+        return c.text('invalid_request: invalid client or redirect_uri', 400)
+    }
+    // PKCE は S256 のみ(GET と同じ多層防御)。
+    if (codeChallenge && codeChallengeMethod !== 'S256') {
+        return c.redirect(buildRedirect(redirectUri, responseMode, {
+            error: 'invalid_request', error_description: 'code_challenge_method must be S256', state,
+        }))
+    }
+    // アプリ別権限ゲートを再適用する。
+    const check = await checkPermission(c, user.id, app.id)
+    if (!check.allowed) {
+        return c.redirect(buildRedirect(redirectUri, responseMode, {
+            error: 'access_denied', error_description: check.reason || 'access denied', state,
+        }))
+    }
+
+    if (decision !== 'approve') {
+        await writeAuditLog(c, 'OIDC_CONSENT_DENIED', { redirect_uri: redirectUri, scope }, user.id, app.id)
+        return c.redirect(buildRedirect(redirectUri, responseMode, {
+            error: 'access_denied', error_description: 'user denied consent', state,
+        }))
+    }
+
+    // 同意を記録する(記憶方式: 次回以降は同じ範囲ならスキップ)。
+    const now = Math.floor(Date.now() / 1000)
+    await c.env.DB.prepare(
+        'INSERT INTO consents (user_id, app_id, scope, granted_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, app_id) DO UPDATE SET scope = excluded.scope, granted_at = excluded.granted_at'
+    ).bind(user.id, app.id, scope, now).run()
+    await writeAuditLog(c, 'OIDC_CONSENT_GRANTED', { redirect_uri: redirectUri, scope }, user.id, app.id)
+
+    return issueAuthorizationCode(c, {
+        userId: user.id, appId: app.id, redirectUri, responseMode, scope,
+        nonce, state, codeChallenge, codeChallengeMethod,
+        authTime: session?.auth_time ?? null,
+    })
 })
 
 oidcRouter.post('/oauth/token', async (c) => {

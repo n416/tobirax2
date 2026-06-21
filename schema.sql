@@ -152,6 +152,17 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     auth_time INTEGER
 );
 
+-- OIDC ユーザー同意(consent)。ユーザーがクライアント(RP)へのクレーム提供に同意した記録。
+-- 一度同意すれば次回以降は同じ scope 範囲なら同意画面をスキップする(prompt=consent で再要求)。
+-- scope は付与に同意した空白区切りスコープ。granted_at は最終同意時刻(秒)。
+CREATE TABLE IF NOT EXISTS consents (
+    user_id TEXT NOT NULL,
+    app_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    granted_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, app_id)
+);
+
 -- OIDC 動的クライアント登録(RFC 7591): 管理者が発行する Initial Access Token。
 -- 呼び出し元は POST /register 時に Bearer トークンとしてこれを提示しなければならない。
 CREATE TABLE IF NOT EXISTS registration_tokens (
