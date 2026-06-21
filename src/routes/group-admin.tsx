@@ -844,8 +844,17 @@ groupAdminRouter.post('/group-admin/api/app/request', async (c) => {
     const baseUrl = ((body['base_url'] as string) || '').trim()
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const description = ((body['description'] as string) || '').trim() || null
-    // TODO(initiate_login_uri): グループ管理者のアプリ申請画面(UI)に initiate_login_uri を追加した場合、
-    // ここで req.json から受け取り、apps テーブルへ INSERT するよう修正すること。
+    const initiateLoginUri = ((body['initiate_login_uri'] as string) || '').trim() || null
+    
+    if (initiateLoginUri) {
+        try {
+            const parsed = new URL(initiateLoginUri);
+            if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error();
+        } catch {
+            return c.json({ error: 'invalid_initiate_login_uri' }, 400);
+        }
+    }
+
     if (!groupId || !id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
     const managed = await getManagedGroupIds(c, user.id)
     if (!managed.has(groupId)) return c.json({ error: 'Forbidden' }, 403)
@@ -855,9 +864,9 @@ groupAdminRouter.post('/group-admin/api/app/request', async (c) => {
     const plainSecret = generateToken() + generateToken().replace(/-/g, '')
     const hashedSecret = await hashPassword(plainSecret)
     await c.env.DB.prepare(`
-        INSERT INTO apps (id, name, base_url, status, created_at, description, client_secret, redirect_uris, owner_group_id)
-        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-    `).bind(id, name, baseUrl, Math.floor(Date.now() / 1000), description, hashedSecret, redirectUris, groupId).run()
+        INSERT INTO apps (id, name, base_url, status, created_at, description, client_secret, redirect_uris, owner_group_id, initiate_login_uri)
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+    `).bind(id, name, baseUrl, Math.floor(Date.now() / 1000), description, hashedSecret, redirectUris, groupId, initiateLoginUri).run()
     await logAudit(c, 'DELEGATED_APP_REQUEST', { key: 'log_app_created', params: { appName: name, id, admin: user.email } })
     return c.json({ success: true })
 })
@@ -872,8 +881,17 @@ groupAdminRouter.post('/group-admin/api/app/update', async (c) => {
     const baseUrl = ((body['base_url'] as string) || '').trim()
     const redirectUris = ((body['redirect_uris'] as string) || '').trim() || null
     const description = ((body['description'] as string) || '').trim() || null
-    // TODO(initiate_login_uri): グループ管理者のアプリ更新画面(UI)に initiate_login_uri を追加した場合、
-    // ここで req.json から受け取り、apps テーブルを UPDATE するよう修正すること。
+    const initiateLoginUri = ((body['initiate_login_uri'] as string) || '').trim() || null
+
+    if (initiateLoginUri) {
+        try {
+            const parsed = new URL(initiateLoginUri);
+            if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error();
+        } catch {
+            return c.json({ error: 'invalid_initiate_login_uri' }, 400);
+        }
+    }
+
     if (!id || !name || !baseUrl) return c.json({ error: 'missing fields' }, 400)
     const row = await c.env.DB.prepare('SELECT owner_group_id, status FROM apps WHERE id = ?').bind(id).first() as { owner_group_id: string | null, status: string } | null
     if (!row) return c.json({ error: 'Not found' }, 404)
@@ -881,8 +899,8 @@ groupAdminRouter.post('/group-admin/api/app/update', async (c) => {
     if (!row.owner_group_id || !managed.has(row.owner_group_id)) return c.json({ error: 'Forbidden' }, 403)
     if (row.status === 'active') return c.json({ error: 'Cannot edit an active app' }, 403)
     const newStatus = row.status === 'rejected' ? 'pending' : row.status
-    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, redirect_uris = ?, description = ?, status = ? WHERE id = ?')
-        .bind(name, baseUrl, redirectUris, description, newStatus, id).run()
+    await c.env.DB.prepare('UPDATE apps SET name = ?, base_url = ?, redirect_uris = ?, description = ?, status = ?, initiate_login_uri = ? WHERE id = ?')
+        .bind(name, baseUrl, redirectUris, description, newStatus, initiateLoginUri, id).run()
     await logAudit(c, 'DELEGATED_APP_UPDATE', { key: 'log_app_updated', params: { appName: name, status: newStatus, admin: user.email } })
     return c.json({ success: true })
 })

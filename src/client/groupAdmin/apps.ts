@@ -42,7 +42,7 @@ window.renderApps = function() {
 
 window.openAppModal = function() {
     if (!window.currentGroupId) return;
-    ['ap-id','ap-name','ap-base-url','ap-redirect','ap-desc'].forEach(function(id: string) { 
+    ['ap-id','ap-name','ap-base-url','ap-redirect','ap-desc','ap-initiate-login-uri'].forEach(function(id: string) { 
         var e = document.getElementById(id) as HTMLInputElement | null; 
         if (e) e.value = ''; 
     });
@@ -56,6 +56,7 @@ window.addApp = function() {
     var baseUrl = (document.getElementById('ap-base-url') as HTMLInputElement | null)?.value;
     var redirect = (document.getElementById('ap-redirect') as HTMLInputElement | null)?.value;
     var desc = (document.getElementById('ap-desc') as HTMLInputElement | null)?.value;
+    var initUri = (document.getElementById('ap-initiate-login-uri') as HTMLInputElement | null)?.value;
     
     if (!id || !id.trim() || !name || !name.trim() || !baseUrl || !baseUrl.trim()) { 
         console.error((window.i18n || {}).appFillRequired || 'ID/名前/URLは必須です'); 
@@ -71,7 +72,8 @@ window.addApp = function() {
             name: name.trim(), 
             base_url: baseUrl.trim(), 
             redirect_uris: redirect, 
-            description: desc 
+            description: desc,
+            initiate_login_uri: initUri
         })
     })
     .then(function(r) { 
@@ -96,10 +98,12 @@ window.openAppEditModal = function(enc: string) {
     if (baseUrlEl) baseUrlEl.value = a.base_url;
     var redirectEl = document.getElementById('ape-redirect') as HTMLInputElement | null;
     if (redirectEl) redirectEl.value = a.redirect_uris || '';
+    var initUriEl = document.getElementById('ape-initiate-login-uri') as HTMLInputElement | null;
+    if (initUriEl) initUriEl.value = a.initiate_login_uri || '';
     
     var isReadOnly = a.status === 'active';
     
-    ['ape-name', 'ape-base-url', 'ape-redirect'].forEach(function(id: string) {
+    ['ape-name', 'ape-base-url', 'ape-redirect', 'ape-initiate-login-uri'].forEach(function(id: string) {
         var el = document.getElementById(id) as HTMLInputElement | null;
         if (el) el.disabled = isReadOnly;
     });
@@ -129,6 +133,7 @@ window.updateApp = function() {
     var name = (document.getElementById('ape-name') as HTMLInputElement | null)?.value;
     var baseUrl = (document.getElementById('ape-base-url') as HTMLInputElement | null)?.value;
     var redirect = (document.getElementById('ape-redirect') as HTMLInputElement | null)?.value;
+    var initUri = (document.getElementById('ape-initiate-login-uri') as HTMLInputElement | null)?.value;
     
     if (!name || !name.trim() || !baseUrl || !baseUrl.trim()) { 
         console.error((window.i18n || {}).appFillRequired || '名前/URLは必須です'); 
@@ -138,7 +143,7 @@ window.updateApp = function() {
     fetch('/group-admin/api/app/update', {
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id, name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect })
+        body: JSON.stringify({ id: id, name: name.trim(), base_url: baseUrl.trim(), redirect_uris: redirect, initiate_login_uri: initUri })
     })
     .then(function(r) { 
         if (!r.ok) throw new Error('Error ' + r.status); 

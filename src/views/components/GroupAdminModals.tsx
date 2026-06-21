@@ -63,6 +63,11 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any, nonce?: s
               <label class="${formLabel}">${t.ga_app_redirect}</label>
               <textarea id="ap-redirect" class="${dateInput}" style="min-height:64px; font-family:monospace; font-size:0.85rem;" placeholder="https://.../callback"></textarea>
             </div>
+            <div>
+              <label class="${formLabel}">${t.label_initiate_login_uri}</label>
+              <input type="url" id="ap-initiate-login-uri" class="${dateInput}" placeholder="https://..." />
+              <div style="font-size:0.78rem; color:#94a3b8; margin-top:0.35rem;">${t.help_initiate_login_uri}</div>
+            </div>
 
             <div class="${infoBox}"><span class="material-symbols-outlined">key</span>${t.ga_app_secret_note}</div>
             <div style="margin-top:0.25rem;">
@@ -92,6 +97,11 @@ export const GroupAdminModals = (props: any, t: any, userOptions: any, nonce?: s
             <div>
               <label class="${formLabel}">${t.ga_app_redirect}</label>
               <textarea id="ape-redirect" class="${dateInput}" style="min-height:64px; font-family:monospace; font-size:0.85rem;" placeholder="(空欄なら変更なし)"></textarea>
+            </div>
+            <div>
+              <label class="${formLabel}">${t.label_initiate_login_uri}</label>
+              <input type="url" id="ape-initiate-login-uri" class="${dateInput}" />
+              <div style="font-size:0.78rem; color:#94a3b8; margin-top:0.35rem;">${t.help_initiate_login_uri}</div>
             </div>
 
             <div style="width:100%; padding:0.9rem 1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
