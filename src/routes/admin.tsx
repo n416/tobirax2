@@ -134,7 +134,7 @@ adminRouter.post('/admin/tags/create', async (c) => {
     try {
         await c.env.DB.prepare("INSERT INTO tags (id, name, status, owner_group_id, created_at) VALUES (?, ?, 'active', NULL, ?)")
             .bind(id, name, now).run()
-    } catch (e: any) {}
+    } catch (e: unknown) {}
     return c.redirect('/admin/tags')
 })
 
@@ -191,7 +191,7 @@ adminRouter.post('/admin/tags/service/add', async (c) => {
     try {
         await c.env.DB.prepare("INSERT INTO service_tags (service_id, tag_id, status, requesting_group_id, created_at) VALUES (?, ?, 'active', NULL, ?)")
             .bind(serviceId, tagId, now).run()
-    } catch (e: any) {}
+    } catch (e: unknown) {}
     const ref = c.req.header('referer') || '/admin/services'
     return c.redirect(ref)
 })
@@ -377,10 +377,11 @@ adminRouter.get('/admin/groups', async (c) => {
         if (!groups.success) throw new Error('Groups DB Error: ' + groups.error)
         if (!apps.success) throw new Error('Apps DB Error: ' + apps.error)
         return c.html(<GroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} apps={apps.results} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
-        return c.text(isDev ? ('Error: ' + e.message + '\n' + e.stack) : 'Internal Server Error', 500)
+        const err = e instanceof Error ? e : new Error(String(e))
+        return c.text(isDev ? ('Error: ' + err.message + '\n' + err.stack) : 'Internal Server Error', 500)
     }
 })
 adminRouter.post('/admin/groups', async (c) => {
@@ -430,7 +431,10 @@ adminRouter.post('/admin/invite', async (c) => {
     // 既存の平文トークンは無効化され、新規分からハッシュ保存になります（仕様変更）
     const expiresAt = Math.floor(Date.now() / 1000) + (86400 * 7) // 7 days
     try { await c.env.DB.prepare('INSERT INTO invitations (id, email, invited_by, expires_at) VALUES (?, ?, ?, ?)').bind(hashedToken, email, user.id, expiresAt).run() }
-    catch (e: any) { return c.redirect(`/admin/users?error=${encodeURIComponent('Error: ' + e.message)}`) }
+    catch (e: unknown) {
+        const err = e instanceof Error ? e : new Error(String(e))
+        return c.redirect(`/admin/users?error=${encodeURIComponent('Error: ' + err.message)}`)
+    }
     const url = new URL(c.req.url)
     return c.redirect(`/admin/users?invite_url=${encodeURIComponent(url.protocol + '//' + url.host + '/invite?token=' + token)}`)
 })
@@ -544,10 +548,11 @@ adminRouter.post('/admin/api/user/group', async (c) => {
         const details = JSON.stringify({ key: 'log_user_group_update', params: { user: userId, group: gName, admin: user.email } });
         await logAudit(c, '', JSON.parse(details))
         return c.json({ success: true })
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
-        return c.json(isDev ? { error: e.message, stack: e.stack } : { error: 'Internal Server Error' }, 500)
+        const err = e instanceof Error ? e : new Error(String(e))
+        return c.json(isDev ? { error: err.message, stack: err.stack } : { error: 'Internal Server Error' }, 500)
     }
 })
 adminRouter.post('/admin/api/user/permission/revoke', async (c) => {
@@ -655,10 +660,11 @@ adminRouter.get('/admin/am/groups', async (c) => {
         if (!groups.success) throw new Error('Groups DB Error: ' + groups.error)
         if (!users.success) throw new Error('Users DB Error: ' + users.error)
         return c.html(<AccountGroupsPage t={getLang(c)} userEmail={user.email} groups={groups.results} users={users.results} facilities={facilities.results} contracts={contracts.results} siteName={siteName} appConfig={config} nonce={c.get('secureHeadersNonce')} />)
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
-        return c.text(isDev ? ('Error: ' + e.message + '\n' + e.stack) : 'Internal Server Error', 500)
+        const err = e instanceof Error ? e : new Error(String(e))
+        return c.text(isDev ? ('Error: ' + err.message + '\n' + err.stack) : 'Internal Server Error', 500)
     }
 })
 adminRouter.post('/admin/am/groups', async (c) => {
@@ -910,9 +916,10 @@ adminRouter.post('/admin/api/service/app/add', async (c) => {
         const details = JSON.stringify({ key: 'log_service_app_add', params: { service: serviceId, app: appId, admin: user.email } });
         await logAudit(c, '', JSON.parse(details))
         return c.json({ success: true })
-    } catch (e: any) {
-        if (e.message.includes('UNIQUE')) return c.json({ success: true }) // 既に紐づいている
-        return c.json({ error: e.message }, 500)
+    } catch (e: unknown) {
+        const err = e instanceof Error ? e : new Error(String(e))
+        if (err.message.includes('UNIQUE')) return c.json({ success: true }) // 既に紐づいている
+        return c.json({ error: err.message }, 500)
     }
 })
 
@@ -1393,8 +1400,9 @@ adminRouter.post('/admin/config', async (c) => {
         const details = JSON.stringify({ key: 'log_config_update', params: { admin: user.email } });
         await logAudit(c, '', JSON.parse(details))
         return c.redirect('/admin')
-    } catch (e: any) {
-        return c.text('Error updating config: ' + e.message, 500)
+    } catch (e: unknown) {
+        const err = e instanceof Error ? e : new Error(String(e))
+        return c.text('Error updating config: ' + err.message, 500)
     }
 })
 

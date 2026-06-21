@@ -610,10 +610,11 @@ app.get('/', async (c) => {
         const availableServiceTags = Array.from(allTagsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
 
         return c.html(<UserDashboard t={t} userEmail={user.email} apps={standaloneApps} services={entitledServices} availableServiceTags={availableServiceTags} siteName={siteName} profileName={user.name} profilePicture={user.picture} isGroupAdmin={isGroupAdmin} nonce={c.get('secureHeadersNonce')} />)
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error(e)
         const isDev = c.env.ENVIRONMENT === 'dev' || c.env.ENVIRONMENT === 'development'
-        return c.json(isDev ? { error: e.message, stack: e.stack } : { error: 'Internal Server Error' }, 500)
+        const err = e instanceof Error ? e : new Error(String(e))
+        return c.json(isDev ? { error: err.message, stack: err.stack } : { error: 'Internal Server Error' }, 500)
     }
 })
 

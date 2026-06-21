@@ -181,6 +181,10 @@ OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB
 `routes/oidc.tsx` の `entitlements` を `Awaited<ReturnType<typeof getEntitlements>>` に、`utils/json.ts` の `safeJsonStringify` 引数を `unknown` に、`oidc/keys.ts` の `JSON.parse` 戻り値を `unknown` とし、型チェックを行って安全なアクセスに。`index.tsx` の `handleIconUpload` 引数を `Record<string, unknown>` に修正。
 挙動不変・`tsc` クリーン・ユニット 107＋統合 41 全緑。
 
+第六弾（2026-06-21）: **Phase 4: `catch (e: any)` の `unknown` 化**を実施。
+Server側の `routes/admin.tsx`, `routes/group-admin.tsx`, `index.tsx` の全8箇所に存在する `catch (e: any)` を `catch (e: unknown)` に置換し、`const err = e instanceof Error ? e : new Error(String(e))` の形式で型安全にメッセージ等にアクセスするよう修正。
+挙動不変・`tsc` クリーン・ユニット 107＋統合 41 全緑。
+
 ### G の残り（低優先・任意）
 
 サーバ側の型負債は実質解消済み。残るのは次のみで、いずれも価値が低いか正当:
