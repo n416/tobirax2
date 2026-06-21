@@ -48,10 +48,16 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
   事前に懸念した波及（実型化で `as any`/`: any` 群が連鎖して `tsc` が噴く）は**ゼロ**だった —
   `c` 経由の利用は全て Context で正当、body 等はヘルパ戻り型で既に具体化済みだったため。
   挙動不変・`tsc` クリーン・ユニット 100＋統合 27 全緑で確認。client/ のフロント `c`（≈5）は
-  Hono ではないため対象外。`as any`(116) / その他 `: any`(111) の広い型負債は F の範囲外（別タスク）。
+  Hono ではないため対象外。`as any`(116) / その他 `: any`(111) の広い型負債は F の範囲外（別タスク=G）。
+- 🟨 **G サーバ側ほぼ完了 / client は任意**（2026-06-20〜21）— 型負債（`as any`/`: any`）を
+  テスト網が守る範囲から段階的に解消。第一〜三弾で `as any` を **116→15** まで削減。詳細は下記「G」節。
+  残る `as any`(15) はすべて `src/client/groupAdmin/*`（ブラウザ glue・網外）。サーバ側に残る
+  `: any` は `catch (e: any)`(≈10) と `handleIconUpload(body: any)` のみ＝低価値 or 正当。
 
 現在テストはユニット 100 件＋統合 27 件・全緑、`tsc --noEmit` も clean。
-リファクタ A〜F すべて完了。テスト容易化の一連はここで一区切りとする。
+リファクタ A〜F 完了、G はサーバ側ほぼ完了（client は任意の別スライス）。テスト容易化と
+サーバ型安全の主目的は達成。**ここを区切りとする**（残りは client/ の型負債で、回帰網が
+触れない＝安全に進めるにはブラウザレベルの検証が要る低優先タスク）。
 
 ### D 第一弾の構成（再現メモ）
 
@@ -142,7 +148,7 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
 （`Context<{ Bindings: Env }>`、`src/types.ts`）へ全置換し型安全を回復（サーバ側 29 箇所、波及ゼロ・
 挙動不変）。client/ のフロント `c` と `as any`/その他 `: any` の広い型負債は範囲外（別タスク）。
 
-## G. 追加 — 型負債（`as any` / `: any`）の段階的解消（🟨 着手）
+## G. 追加 — 型負債（`as any` / `: any`）の段階的解消（🟨 サーバ側ほぼ完了 / client 任意）
 
 F に続き、広い型負債を**テスト網が守る範囲から**段階的に解消する。第一弾（2026-06-20）:
 OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB 関数
@@ -158,8 +164,23 @@ OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB
 `new Map(...)` のタプル化は明示返り型で対応。`as any` は **88→79**。挙動不変・`tsc` クリーン・
 ユニット 100＋統合 27 全緑。
 
-残り（網が薄く要慎重・別スライス）: **JSX プロップキャスト**（`results as any` 等、ビュー側の prop 型
-整備が必要）、`catch (e: any)`、`group-admin.tsx` のポータル画面用**集約パイプライン**（中間
-アキュムレータが最終的に `as any` の JSX プロップへ流れるため、ビュー型を直すまで内部型付けは
-低価値）、`index.tsx` のダッシュボード/ポータル経路、`views/` / `client/`。`keys.ts` の
-`let v: any`（`JSON.parse` 出力）等、正当な any は残す。
+第三弾（2026-06-21）: **JSX プロップキャスト＋ビュー型整備**を実施（別 AI と協働で一気に）。
+`views/*` の各 Props 型を整備し、`routes/admin.tsx`・`routes/group-admin.tsx`・`index.tsx` の
+ダッシュボード/ポータル経路・管理者画面の `results as any` 等の JSX プロップキャストと中間
+アキュムレータを型付け。`GroupAdminPage` から prop 型（`ManagedGroup`/`GroupMember`/`Assignment`/
+`AppPermission`/`ServiceTagDetail`）を export し、ルート側がそれを使う構造に。`as any` は **79→15**。
+挙動不変・`tsc` クリーン・ユニット 100＋統合 27 全緑。さらに**回帰網が薄い領域**のため、実サーバを
+起動して group-admin ポータル＋admin 系10ページ＋UserDashboard を実データで fetch し、SSR エラー無し・
+値漏れ（`src="undefined"` 等）無しを目視確認（[[safe-refactor-untested-areas]] の方針）。
+
+### G の残り（低優先・任意）
+
+サーバ側の型負債は実質解消済み。残るのは次のみで、いずれも価値が低いか正当:
+
+- **`src/client/**`（ブラウザ glue）の `any`** — `as any` 15（全て `client/groupAdmin/*`）＋ `: any` の
+  大半。**回帰網（Node ユニット＋D1 統合）が一切触らない**領域で、最も検証が難しく価値が低い。
+  安全に進めるならブラウザレベルのテストが要る。当面は別スライス（やらない判断も妥当）。
+- **`catch (e: any)` 群**（server ≈10）— `catch (e: unknown)` 化が「正しい」が、`e.message` 利用箇所で
+  絞り込みが要る純粋な美容。エラー分岐はテスト対象外。
+- **`handleIconUpload(body: any)`**（multipart フォーム body）/ `keys.ts` の `let v: any`（`JSON.parse`
+  出力）等 — 正当な any として残す。
