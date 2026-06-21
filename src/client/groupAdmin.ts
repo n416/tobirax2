@@ -1,6 +1,7 @@
 import './groupAdmin/types';
 import './groupAdmin/init';
 import './groupAdmin/members';
+import './groupAdmin/access';
 import './groupAdmin/assignments';
 import './groupAdmin/grants';
 import './groupAdmin/facilities';
