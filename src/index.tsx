@@ -2,6 +2,7 @@ import { sign, verify } from 'hono/jwt'
 import { Hono } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { csrf } from 'hono/csrf'
+import { secureHeaders } from 'hono/secure-headers'
 import { html } from 'hono/html'
 import { Env, User, App, Session, Permission, Group, AuthCode, SystemConfig, AppContext } from './types'
 import { verifyPassword, hashPassword, generateToken, getCookieOptions, validatePassword, BCRYPT_COST, getBcryptCost, hashToken } from './utils/auth'
@@ -38,6 +39,18 @@ import { getLang, getLocalizedValue } from './i18n'
 import { isSafeReturnTo, safeEqual, tokenError, buildOidcClaims, computeAtHash } from './oidc/helpers'
 
 const app = new Hono<{ Bindings: Env }>()
+
+// セキュリティヘッダ。効果が高く破壊リスクの無いもの(X-Frame-Options/nosniff/HSTS/
+// Referrer-Policy 等)を全ルートに付与する。意図的に外しているもの:
+//   - Content-Security-Policy: 生成クライアント JS を HTML にインライン埋め込みしているため、
+//     雑な CSP は全スクリプトを壊す。nonce/hash 整備を伴う別タスク(G の後の課題)。
+//   - Cross-Origin-Resource-Policy / Cross-Origin-Opener-Policy: クロスオリジンで叩かれる
+//     OIDC メタデータ(/.well-known/jwks.json, openid-configuration)やブラウザ RP の
+//     ポップアップ系フローを阻害しうるため無効化。エンドポイント別の厳格化は将来課題。
+app.use('*', secureHeaders({
+    crossOriginResourcePolicy: false,
+    crossOriginOpenerPolicy: false,
+}))
 
 // CSRF は HTML フォーム系ルートを保護する。OIDC のマシン向けエンドポイント
 // (/oauth/token, /userinfo) や旧来の JSON API は SDK/バックエンドからクロスオリジンで
