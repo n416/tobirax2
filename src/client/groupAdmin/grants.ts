@@ -123,7 +123,7 @@ function renderChildGrants(kids: {id: string, name: string}[]) {
 
 window.openGrantModal = function() {
     if (!window.currentGroupId) return;
-    var m = document.getElementById('add-grant-modal') as any;
+    var m = document.getElementById('add-grant-modal') as CustomModalElement | null;
     
     var kids = (window.childrenByGroup && window.childrenByGroup[window.currentGroupId]) ? window.childrenByGroup[window.currentGroupId] : [];
     var targetOpts = [{ id: window.currentGroupId, label: ((window.i18n || {}).grantSelf || '自グループ') }];

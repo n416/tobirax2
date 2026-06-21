@@ -86,7 +86,7 @@ window.addMember = function() {
     })
     .then(function(r) { 
         if (!r.ok) {
-            return r.json().catch(function() { return {}; }).then(function(_err: unknown) { var err = _err as any; throw new Error(err.error || 'Error ' + r.status);
+            return r.json().catch(function() { return {}; }).then(function(_err: unknown) { var err = _err as { error?: string }; throw new Error(err.error || 'Error ' + r.status);
             });
         }
         return r.json(); 
@@ -104,7 +104,7 @@ var removeMemberTargetId: string | null = null;
 
 window.removeMember = function(mid: string) {
     removeMemberTargetId = mid;
-    var m = document.getElementById('remove-confirm-modal') as any;
+    var m = document.getElementById('remove-confirm-modal') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') m.showModal();
 };
 

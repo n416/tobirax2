@@ -313,7 +313,7 @@ window.editMember = (userId: string, ga: number, ba: number, dev: number, startT
 window.loadMembers = (id: string) => {
   fetch('/admin/api/am/group-members/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((_data: unknown) => { const data = _data as any; currentMembers = data.members || []; window.renderMembers(currentMembers); })
+    .then((_data: unknown) => { const data = _data as { members?: MemberData[] }; currentMembers = data.members || []; window.renderMembers(currentMembers); })
     .catch((e) => { console.error(e); });
 };
 
@@ -454,7 +454,7 @@ window.loadAllFacilitiesForMove = () => {
 
         fetch('/admin/api/am/group-facilities/' + encodeURIComponent(value) + '?t=' + new Date().getTime())
           .then((r) => r.json())
-          .then((_data: unknown) => { const data = _data as any; if (data.facilities) {
+          .then((_data: unknown) => { const data = _data as { facilities?: FacilityData[] }; if (data.facilities) {
               data.facilities.forEach((f: FacilityData) => {
                 if (f.managing_group_id === currentGroupId) return; // 自分のグループの施設は移動候補に出さない
                 const label = (f.structure_no || '') + ' ' + (f.building_use || '');
@@ -480,7 +480,7 @@ window.loadAllFacilitiesForMove = () => {
 window.loadFacilities = (id: string) => {
   fetch('/admin/api/am/group-facilities/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((_data: unknown) => { const data = _data as any; currentFacilities = data.facilities || []; window.renderFacilities(currentFacilities); })
+    .then((_data: unknown) => { const data = _data as { facilities?: FacilityData[] }; currentFacilities = data.facilities || []; window.renderFacilities(currentFacilities); })
     .catch((e) => { console.error(e); });
 };
 
@@ -611,7 +611,7 @@ window.addGrant = () => {
 window.loadGrants = (id: string) => {
   fetch('/admin/api/am/group-grants/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((_data: unknown) => { const data = _data as any; window.renderGrants(data.grants || []); });
+    .then((_data: unknown) => { const data = _data as { grants?: GrantData[] }; window.renderGrants(data.grants || []); });
 };
 
 window.renderGrants = (list: GrantData[]) => {

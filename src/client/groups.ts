@@ -202,7 +202,7 @@ window.editGroupPerm = (appId: string, startTs: number, endTs: number) => {
 window.loadGroupPerms = (id: string) => {
   fetch('/admin/api/group-details/' + id + '?t=' + new Date().getTime())
     .then((r) => r.json())
-    .then((_data: unknown) => { const data = _data as any; window.renderGroupPerms(data.permissions);
+    .then((_data: unknown) => { const data = _data as { permissions: PermData[] }; window.renderGroupPerms(data.permissions);
       currentGroupPermissions = data.permissions;
     })
     .catch((e) => { console.error(e); });

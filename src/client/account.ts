@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const show2faBtn = target.closest('[data-action="show-disable-2fa-modal"]');
     if (show2faBtn) {
-      const m = document.getElementById('disable-2fa-modal') as any;
+      const m = document.getElementById('disable-2fa-modal') as CustomModalElement | null;
       if (m) m.showModal();
       return;
     }
@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (input) input.value = appId;
       const nameEl = document.getElementById('revoke-app-name');
       if (nameEl) nameEl.textContent = appName;
-      const m = document.getElementById('revoke-consent-modal') as any;
+      const m = document.getElementById('revoke-consent-modal') as CustomModalElement | null;
       if (m) m.showModal();
       return;
     }

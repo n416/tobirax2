@@ -78,7 +78,7 @@ window.addApp = function() {
         })
     })
     .then(function(r) { 
-        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e: unknown) { var errObj = e as any; throw new Error(errObj.error || ('Error ' + r.status)); }); 
+        if (!r.ok) return r.json().catch(function() { return {}; }).then(function(e: unknown) { var errObj = e as { error?: string }; throw new Error(errObj.error || ('Error ' + r.status)); });
         return r.json(); 
     })
     .then(function() { window.location.reload(); })
@@ -121,7 +121,7 @@ window.openAppEditModal = function(enc: string) {
     var saveBtn = document.getElementById('ape-save-btn');
     if (saveBtn) saveBtn.style.display = isReadOnly ? 'none' : 'flex';
     
-    var m = document.getElementById('edit-app-modal-ga') as any;
+    var m = document.getElementById('edit-app-modal-ga') as CustomModalElement | null;
     if (m && typeof m.showModal === 'function') {
         var titleEl = m.querySelector('h3');
         if (titleEl) titleEl.innerText = isReadOnly ? 'アプリ詳細' : ((window.i18n || {}).edit || '編集');

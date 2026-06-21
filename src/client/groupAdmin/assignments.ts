@@ -100,7 +100,7 @@ window.refreshAssignRoles = function() {
 
 window.openAssignModal = function() {
     if (!window.currentGroupId) return;
-    var m = document.getElementById('add-assign-modal') as any;
+    var m = document.getElementById('add-assign-modal') as CustomModalElement | null;
     
     var members = (window.membersByGroup && window.membersByGroup[window.currentGroupId]) ? window.membersByGroup[window.currentGroupId] : [];
     var grants = (window.grantsByGroup && window.grantsByGroup[window.currentGroupId]) ? window.grantsByGroup[window.currentGroupId] : [];
