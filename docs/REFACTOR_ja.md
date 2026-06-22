@@ -49,30 +49,36 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
   `c` 経由の利用は全て Context で正当、body 等はヘルパ戻り型で既に具体化済みだったため。
   挙動不変・`tsc` クリーン・ユニット 100＋統合 27 全緑で確認。client/ のフロント `c`（≈5）は
   Hono ではないため対象外。`as any`(116) / その他 `: any`(111) の広い型負債は F の範囲外（別タスク=G）。
-- ✅ **G 完了**（2026-06-20〜21）— 型負債（`as any`/`: any`）をテスト網が守る範囲から段階的に解消。
+- ✅ **G 完了**（2026-06-20〜22）— 型負債（`as any`/`: any`）をテスト網が守る範囲から段階的に解消。
+  詳細は下記「G. 型負債解消の進捗」。
 
 ### G. 型負債解消の進捗
 
-- **第一弾〜第三弾**: サーバ側の `as any` を **116→15** まで削減（DB 行型付け、JSX プロップキャスト）。
-- **第四弾**: `View` コンポーネント props の `: any` 解消。
-- **第五弾**: Server 側の単発 `: any` 解消。
-- **第六弾**: `catch (e: any)` の `unknown` 化。
-- **Phase 3: Client (約30件) [完了]**
-  - 変更内容: `src/client/groupAdmin/` の `.map(function(m: any))` 等のコールバックを `GroupMember` 等の既存型定義に置き換え。
-  - 検証:
-    - `tsconfig.client.json` に `@cloudflare/workers-types` を追加して DOM 型を有効化し、`npx tsc -p tsconfig.client.json --noEmit` が通る状態を作成。
-    - 各 `.map` / `.filter` のコールバック引数を `Assignment`, `ServiceRole`, `Grant` など適切なインターフェースに置換。
-    - `ServiceContract` などサーバー由来の動的プロパティ(`service_name`, `group_name`) は Intersection Type を用いて安全に型付け。
-    - 実行時に型エラーがなく、`npm run test:client` が正常通過することを確認。
+- **サーバ側 `as any`**: D1 の `.all<T>()`/`.first<T>()` 行型付けと JSX プロップの実型化で 116→15。
+- **View コンポーネント props の `: any`** を実型（hono `Child` / `typeof dict.en` 等）へ置換。
+- **Server 側の単発 `: any`**（`entitlements`/`safeJsonStringify`/`handleIconUpload` 等）を実型・`unknown` へ。
+- **`catch (e: any)` → `catch (e: unknown)`**（`e.message` 利用箇所は `instanceof Error` で絞り込み）。
+- **client（`src/client/**`）**: `tsconfig.client.json` に `@cloudflare/workers-types` を追加し
+  `npx tsc -p tsconfig.client.json --noEmit` を 0 errors の検証基盤化。`.map`/`.filter` の
+  コールバックを既存型（`Assignment`/`Grant`/`GroupMember`/`Facility` 等）へ、fetch body は
+  応答形を明示（`{ members?: MemberData[] }` 等）、DOM は `CustomModalElement` へ。
+  **結果 `as any` は src 全体で 0**。残る `: any` は動的境界・ライブラリ境界（TomSelect）・
+  Window 拡張など正当分のみ。
+- **client テスト基盤**: happy-dom 上の別 config（`vitest.client.config.mts` /
+  `npm run test:client`）を追加し、`escapeHtml`(XSS対策)/`fmt`/`childDistributedSeats` を
+  実コードで検証（[[safe-refactor-untested-areas]] の方針）。
 
 - ✅ **H 完了**（2026-06-22）— DaaS ドメイン・ロジックの統合テスト(`test/integration/daas-gates.test.ts`, `daas-seats.test.ts`, `daas-idor.test.ts`、計15件)を追加し、検証の薄さを埋めた。
   - アクセス3ゲート(`group_memberships`, `group_service_grants`, `service_user_assignments`)の連動とバイパス検証。
   - 席数上限(`seat_limit`)の親から子への配分計算、契約上限・実効上限のオーバー検証、同一ユーザー重複割当の検証。
   - 委任管理(IDOR・スコープ制限)。`getManagedGroupIds`, `getBillingGroupIds` を用いた管理サブツリー外の操作遮断(403)の検証。
+  - 実 D1 上で本番関数(`getEntitlements`/`createAssignment`/`getManagedGroupIds`)と実 `groupAdminRouter` を通す＝同義反復でない。記述は日本語。
 
-リファクタ A〜F 完了、G はサーバ側ほぼ完了（client は任意の別スライス）。テスト容易化と
-サーバ型安全の主目的は達成。**ここを区切りとする**（残りは client/ の型負債で、回帰網が
-触れない＝安全に進めるにはブラウザレベルの検証が要る低優先タスク）。
+**A〜H すべて完了**。`as any` は src 全体で 0、`: any` は正当分のみ。テストは
+**ユニット 107 ＋ 統合 56 ＋ client 8**、`tsc --noEmit`（server）と
+`tsc -p tsconfig.client.json`（client）ともにクリーン。テスト容易化・型安全・ドメイン検証の
+主目的は達成し、ここを区切りとする。残るのは深追いの費用対効果が低い領域（TomSelect 等の
+ライブラリ境界 any、`'unsafe-inline'` 撤廃の CSP 厳格化、第三者 pentest）のみ。
 
 ### D 第一弾の構成（再現メモ）
 
