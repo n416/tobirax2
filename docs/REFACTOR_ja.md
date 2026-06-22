@@ -65,6 +65,11 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
     - `ServiceContract` などサーバー由来の動的プロパティ(`service_name`, `group_name`) は Intersection Type を用いて安全に型付け。
     - 実行時に型エラーがなく、`npm run test:client` が正常通過することを確認。
 
+- ✅ **H 完了**（2026-06-22）— DaaS ドメイン・ロジックの統合テスト(`test/integration/daas-gates.test.ts`, `daas-seats.test.ts`, `daas-idor.test.ts`、計15件)を追加し、検証の薄さを埋めた。
+  - アクセス3ゲート(`group_memberships`, `group_service_grants`, `service_user_assignments`)の連動とバイパス検証。
+  - 席数上限(`seat_limit`)の親から子への配分計算、契約上限・実効上限のオーバー検証、同一ユーザー重複割当の検証。
+  - 委任管理(IDOR・スコープ制限)。`getManagedGroupIds`, `getBillingGroupIds` を用いた管理サブツリー外の操作遮断(403)の検証。
+
 リファクタ A〜F 完了、G はサーバ側ほぼ完了（client は任意の別スライス）。テスト容易化と
 サーバ型安全の主目的は達成。**ここを区切りとする**（残りは client/ の型負債で、回帰網が
 触れない＝安全に進めるにはブラウザレベルの検証が要る低優先タスク）。

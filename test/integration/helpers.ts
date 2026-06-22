@@ -235,3 +235,197 @@ export function formBody(params: Record<string, string>): RequestInit {
     body: new URLSearchParams(params).toString(),
   }
 }
+
+export interface SeedGroupOpts {
+  id?: string
+  name?: string
+  parent_id?: string | null
+  billing_password_hash?: string | null
+}
+export async function seedGroup(db: D1Database, opts: SeedGroupOpts = {}): Promise<string> {
+  const id = opts.id ?? `grp-${crypto.randomUUID()}`
+  await db
+    .prepare('INSERT INTO groups (id, name, created_at, parent_id, billing_password_hash) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, opts.name ?? `Group ${id}`, nowSec(), opts.parent_id ?? null, opts.billing_password_hash ?? null)
+    .run()
+  return id
+}
+
+export interface SeedMembershipOpts {
+  user_id: string
+  group_id: string
+  role?: string
+  valid_from?: number
+  valid_to?: number
+  is_group_admin?: number
+  is_billing_admin?: number
+  is_developer?: number
+}
+export async function seedMembership(db: D1Database, opts: SeedMembershipOpts): Promise<void> {
+  const now = nowSec()
+  await db
+    .prepare(`INSERT INTO group_memberships (user_id, group_id, role, valid_from, valid_to, is_group_admin, is_billing_admin, is_developer)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      opts.user_id,
+      opts.group_id,
+      opts.role ?? 'member',
+      opts.valid_from ?? now - 60,
+      opts.valid_to ?? now + 3600,
+      opts.is_group_admin ?? 0,
+      opts.is_billing_admin ?? 0,
+      opts.is_developer ?? 0
+    )
+    .run()
+}
+
+export interface SeedProviderOpts {
+  id?: string
+  name?: string
+}
+export async function seedProvider(db: D1Database, opts: SeedProviderOpts = {}): Promise<string> {
+  const id = opts.id ?? `prov-${crypto.randomUUID()}`
+  await db
+    .prepare('INSERT INTO service_providers (id, name, created_at) VALUES (?, ?, ?)')
+    .bind(id, opts.name ?? `Provider ${id}`, nowSec())
+    .run()
+  return id
+}
+
+export interface SeedServiceOpts {
+  id?: string
+  provider_id: string
+  name?: string
+  owner_group_id?: string | null
+  status?: string
+}
+export async function seedService(db: D1Database, opts: SeedServiceOpts): Promise<string> {
+  const id = opts.id ?? `svc-${crypto.randomUUID()}`
+  await db
+    .prepare('INSERT INTO services (id, provider_id, name, created_at, owner_group_id, status) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(
+      id,
+      opts.provider_id,
+      opts.name ?? `Service ${id}`,
+      nowSec(),
+      opts.owner_group_id ?? null,
+      opts.status ?? 'active'
+    )
+    .run()
+  return id
+}
+
+export interface SeedContractOpts {
+  id?: string
+  service_id: string
+  customer_group_id: string
+  seat_limit?: number | null
+  valid_from?: number
+  valid_to?: number
+}
+export async function seedContract(db: D1Database, opts: SeedContractOpts): Promise<string> {
+  const id = opts.id ?? `ctr-${crypto.randomUUID()}`
+  const now = nowSec()
+  await db
+    .prepare('INSERT INTO service_contracts (id, service_id, customer_group_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(
+      id,
+      opts.service_id,
+      opts.customer_group_id,
+      opts.seat_limit ?? null,
+      opts.valid_from ?? now - 60,
+      opts.valid_to ?? now + 3600
+    )
+    .run()
+  return id
+}
+
+export interface SeedGrantOpts {
+  group_id: string
+  service_id: string
+  contract_id: string
+  seat_limit?: number | null
+  valid_from?: number
+  valid_to?: number
+}
+export async function seedGrant(db: D1Database, opts: SeedGrantOpts): Promise<void> {
+  const now = nowSec()
+  await db
+    .prepare('INSERT INTO group_service_grants (group_id, service_id, contract_id, seat_limit, valid_from, valid_to) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(
+      opts.group_id,
+      opts.service_id,
+      opts.contract_id,
+      opts.seat_limit ?? null,
+      opts.valid_from ?? now - 60,
+      opts.valid_to ?? now + 3600
+    )
+    .run()
+}
+
+export interface SeedFacilityOpts {
+  id?: string
+  structure_no?: string | null
+  building_use?: string | null
+  managing_group_id: string
+}
+export async function seedFacility(db: D1Database, opts: SeedFacilityOpts): Promise<string> {
+  const id = opts.id ?? `fac-${crypto.randomUUID()}`
+  await db
+    .prepare('INSERT INTO facilities (id, structure_no, building_use, managing_group_id, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(
+      id,
+      opts.structure_no ?? null,
+      opts.building_use ?? null,
+      opts.managing_group_id,
+      nowSec()
+    )
+    .run()
+  return id
+}
+
+export interface SeedRoleMasterOpts {
+  service_id: string
+  facility_type?: string | null
+  role_code?: string
+  role_name?: string
+}
+export async function seedRoleMaster(db: D1Database, opts: SeedRoleMasterOpts): Promise<number> {
+  const result = await db
+    .prepare('INSERT INTO service_role_master (service_id, facility_type, role_code, role_name) VALUES (?, ?, ?, ?) RETURNING id')
+    .bind(
+      opts.service_id,
+      opts.facility_type ?? null,
+      opts.role_code ?? 'general',
+      opts.role_name ?? 'General Role'
+    )
+    .first<{id: number}>()
+  return result!.id
+}
+
+export interface SeedAssignmentOpts {
+  user_id: string
+  group_id: string
+  service_id: string
+  facility_id?: string | null
+  service_role_id?: number | null
+  valid_from?: number
+  valid_to?: number
+}
+export async function seedAssignment(db: D1Database, opts: SeedAssignmentOpts): Promise<void> {
+  const now = nowSec()
+  await db
+    .prepare(`INSERT INTO service_user_assignments (user_id, group_id, service_id, facility_id, service_role_id, valid_from, valid_to)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      opts.user_id,
+      opts.group_id,
+      opts.service_id,
+      opts.facility_id ?? null,
+      opts.service_role_id ?? null,
+      opts.valid_from ?? now - 60,
+      opts.valid_to ?? now + 3600
+    )
+    .run()
+}
+
