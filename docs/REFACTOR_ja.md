@@ -169,7 +169,7 @@ A だけでも B/C/F が芋づる式に進む。各段階で既存テストは�
 （`Context<{ Bindings: Env }>`、`src/types.ts`）へ全置換し型安全を回復（サーバ側 29 箇所、波及ゼロ・
 挙動不変）。client/ のフロント `c` と `as any`/その他 `: any` の広い型負債は範囲外（別タスク）。
 
-## G. 追加 — 型負債（`as any` / `: any`）の段階的解消（🟨 サーバ側ほぼ完了 / client 任意）
+## G. 追加 — 型負債（`as any` / `: any`）の段階的解消（✅ 完了）
 
 F に続き、広い型負債を**テスト網が守る範囲から**段階的に解消する。第一弾（2026-06-20）:
 OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB 関数
@@ -206,14 +206,13 @@ OIDC/DB のサーバ経路（`routes/oidc.tsx` 全面、`index.tsx` の純粋 DB
 Server側の `routes/admin.tsx`, `routes/group-admin.tsx`, `index.tsx` の全8箇所に存在する `catch (e: any)` を `catch (e: unknown)` に置換し、`const err = e instanceof Error ? e : new Error(String(e))` の形式で型安全にメッセージ等にアクセスするよう修正。
 挙動不変・`tsc` クリーン・ユニット 107＋統合 41 全緑。
 
-### G の残り（低優先・任意）
+### G 完了後の状態（残りは正当分のみ）
 
-サーバ側の型負債は実質解消済み。残るのは次のみで、いずれも価値が低いか正当:
+第七弾（2026-06-21〜22）で client（`src/client/**`）も既存型へ置換。`.map`/`.filter` の
+コールバックを `Assignment`/`Grant`/`GroupMember` 等へ、fetch body は応答形を明示
+（`{ members?: MemberData[] }` 等）、DOM は `CustomModalElement` へ。**`as any` は src 全体で 0**。
+happy-dom の client テスト基盤（`npm run test:client`）も追加済み。`catch (e: any)` と
+`handleIconUpload` も第五・六弾で解消済み。
 
-- **`src/client/**`（ブラウザ glue）の `any`** — `as any` 15（全て `client/groupAdmin/*`）＋ `: any` の
-  大半。**回帰網（Node ユニット＋D1 統合）が一切触らない**領域で、最も検証が難しく価値が低い。
-  安全に進めるならブラウザレベルのテストが要る。当面は別スライス（やらない判断も妥当）。
-- **`catch (e: any)` 群**（server ≈10）— `catch (e: unknown)` 化が「正しい」が、`e.message` 利用箇所で
-  絞り込みが要る純粋な美容。エラー分岐はテスト対象外。
-- **`handleIconUpload(body: any)`**（multipart フォーム body）/ `keys.ts` の `let v: any`（`JSON.parse`
-  出力）等 — 正当な any として残す。
+残るのは**正当な `: any` のみ** — TomSelect 等の型なしライブラリ境界、`JSON.parse` 出力の
+動的境界（多くは `unknown` 化済み）、Window 拡張。数を 0 にしに行く対象ではない。
