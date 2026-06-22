@@ -6,7 +6,7 @@ import type { AppContext } from '../../src/types'
 
 const nowSec = () => Math.floor(Date.now() / 1000)
 
-describe('DaaS Access Gates', () => {
+describe('DaaSアクセス3ゲート', () => {
   let db: D1Database
   let c: AppContext
   let ctx: ExecutionContext
@@ -18,7 +18,7 @@ describe('DaaS Access Gates', () => {
     await applySchema(db)
   })
 
-  it('should return entitlements when all 3 gates are valid', async () => {
+  it('3つのゲートが全て有効な場合、エンタイトルメントを返す', async () => {
     const groupId = await seedGroup(db, { name: 'Test Group' })
     const userId = await seedUser(db, { email: 'u@example.com' })
     const provId = await seedProvider(db, { name: 'Test Provider' })
@@ -27,11 +27,11 @@ describe('DaaS Access Gates', () => {
     const facId = await seedFacility(db, { managing_group_id: groupId, structure_no: '001' })
     const roleId = await seedRoleMaster(db, { service_id: serviceId })
 
-    // Gate 1: membership ok
+    // ゲート1: メンバーシップ有効
     await seedMembership(db, { user_id: userId, group_id: groupId })
-    // Gate 2: grant ok
+    // ゲート2: 利用枠有効
     await seedGrant(db, { group_id: groupId, service_id: serviceId, contract_id: contractId })
-    // Gate 3: assignment ok
+    // ゲート3: 割当有効
     await seedAssignment(db, { user_id: userId, group_id: groupId, service_id: serviceId, facility_id: facId, service_role_id: roleId })
 
     const entitlements = await getEntitlements(c, userId, serviceId)
@@ -40,7 +40,7 @@ describe('DaaS Access Gates', () => {
     expect(entitlements[0].facility.id).toBe(facId)
   })
 
-  it('should return empty when membership is expired (Gate 1 fails)', async () => {
+  it('メンバーシップが期限切れの場合、空を返す（ゲート1失敗）', async () => {
     const groupId = await seedGroup(db)
     const userId = await seedUser(db)
     const provId = await seedProvider(db)
@@ -50,7 +50,7 @@ describe('DaaS Access Gates', () => {
     const roleId = await seedRoleMaster(db, { service_id: serviceId })
 
     const now = nowSec()
-    // Gate 1: membership expired
+    // ゲート1: メンバーシップ期限切れ
     await seedMembership(db, { user_id: userId, group_id: groupId, valid_to: now - 100 })
     
     await seedGrant(db, { group_id: groupId, service_id: serviceId, contract_id: contractId })
@@ -60,7 +60,7 @@ describe('DaaS Access Gates', () => {
     expect(entitlements.length).toBe(0)
   })
 
-  it('should return empty when grant is expired (Gate 2 fails)', async () => {
+  it('利用枠が期限切れの場合、空を返す（ゲート2失敗）', async () => {
     const groupId = await seedGroup(db)
     const userId = await seedUser(db)
     const provId = await seedProvider(db)
@@ -72,7 +72,7 @@ describe('DaaS Access Gates', () => {
     const now = nowSec()
     await seedMembership(db, { user_id: userId, group_id: groupId })
     
-    // Gate 2: grant expired
+    // ゲート2: 利用枠期限切れ
     await seedGrant(db, { group_id: groupId, service_id: serviceId, contract_id: contractId, valid_to: now - 100 })
     
     await seedAssignment(db, { user_id: userId, group_id: groupId, service_id: serviceId, facility_id: facId, service_role_id: roleId })
@@ -81,7 +81,7 @@ describe('DaaS Access Gates', () => {
     expect(entitlements.length).toBe(0)
   })
 
-  it('should return empty when assignment is expired (Gate 3 fails)', async () => {
+  it('割当が期限切れの場合、空を返す（ゲート3失敗）', async () => {
     const groupId = await seedGroup(db)
     const userId = await seedUser(db)
     const provId = await seedProvider(db)
@@ -94,24 +94,24 @@ describe('DaaS Access Gates', () => {
     await seedMembership(db, { user_id: userId, group_id: groupId })
     await seedGrant(db, { group_id: groupId, service_id: serviceId, contract_id: contractId })
     
-    // Gate 3: assignment expired
+    // ゲート3: 割当期限切れ
     await seedAssignment(db, { user_id: userId, group_id: groupId, service_id: serviceId, facility_id: facId, service_role_id: roleId, valid_to: now - 100 })
 
     const entitlements = await getEntitlements(c, userId, serviceId)
     expect(entitlements.length).toBe(0)
   })
 
-  it('should bypass Gate 2 if the service is owned by the users group and active', async () => {
+  it('サービスが自グループ所有でアクティブな場合、ゲート2（利用枠）をバイパスする', async () => {
     const groupId = await seedGroup(db)
     const userId = await seedUser(db)
     const provId = await seedProvider(db)
-    // Service owned by groupId and active
+    // サービスは自グループ所有でアクティブ
     const serviceId = await seedService(db, { provider_id: provId, owner_group_id: groupId, status: 'active' })
     const facId = await seedFacility(db, { managing_group_id: groupId })
     const roleId = await seedRoleMaster(db, { service_id: serviceId })
 
     await seedMembership(db, { user_id: userId, group_id: groupId })
-    // No grant created!
+    // 利用枠は作成しない
     
     await seedAssignment(db, { user_id: userId, group_id: groupId, service_id: serviceId, facility_id: facId, service_role_id: roleId })
 
