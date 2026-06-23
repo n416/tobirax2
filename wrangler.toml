@@ -1,0 +1,28 @@
+name = "tobirax2"
+main = "src/index.tsx"
+compatibility_date = "2025-12-22"
+compatibility_flags = ["nodejs_compat"]
+
+# Local D1. For `wrangler dev` the database_id is not used (a local
+# SQLite file under .wrangler/ is created). Replace it with a real id
+# from `wrangler d1 create tobira-mock-db` before deploying remotely.
+[[d1_databases]]
+binding = "DB"
+database_name = "tobira-mock-db"
+database_id = "1a88fb9b-7728-42b5-b631-c4dc27a6dff5"
+
+[vars]
+ENVIRONMENT = "dev"
+
+# Back-Channel Logout delivery to same-account demo RPs. A direct fetch() to
+# another Worker's *.workers.dev host is blocked (Cloudflare error 1042), so the
+# /oidc/logout sender routes through a service binding named RP_<APP_ID> when one
+# exists (external RPs fall back to a normal fetch). Binding name == "RP_" + the
+# app id up, with non-alphanumerics as "_": cf-demo -> RP_CF_DEMO.
+[[services]]
+binding = "RP_CF_DEMO"
+service = "tobira-demo-rp"
+
+[[services]]
+binding = "RP_CF_DEMO2"
+service = "tobira-demo-rp2"
